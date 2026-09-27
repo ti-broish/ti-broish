@@ -103,16 +103,16 @@ function FitTo({
   const shape = areas.map((item) => areaKey(item.geometry)).join(';')
   const selection = `${regionCodes.join(',')}|${focus?.lat ?? ''}|${focus?.lng ?? ''}|${focus?.zoom ?? ''}|${shape}|${waitForArea ? 'w' : ''}`
   useEffect(() => {
-    if (areas.length === 0 && waitForArea) return
     if (areas.length > 0) {
       const bounds = L.geoJSON({ type: 'GeometryCollection', geometries: areas.map((item) => item.geometry) } as GeoJsonObject).getBounds()
-      if (bounds.isValid()) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 })
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15, animate: false })
       return
     }
     if (focus) {
-      map.flyTo([focus.lat, focus.lng], focus.zoom, { duration: 0.5 })
+      map.setView([focus.lat, focus.lng], focus.zoom, { animate: false })
       return
     }
+    if (waitForArea) return
     const chosen = regionCodes.length > 0 ? selectedFeatures(data, regionCodes) : data
     const features = chosen.features.length > 0 ? chosen : data
     const bounds = L.geoJSON(features as GeoJsonObject).getBounds()

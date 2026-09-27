@@ -614,7 +614,6 @@ function Seats({ error, onError, onNext }: { error: string; onError: (value: str
       }}
     >
       {mobile ? <YesNo label="Имаш ли кола?" value={profile.hasCar} onChange={(hasCar) => updateProfile({ hasCar, carSeats: hasCar ? profile.carSeats : 0 })} /> : null}
-      {mobile ? <YesNo label="Имаш дрон или можеш да го караш?" value={profile.hasDrone} onChange={(hasDrone) => updateProfile({ hasDrone })} /> : null}
       {askSeats ? (
         <>
           <p>Колко души можеш да вземеш, освен себе си. 0 значи, че не возиш никого.</p>
@@ -629,6 +628,7 @@ function Seats({ error, onError, onNext }: { error: string; onError: (value: str
           </div>
         </>
       ) : null}
+      {mobile ? <YesNo label="Имаш дрон или можеш да го оперираш?" value={profile.hasDrone} onChange={(hasDrone) => updateProfile({ hasDrone })} /> : null}
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button className={button} type="submit">
         Напред

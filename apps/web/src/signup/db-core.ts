@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers'
 import { visibleSection } from './admin-csv'
 import { emptyProfile, type Profile } from './model'
+import { parseAdminEmails } from './staff'
 
 export const SESSION_COOKIE = 'tb_session'
 
@@ -82,6 +83,14 @@ CREATE TABLE IF NOT EXISTS taken_sections (
   created_at TEXT NOT NULL
 )`
 
+const STAFF = `
+CREATE TABLE IF NOT EXISTS staff (
+  email TEXT PRIMARY KEY,
+  role TEXT NOT NULL,
+  invited_by TEXT,
+  created_at TEXT NOT NULL
+)`
+
 const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_signups_source ON signups(source)',
   'CREATE INDEX IF NOT EXISTS idx_signups_mir ON signups(mir_code)',
@@ -127,7 +136,12 @@ export async function signupDatabase() {
   }
   await db.prepare(COMPANIONS).run()
   await db.prepare(TAKEN).run()
+  await db.prepare(STAFF).run()
   for (const sql of INDEXES) await db.prepare(sql).run()
+  const now = new Date().toISOString()
+  for (const email of parseAdminEmails((env as unknown as { ADMIN_EMAILS?: string }).ADMIN_EMAILS)) {
+    await db.prepare(`INSERT INTO staff (email, role, invited_by, created_at) VALUES (?, 'admin', 'env', ?) ON CONFLICT(email) DO NOTHING`).bind(email, now).run()
+  }
   return db
 }
 

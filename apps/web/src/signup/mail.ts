@@ -25,6 +25,21 @@ export function confirmCodeMail(email: string, code: string): OutboundMail {
   }
 }
 
+export function staffInviteMail(email: string, roleLabel: string, link: string): OutboundMail {
+  const text = [
+    `Поканиха те в екипа на Ти Броиш като ${roleLabel}.`,
+    'Влез с този имейл в профила си и отвори страницата на екипа.',
+    link,
+  ].join('\n\n')
+  const href = escapeHtml(link)
+  return {
+    to: email,
+    subject: 'Покана за екипа — Ти Броиш',
+    text,
+    html: `<p>Поканиха те в екипа на Ти Броиш като <strong>${escapeHtml(roleLabel)}</strong>.</p><p>Влез с този имейл в профила си и отвори <a href="${href}">страницата на екипа</a>.</p>`,
+  }
+}
+
 export function importConfirmMail(email: string, link: string): OutboundMail {
   const text = [
     'Екипът те записа като пазител на вота.',

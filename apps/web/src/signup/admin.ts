@@ -1,13 +1,12 @@
 import { createServerFn } from '@tanstack/react-start'
-import { getCookie, getRequestHost, getRequestUrl, setCookie } from '@tanstack/react-start/server'
-import { env } from 'cloudflare:workers'
+import { getCookie, getRequestUrl } from '@tanstack/react-start/server'
 import { campaignCsv, internalCsv, normalizeSection, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
-import { signupDatabase, type SignupD1 } from './db-core'
-import { deliverMail, importConfirmMail } from './mail'
-import { emptyProfile, type Profile } from './model'
+import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
+import { deliverMail, importConfirmMail, staffInviteMail } from './mail'
+import { emptyProfile, validEmail, type Profile } from './model'
 import { signupColumns } from './record'
+import { keepsAnAdmin, parseStaffRole, permissionsFor, roleAllows, staffRoleLabel, type StaffAction, type StaffRole } from './staff'
 
-const ADMIN_COOKIE = 'tb_admin'
 const VIEWS: RosterView[] = ['all', 'assigned', 'unassigned', 'draft', 'abroad', 'mir']
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
@@ -34,35 +33,37 @@ interface RawPerson {
   egn?: string
 }
 
-function configuredToken() {
-  return (env as unknown as { ADMIN_TOKEN?: string }).ADMIN_TOKEN?.trim() ?? ''
+type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
+
+async function gate(action: StaffAction): Promise<{ ok: true; db: Database; email: string; role: StaffRole } | Denial> {
+  const db = await signupDatabase()
+  if (!db) return { ok: false, state: 'nodb', email: '', message: 'Няма база за записванията.' }
+  const token = getCookie(SESSION_COOKIE)
+  if (!token) return { ok: false, state: 'signed-out', email: '', message: 'Влез с потвърдения си имейл.' }
+  const session = await db.prepare('SELECT email, email_confirmed FROM signups WHERE session_token = ?').bind(token).first<{ email: string; email_confirmed: number }>()
+  if (!session) return { ok: false, state: 'signed-out', email: '', message: 'Влез с потвърдения си имейл.' }
+  const email = session.email.trim().toLowerCase()
+  if (!session.email_confirmed) return { ok: false, state: 'unconfirmed', email, message: 'Потвърди имейла, за да влезеш в екипа.' }
+  const member = await db.prepare('SELECT role FROM staff WHERE email = ?').bind(email).first<{ role: string }>()
+  const role = parseStaffRole(member?.role)
+  if (!role) return { ok: false, state: 'forbidden', email, message: 'Този имейл не е поканен в екипа.' }
+  if (!roleAllows(role, action)) return { ok: false, state: 'forbidden', email, message: 'Тази роля няма това право.' }
+  return { ok: true, db, email, role }
 }
 
-function localHost(host: string) {
-  const bare = host.replace(/:\d+$/, '').replace(/^\[|\]$/g, '')
-  return bare === 'localhost' || bare === '127.0.0.1' || bare === '::1'
+async function listStaff(db: Database) {
+  const rows = await db
+    .prepare(`SELECT email, role, COALESCE(invited_by, '') AS invited_by FROM staff ORDER BY CASE role WHEN 'admin' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END, email`)
+    .all<{ email: string; role: string; invited_by: string }>()
+  return (rows.results ?? []).flatMap((row) => {
+    const role = parseStaffRole(row.role)
+    return role ? [{ email: row.email, role, invitedBy: row.invited_by }] : []
+  })
 }
 
-function safeEqual(input: string, expected: string) {
-  const left = new TextEncoder().encode(input)
-  const right = new TextEncoder().encode(expected)
-  if (left.byteLength !== right.byteLength || left.byteLength === 0) return false
-  const compare = (crypto.subtle as SubtleCrypto & { timingSafeEqual?: (a: Uint8Array, b: Uint8Array) => boolean }).timingSafeEqual
-  if (compare) return compare(left, right)
-  let mismatch = 0
-  for (let index = 0; index < left.length; index += 1) mismatch |= (left[index] ?? 0) ^ (right[index] ?? 0)
-  return mismatch === 0
-}
-
-function allowed() {
-  const token = configuredToken()
-  if (token) return safeEqual(getCookie(ADMIN_COOKIE) ?? '', token)
-  return import.meta.env.DEV === true && localHost(getRequestHost())
-}
-
-function denied() {
-  if (configuredToken()) return { ok: false as const, needsLogin: true as const, message: 'Нужен е код за достъп.' }
-  return { ok: false as const, needsLogin: false as const, message: 'Няма достъп.' }
+async function adminCount(db: Database) {
+  const row = await db.prepare(`SELECT COUNT(*) AS n FROM staff WHERE role = 'admin'`).first<{ n: number }>()
+  return row?.n ?? 0
 }
 
 function viewOf(value: string): RosterView {
@@ -138,24 +139,14 @@ async function selectPeople(db: Database, clause: string, binds: string[], limit
   return result.results ?? []
 }
 
-export const adminLogin = createServerFn({ method: 'POST' })
-  .validator((input: { token: string }) => input)
-  .handler(async ({ data }) => {
-    const expected = configuredToken()
-    if (!expected) return { ok: false as const, message: 'Достъпът не е отворен на този адрес.' }
-    if (!safeEqual(data.token, expected)) return { ok: false as const, message: 'Кодът не съвпада.' }
-    setCookie(ADMIN_COOKIE, expected, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 12 })
-    return { ok: true as const }
-  })
-
 export const adminRoster = createServerFn({ method: 'POST' })
   .validator((input: { view: string; mir: string }) => input)
   .handler(async ({ data }) => {
-    if (!allowed()) return denied()
-    const db = await signupDatabase()
-    if (!db) return { ok: false as const, needsLogin: false as const, message: 'Няма база за записванията.' }
+    const access = await gate('view')
+    if (!access.ok) return access
+    const db = access.db
     const filter = rosterWhere(viewOf(data.view), data.mir)
-    if ('error' in filter) return { ok: false as const, needsLogin: false as const, message: filter.error }
+    if ('error' in filter) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: filter.error }
     const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
     const people = (await selectPeople(db, filter.clause, filter.binds, 300, 0, false)).map(fieldsOf)
     const takenMir = viewOf(data.view) === 'mir' ? filter.binds[0] ?? '' : ''
@@ -168,6 +159,10 @@ export const adminRoster = createServerFn({ method: 'POST' })
       .all<{ section_code: string; mir_code: string; place: string; organisation: string; note: string }>()
     return {
       ok: true as const,
+      email: access.email,
+      role: access.role,
+      permissions: permissionsFor(access.role),
+      staff: await listStaff(db),
       total: total?.n ?? people.length,
       people,
       taken: taken.results ?? [],
@@ -177,9 +172,9 @@ export const adminRoster = createServerFn({ method: 'POST' })
 export const adminExport = createServerFn({ method: 'POST' })
   .validator((input: { view: string; mir: string; kind: string }) => input)
   .handler(async ({ data }) => {
-    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
-    const db = await signupDatabase()
-    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const access = await gate(data.kind === 'campaign' ? 'exportCampaign' : 'exportInternal')
+    if (!access.ok) return access
+    const db = access.db
     const filter = rosterWhere(viewOf(data.view), data.mir)
     if ('error' in filter) return { ok: false as const, message: filter.error }
     const people: RosterFields[] = []
@@ -198,9 +193,9 @@ export const adminExport = createServerFn({ method: 'POST' })
 export const adminDraft = createServerFn({ method: 'POST' })
   .validator((input: { id: string; section: string }) => input)
   .handler(async ({ data }) => {
-    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
-    const db = await signupDatabase()
-    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const db = access.db
     const section = normalizeSection(data.section).slice(0, 32)
     await db.prepare(`UPDATE signups SET draft_section = NULLIF(?, ''), updated_at = ? WHERE id = ?`).bind(section, new Date().toISOString(), data.id).run()
     const taken = section
@@ -212,9 +207,9 @@ export const adminDraft = createServerFn({ method: 'POST' })
 export const adminPublish = createServerFn({ method: 'POST' })
   .validator((input: { view: string; mir: string }) => input)
   .handler(async ({ data }) => {
-    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
-    const db = await signupDatabase()
-    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const access = await gate('publish')
+    if (!access.ok) return access
+    const db = access.db
     const filter = rosterWhere(viewOf(data.view), data.mir)
     if ('error' in filter) return { ok: false as const, message: filter.error }
     const pending = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
@@ -227,12 +222,12 @@ export const adminPublish = createServerFn({ method: 'POST' })
 export const adminImportTaken = createServerFn({ method: 'POST' })
   .validator((input: { csv: string }) => input)
   .handler(async ({ data }) => {
-    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
     if (data.csv.length > 500_000) return { ok: false as const, message: 'Файлът е твърде голям.' }
+    const access = await gate('edit')
+    if (!access.ok) return access
     const parsed = parseTakenCsv(data.csv)
     if (parsed.rows.length > 2000) return { ok: false as const, message: 'Най-много 2000 секции наведнъж.' }
-    const db = await signupDatabase()
-    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const db = access.db
     const now = new Date().toISOString()
     for (const row of parsed.rows) {
       await db
@@ -251,12 +246,12 @@ export const adminImportTaken = createServerFn({ method: 'POST' })
 export const adminImportPeople = createServerFn({ method: 'POST' })
   .validator((input: { csv: string }) => input)
   .handler(async ({ data }) => {
-    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
     if (data.csv.length > 500_000) return { ok: false as const, message: 'Файлът е твърде голям.' }
+    const access = await gate('edit')
+    if (!access.ok) return access
     const parsed = parsePeopleCsv(data.csv)
     if (parsed.rows.length > 500) return { ok: false as const, message: 'Най-много 500 души наведнъж.' }
-    const db = await signupDatabase()
-    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const db = access.db
     const links: { email: string; link: string }[] = []
     let imported = 0
     let skipped = 0
@@ -285,9 +280,9 @@ export const adminImportPeople = createServerFn({ method: 'POST' })
 export const adminResendImports = createServerFn({ method: 'POST' })
   .validator((input: { limit: number }) => input)
   .handler(async ({ data }) => {
-    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
-    const db = await signupDatabase()
-    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const db = access.db
     const limit = Math.min(100, Math.max(1, Math.floor(data.limit || 100)))
     const rows = await db
       .prepare(
@@ -305,6 +300,61 @@ export const adminResendImports = createServerFn({ method: 'POST' })
       else if (links.length < 30) links.push({ email: row.email, link })
     }
     return { ok: true as const, mailed, pending: (rows.results ?? []).length, links }
+  })
+
+export const adminInvite = createServerFn({ method: 'POST' })
+  .validator((input: { email: string; role: string }) => input)
+  .handler(async ({ data }) => {
+    const access = await gate('invite')
+    if (!access.ok) return access
+    const email = data.email.trim().toLowerCase()
+    const role = parseStaffRole(data.role)
+    if (!validEmail(email) || !role) return { ok: false as const, message: 'Нужни са валиден имейл и роля.' }
+    const current = await access.db.prepare('SELECT role FROM staff WHERE email = ?').bind(email).first<{ role: string }>()
+    const currentRole = parseStaffRole(current?.role)
+    if (currentRole && !keepsAnAdmin(await adminCount(access.db), currentRole, role)) {
+      return { ok: false as const, message: 'Трябва да остане поне един админ.' }
+    }
+    const now = new Date().toISOString()
+    await access.db
+      .prepare(
+        `INSERT INTO staff (email, role, invited_by, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET role = excluded.role, invited_by = excluded.invited_by`,
+      )
+      .bind(email, role, access.email, now)
+      .run()
+    const sent = await deliverMail(staffInviteMail(email, staffRoleLabel(role), `${origin()}/admin`))
+    return { ok: true as const, sent, message: sent ? `Поканата е изпратена на ${email}.` : `${email} е в екипа. Писмото още не тръгва, кажи им да влязат с този имейл.` }
+  })
+
+export const adminStaffRole = createServerFn({ method: 'POST' })
+  .validator((input: { email: string; role: string }) => input)
+  .handler(async ({ data }) => {
+    const access = await gate('invite')
+    if (!access.ok) return access
+    const email = data.email.trim().toLowerCase()
+    const role = parseStaffRole(data.role)
+    if (!role) return { ok: false as const, message: 'Непозната роля.' }
+    const current = await access.db.prepare('SELECT role FROM staff WHERE email = ?').bind(email).first<{ role: string }>()
+    const currentRole = parseStaffRole(current?.role)
+    if (!currentRole) return { ok: false as const, message: 'Този имейл не е в екипа.' }
+    if (!keepsAnAdmin(await adminCount(access.db), currentRole, role)) return { ok: false as const, message: 'Трябва да остане поне един админ.' }
+    await access.db.prepare('UPDATE staff SET role = ?, invited_by = ? WHERE email = ?').bind(role, access.email, email).run()
+    return { ok: true as const, message: `${email} вече е ${staffRoleLabel(role)}.` }
+  })
+
+export const adminStaffRemove = createServerFn({ method: 'POST' })
+  .validator((input: { email: string }) => input)
+  .handler(async ({ data }) => {
+    const access = await gate('invite')
+    if (!access.ok) return access
+    const email = data.email.trim().toLowerCase()
+    const current = await access.db.prepare('SELECT role FROM staff WHERE email = ?').bind(email).first<{ role: string }>()
+    const currentRole = parseStaffRole(current?.role)
+    if (!currentRole) return { ok: false as const, message: 'Този имейл не е в екипа.' }
+    if (!keepsAnAdmin(await adminCount(access.db), currentRole, null)) return { ok: false as const, message: 'Трябва да остане поне един админ.' }
+    await access.db.prepare('DELETE FROM staff WHERE email = ?').bind(email).run()
+    return { ok: true as const, message: `${email} вече не е в екипа.` }
   })
 
 async function importPerson(db: Database, person: { firstName: string; middleName: string; lastName: string; email: string; phone: string; mir: string; place: string; note: string; role: string }) {

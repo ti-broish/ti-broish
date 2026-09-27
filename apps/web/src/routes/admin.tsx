@@ -1,8 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
-import { adminDraft, adminExport, adminImportPeople, adminImportTaken, adminLogin, adminPublish, adminResendImports, adminRoster } from '../signup/admin'
+import { adminDraft, adminExport, adminImportPeople, adminImportTaken, adminInvite, adminPublish, adminResendImports, adminRoster, adminStaffRemove, adminStaffRole } from '../signup/admin'
 import type { RosterFields } from '../signup/admin-csv'
+import { STAFF_ROLES, staffRoleLabel, type StaffRole } from '../signup/staff'
 
 export const Route = createFileRoute('/admin')({ component: AdminPage })
 
@@ -26,33 +27,49 @@ interface Taken {
   note: string
 }
 
+interface Member {
+  email: string
+  role: StaffRole
+  invitedBy: string
+}
+
+interface Permissions {
+  edit: boolean
+  exportCampaign: boolean
+  exportInternal: boolean
+  publish: boolean
+  invite: boolean
+}
+
+type Access = { kind: 'loading' } | { kind: 'closed'; message: string } | { kind: 'ready'; email: string; role: StaffRole; permissions: Permissions; staff: Member[] }
+
 function AdminPage() {
   const [view, setView] = useState<(typeof views)[number][0] | 'mir'>('unassigned')
   const [mir, setMir] = useState('')
-  const [needsLogin, setNeedsLogin] = useState(false)
-  const [token, setToken] = useState('')
+  const [access, setAccess] = useState<Access>({ kind: 'loading' })
   const [people, setPeople] = useState<RosterFields[]>([])
   const [taken, setTaken] = useState<Taken[]>([])
   const [total, setTotal] = useState(0)
   const [message, setMessage] = useState('')
   const [armed, setArmed] = useState(false)
   const [links, setLinks] = useState<{ email: string; link: string }[]>([])
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<StaffRole>('editor')
 
   function load(nextView = view, nextMir = mir) {
     setArmed(false)
     void adminRoster({ data: { view: nextView, mir: nextMir } }).then((result) => {
       if (!result.ok) {
-        setNeedsLogin(result.needsLogin)
+        setAccess({ kind: 'closed', message: result.message })
         setPeople([])
-        setMessage(result.needsLogin ? '' : result.message)
+        setTaken([])
         return
       }
-      setNeedsLogin(false)
+      setAccess({ kind: 'ready', email: result.email, role: result.role, permissions: result.permissions, staff: result.staff })
       setPeople(result.people)
       setTaken(result.taken)
       setTotal(result.total)
-      setMessage('')
-    }).catch(() => setMessage('Списъкът не се зареди.'))
+    }).catch(() => setAccess({ kind: 'closed', message: 'Списъкът не се зареди.' }))
   }
 
   useEffect(() => {
@@ -83,41 +100,36 @@ function AdminPage() {
     load()
   }
 
-  if (needsLogin) {
+  if (access.kind !== 'ready') {
     return (
-      <div>
-        <PageIntro title="Записани хора" lede="Този списък е само за екипа." />
-        <form
-          className="grid gap-3"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void adminLogin({ data: { token } }).then((result) => {
-              if (!result.ok) {
-                setMessage(result.message)
-                return
-              }
-              load()
-            })
-          }}
-        >
-          <label className="grid gap-1 text-sm font-semibold">
-            Код за достъп
-            <input className={field} type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} />
-          </label>
-          {message ? <p className="text-sm text-red-700">{message}</p> : null}
-          <button className={button} type="submit">
-            Влез
-          </button>
-        </form>
+      <div className="grid gap-4">
+        <PageIntro title="Записани хора" lede="Достъпът е по покана за потвърден имейл." />
+        <p>{access.kind === 'loading' ? 'Проверяваме достъпа…' : access.message}</p>
+        {access.kind === 'closed' ? (
+          <Link to="/profil" className="font-bold">
+            Отвори профила
+          </Link>
+        ) : null}
       </div>
     )
   }
+
+  const permissions = access.permissions
 
   return (
     <div className="grid gap-8">
       <PageIntro
         title="Записани хора"
         lede="Черновата се вижда само тук. След публикуване човекът я вижда в профила си. Масовото писмо за секциите е CSV към Brevo. Cloudflare праща само код за потвърждение и писмо към човек, въведен от екипа."
+      />
+      <TeamPanel
+        access={access}
+        inviteEmail={inviteEmail}
+        inviteRole={inviteRole}
+        onEmail={setInviteEmail}
+        onRole={setInviteRole}
+        onMessage={setMessage}
+        onReload={() => load()}
       />
       <div className="flex flex-wrap gap-2">
         {views.map(([id, label]) => (
@@ -154,50 +166,56 @@ function AdminPage() {
         {total} в този изглед{total > people.length ? `. На екрана са първите ${people.length}.` : ''}. CSV за Brevo няма чернова и няма ЕГН. Вътрешното CSV пази черновата и последните 4 цифри на ЕГН.
       </p>
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={ghost}
-          onClick={() => {
-            void adminExport({ data: { view, mir, kind: 'campaign' } }).then((result) => {
-              if (!result.ok) setMessage(result.message)
-              else download(result.filename, result.csv)
-            })
-          }}
-        >
-          CSV за Brevo
-        </button>
-        <button
-          type="button"
-          className={ghost}
-          onClick={() => {
-            void adminExport({ data: { view, mir, kind: 'internal' } }).then((result) => {
-              if (!result.ok) setMessage(result.message)
-              else download(result.filename, result.csv)
-            })
-          }}
-        >
-          CSV за екипа
-        </button>
-        <button
-          type="button"
-          className={armed ? button : ghost}
-          onClick={() => {
-            if (!armed) {
-              setArmed(true)
-              return
-            }
-            void adminPublish({ data: { view, mir } }).then((result) => {
-              setArmed(false)
-              if (!result.ok) setMessage(result.message)
-              else {
-                setMessage(`Публикувани са ${result.published} чернови. Писмото към тях се праща от Brevo.`)
-                load()
+        {permissions.exportCampaign ? (
+          <button
+            type="button"
+            className={ghost}
+            onClick={() => {
+              void adminExport({ data: { view, mir, kind: 'campaign' } }).then((result) => {
+                if (!result.ok) setMessage(result.message)
+                else download(result.filename, result.csv)
+              })
+            }}
+          >
+            CSV за Brevo
+          </button>
+        ) : null}
+        {permissions.exportInternal ? (
+          <button
+            type="button"
+            className={ghost}
+            onClick={() => {
+              void adminExport({ data: { view, mir, kind: 'internal' } }).then((result) => {
+                if (!result.ok) setMessage(result.message)
+                else download(result.filename, result.csv)
+              })
+            }}
+          >
+            CSV за екипа
+          </button>
+        ) : null}
+        {permissions.publish ? (
+          <button
+            type="button"
+            className={armed ? button : ghost}
+            onClick={() => {
+              if (!armed) {
+                setArmed(true)
+                return
               }
-            })
-          }}
-        >
-          {armed ? 'Да, покажи ги в профилите' : 'Публикувай черновите в този изглед'}
-        </button>
+              void adminPublish({ data: { view, mir } }).then((result) => {
+                setArmed(false)
+                if (!result.ok) setMessage(result.message)
+                else {
+                  setMessage(`Публикувани са ${result.published} чернови. Писмото към тях се праща от Brevo.`)
+                  load()
+                }
+              })
+            }}
+          >
+            {armed ? 'Да, покажи ги в профилите' : 'Публикувай черновите в този изглед'}
+          </button>
+        ) : null}
       </div>
       {message ? <p className="text-sm leading-6">{message}</p> : null}
       <div className="overflow-x-auto">
@@ -225,25 +243,29 @@ function AdminPage() {
                 <td className="py-3 pr-3">{person.mir || (person.region === '32' ? 'чужбина' : person.region)}</td>
                 <td className="py-3 pr-3">{person.place}</td>
                 <td className="py-3 pr-3">
-                  <form
-                    className="flex gap-2"
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      const section = String(new FormData(event.currentTarget).get('section') ?? '')
-                      void adminDraft({ data: { id: person.id, section } }).then((result) => {
-                        if (!result.ok) setMessage(result.message)
-                        else {
-                          setMessage(result.warning || 'Черновата е запазена и не се вижда от човека.')
-                          load()
-                        }
-                      })
-                    }}
-                  >
-                    <input name="section" className="min-h-10 w-32 rounded-xl border border-[#ddd] px-2" defaultValue={person.draftSection} aria-label={`Чернова за ${person.email}`} />
-                    <button className="text-sm font-bold" type="submit">
-                      Запази
-                    </button>
-                  </form>
+                  {permissions.edit ? (
+                    <form
+                      className="flex gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        const section = String(new FormData(event.currentTarget).get('section') ?? '')
+                        void adminDraft({ data: { id: person.id, section } }).then((result) => {
+                          if (!result.ok) setMessage(result.message)
+                          else {
+                            setMessage(result.warning || 'Черновата е запазена и не се вижда от човека.')
+                            load()
+                          }
+                        })
+                      }}
+                    >
+                      <input name="section" className="min-h-10 w-32 rounded-xl border border-[#ddd] px-2" defaultValue={person.draftSection} aria-label={`Чернова за ${person.email}`} />
+                      <button className="text-sm font-bold" type="submit">
+                        Запази
+                      </button>
+                    </form>
+                  ) : (
+                    person.draftSection
+                  )}
                 </td>
                 <td className="py-3">{person.publishedSection}</td>
               </tr>
@@ -252,6 +274,8 @@ function AdminPage() {
         </table>
         {people.length === 0 ? <p className="mt-4">Няма хора в този изглед.</p> : null}
       </div>
+      {permissions.edit ? (
+      <>
       <section className="grid gap-3 border-t border-[#ddd] pt-6">
         <h2 className="text-xl font-black text-[#444]">Заети секции</h2>
         <p className="leading-7">Секции, взети от друга организация или друг процес. Колони: секция, организация, място, мир, бележка.</p>
@@ -315,7 +339,112 @@ function AdminPage() {
           </ul>
         ) : null}
       </section>
+      </>
+      ) : null}
     </div>
+  )
+}
+
+function TeamPanel({
+  access,
+  inviteEmail,
+  inviteRole,
+  onEmail,
+  onRole,
+  onMessage,
+  onReload,
+}: {
+  access: Extract<Access, { kind: 'ready' }>
+  inviteEmail: string
+  inviteRole: StaffRole
+  onEmail: (value: string) => void
+  onRole: (value: StaffRole) => void
+  onMessage: (value: string) => void
+  onReload: () => void
+}) {
+  return (
+    <section className="grid gap-3 border-b border-[#ddd] pb-6">
+      <h2 className="text-xl font-black text-[#444]">Екип</h2>
+      <p>
+        Влязъл си като {access.email}. Роля: {staffRoleLabel(access.role)}.
+      </p>
+      <ul className="grid gap-2">
+        {access.staff.map((member) => (
+          <li key={member.email} className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-bold">{member.email}</span>
+            {access.permissions.invite ? (
+              <>
+                <select
+                  className="min-h-10 rounded-xl border border-[#ddd] bg-white px-2"
+                  value={member.role}
+                  aria-label={`Роля на ${member.email}`}
+                  onChange={(event) => {
+                    const role = event.target.value as StaffRole
+                    void adminStaffRole({ data: { email: member.email, role } }).then((result) => {
+                      onMessage(result.message)
+                      if (result.ok) onReload()
+                    })
+                  }}
+                >
+                  {STAFF_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {staffRoleLabel(role)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="font-bold"
+                  onClick={() => {
+                    void adminStaffRemove({ data: { email: member.email } }).then((result) => {
+                      onMessage(result.message)
+                      if (result.ok) onReload()
+                    })
+                  }}
+                >
+                  Махни
+                </button>
+              </>
+            ) : (
+              <span>{staffRoleLabel(member.role)}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {access.permissions.invite ? (
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void adminInvite({ data: { email: inviteEmail, role: inviteRole } }).then((result) => {
+              onMessage(result.message)
+              if (result.ok) {
+                onEmail('')
+                onReload()
+              }
+            })
+          }}
+        >
+          <label className="grid gap-1 text-sm font-semibold">
+            Имейл
+            <input className="min-h-11 w-64 rounded-xl border border-[#ddd] bg-white px-3" type="email" value={inviteEmail} onChange={(event) => onEmail(event.target.value)} />
+          </label>
+          <label className="grid gap-1 text-sm font-semibold">
+            Роля
+            <select className="min-h-11 rounded-xl border border-[#ddd] bg-white px-2" value={inviteRole} onChange={(event) => onRole(event.target.value as StaffRole)}>
+              {STAFF_ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {staffRoleLabel(role)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="brand-button" type="submit">
+            Покани
+          </button>
+        </form>
+      ) : null}
+    </section>
   )
 }
 

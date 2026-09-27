@@ -64,6 +64,21 @@ jobs:
                 merge_method: 'squash',
                 sha: pr.head.sha,
               })
+              // A squash by GITHUB_TOKEN does not run the repository's automatic branch deletion.
+              try {
+                await github.rest.git.deleteRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `heads/${pr.head.ref}`,
+                })
+                core.info(`Deleted ${pr.head.ref}`)
+              } catch (error) {
+                if (error.status === 404 || error.status === 422) {
+                  core.info(`${pr.head.ref} is already gone`)
+                } else {
+                  core.warning(`Could not delete ${pr.head.ref}: ${error.message}`)
+                }
+              }
               merged.push(pr.number)
               core.info(`Merged #${pr.number}`)
             }

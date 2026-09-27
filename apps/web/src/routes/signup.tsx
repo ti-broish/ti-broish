@@ -341,7 +341,7 @@ function RoleStep({ error, onError, onNext }: { error: string; onError: (value: 
 
 function Choice({ selected, title, text, onClick }: { selected: boolean; title: string; text: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className={`rounded-[20px] border px-4 py-4 text-left ${selected ? 'border-[#70bca4] bg-[#ebf6f2]' : 'border-[#ddd] bg-white'}`}>
+    <button type="button" onClick={onClick} className={`rounded-[20px] border px-4 py-4 text-left ${selected ? 'border-[#53c0a4] bg-[#e4f5f0]' : 'border-[#ddd] bg-white'}`}>
       <span className="block text-lg font-extrabold">{title}</span>
       <span className="mt-1 block text-sm leading-6 text-[var(--ink-soft)]">{text}</span>
     </button>
@@ -705,7 +705,7 @@ function People({
           ? 'Тези хора не са в твоята група. Записваш ги като координатор и всеки потвърждава своя имейл.'
           : 'Ако идвате заедно, добави пазителите в групата. Можеш няколко. Всеки потвърждава своя имейл.'}
       </p>
-      <button type="button" className="text-left font-bold text-[#24082c]" onClick={() => updateProfile({ coordinator: !profile.coordinator })}>
+      <button type="button" className="text-left font-bold text-[#2b062f]" onClick={() => updateProfile({ coordinator: !profile.coordinator })}>
         {profile.coordinator ? 'Добавям към моята група' : 'Добавям хора извън групата, като координатор'}
       </button>
       <div className="grid gap-2">
@@ -749,7 +749,7 @@ function People({
               </span>
               <button
                 type="button"
-                className="font-bold text-[#24082c]"
+                className="font-bold text-[#2b062f]"
                 onClick={() => updateProfile({ companions: profile.companions.filter((item) => item.id !== person.id) })}
               >
                 Махни

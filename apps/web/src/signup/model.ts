@@ -1,6 +1,6 @@
 export type Role = 'section' | 'mobile' | 'video'
 
-export type Radius = 'cityRegion' | 'settlement' | 'municipality' | 'region' | 'distant'
+export type Radius = 'cityRegion' | 'nearby' | 'settlement' | 'municipality' | 'region' | 'distant'
 
 export type Experience = 'never' | 'counted' | 'sik' | 'sik-lead' | 'code'
 
@@ -15,8 +15,22 @@ export interface HomePlace {
   cityRegionName?: string
   sectionId?: string
   sectionPlace?: string
+  paperCount?: number | null
+  machineCount?: number | null
   countryCode?: string
   countryName?: string
+}
+
+export interface NamedPlace {
+  code: string
+  name: string
+}
+
+export interface TravelStop {
+  regionCode: string
+  regionName: string
+  code: string
+  name: string
 }
 
 export interface Companion {
@@ -32,6 +46,7 @@ export interface Companion {
   rounds: { first: boolean; runoff: boolean }
   experience: Experience | null
   samePlace: boolean
+  inGroup: boolean
   status: 'pending' | 'confirmed'
 }
 
@@ -43,6 +58,7 @@ export interface Profile {
   phone: string
   emailConfirmed: boolean
   confirmCode: string
+  egn: string
   role: Role | null
   mobileTeam: boolean
   rounds: { first: boolean; runoff: boolean }
@@ -50,6 +66,9 @@ export interface Profile {
   place: HomePlace | null
   radius: Radius | null
   distantRegionCodes: string[]
+  extraCityRegions: NamedPlace[]
+  travelMunicipalities: TravelStop[]
+  coordinator: boolean
   carSeats: number
   hasCar: boolean | null
   hasDrone: boolean | null
@@ -61,6 +80,7 @@ export interface Profile {
   referralCode: string
   referredBy: string | null
   referrerName: string | null
+  source: string | null
   notes: string
   callRequestedAt: string | null
   callMessage: string
@@ -77,6 +97,7 @@ export const emptyProfile = (): Profile => ({
   phone: '',
   emailConfirmed: false,
   confirmCode: '',
+  egn: '',
   role: null,
   mobileTeam: false,
   rounds: { first: true, runoff: true },
@@ -84,6 +105,9 @@ export const emptyProfile = (): Profile => ({
   place: null,
   radius: null,
   distantRegionCodes: [],
+  extraCityRegions: [],
+  travelMunicipalities: [],
+  coordinator: false,
   carSeats: 0,
   hasCar: null,
   hasDrone: null,
@@ -95,6 +119,7 @@ export const emptyProfile = (): Profile => ({
   referralCode: '',
   referredBy: null,
   referrerName: null,
+  source: null,
   notes: '',
   callRequestedAt: null,
   callMessage: '',
@@ -114,18 +139,20 @@ export const EXPERIENCE: { id: Experience; title: string; text: string }[] = [
 export const SECTION_STEPS = [
   'contact',
   'confirm',
+  'egn',
   'role',
   'rounds',
   'experience',
   'place',
+  'travel',
   'seats',
   'people',
   'review',
 ] as const
 
-export const VIDEO_STEPS = ['contact', 'confirm', 'role', 'rounds', 'experience', 'review'] as const
+export const VIDEO_STEPS = ['contact', 'confirm', 'egn', 'role', 'rounds', 'experience', 'review'] as const
 
-export type StepId = (typeof SECTION_STEPS)[number]
+export type StepId = (typeof SECTION_STEPS)[number] | (typeof VIDEO_STEPS)[number]
 
 export function travelsOutside(radius: Radius | null) {
   return radius === 'municipality' || radius === 'region' || radius === 'distant'
@@ -158,6 +185,7 @@ export function nextAssignment(profile: Pick<Profile, 'rounds'>, now = new Date(
 
 export function signupGap(profile: Profile): string | null {
   if (!profile.firstName || !profile.email || !profile.phone) return 'Остават имената, имейлът и телефонът.'
+  if (!profile.egn) return 'Остава ЕГН, за да те разпределим.'
   if (!profile.role || profile.role === 'video') return 'Остава да избереш секция или мобилен екип.'
   if (!profile.rounds.first && !profile.rounds.runoff) return 'Остава поне един от двата дни.'
   if (!profile.place || !placeReady(profile.place)) return 'Остава да избереш място.'
@@ -166,13 +194,34 @@ export function signupGap(profile: Profile): string | null {
   return null
 }
 
+function plainTown(name: string | undefined) {
+  return name?.replace(/^(гр\.|с\.|к\.|ман\.)\s*/u, '')
+}
+
+function districtQuery(place: HomePlace) {
+  return [`район ${place.cityRegionName}`, plainTown(place.townName), place.regionName, 'България'].filter(Boolean).join(', ')
+}
+
+function townQuery(place: HomePlace) {
+  return [plainTown(place.townName), place.municipalityName, place.regionName, 'България'].filter(Boolean).join(', ')
+}
+
+function municipalityQuery(place: HomePlace) {
+  return [place.municipalityName, place.regionName, 'България'].filter(Boolean).join(', ')
+}
+
 export function mapZoom(place: HomePlace | null, radius: Radius | null) {
   if (!place) return null
+  if (place.regionCode === '32') {
+    if (radius === 'distant') return null
+    if (radius === 'region') return 6
+    return place.townName ? 12 : 6
+  }
   if (radius === 'region' || radius === 'distant') return null
+  if (radius === 'cityRegion') return place.cityRegionName ? 14 : null
+  if (radius === 'settlement') return place.townName ? 13 : null
+  if (radius === 'municipality') return place.municipalityName ? 11 : null
   if (place.cityRegionName && place.townName) return 14
-  if (radius === 'cityRegion' && place.townName) return 14
-  if (radius === 'settlement' && place.townName) return 13
-  if (radius === 'municipality' && place.municipalityName) return 11
   if (place.townName) return 13
   if (place.municipalityName) return 11
   return null
@@ -181,20 +230,87 @@ export function mapZoom(place: HomePlace | null, radius: Radius | null) {
 export function mapQuery(place: HomePlace | null, radius: Radius | null) {
   if (!place) return null
   if (place.regionCode === '32') {
-    const query = [place.townName, place.countryName].filter(Boolean).join(', ')
-    return query || null
+    if (radius === 'distant') return null
+    if (radius === 'region') return place.countryName || null
+    return [place.townName, place.countryName].filter(Boolean).join(', ') || null
   }
   if (radius === 'region' || radius === 'distant') return null
-  if (place.cityRegionName && place.townName) {
-    const town = place.townName.replace(/^(гр\.|с\.|к\.|ман\.)\s*/u, '')
-    return [`район ${place.cityRegionName}`, town, place.regionName, 'България'].filter(Boolean).join(', ')
-  }
-  if ((radius === 'municipality' || !place.townName) && place.municipalityName) {
-    return [`община ${place.municipalityName}`, place.regionName, 'България'].filter(Boolean).join(', ')
-  }
+  if (radius === 'cityRegion' && place.cityRegionName) return districtQuery(place)
+  if (radius === 'municipality' && place.municipalityName) return municipalityQuery(place)
+  if (radius === 'settlement' && place.townName) return townQuery(place)
+  if (place.cityRegionName && place.townName) return districtQuery(place)
+  if (!place.townName && place.municipalityName) return municipalityQuery(place)
   if (!place.townName) return null
-  const town = place.townName.replace(/^(гр\.|с\.|к\.|ман\.)\s*/u, '')
-  return [town, place.municipalityName, place.regionName, 'България'].filter(Boolean).join(', ')
+  return townQuery(place)
+}
+
+export interface OutlineRequest {
+  id: string
+  query: string
+  abroad: boolean
+  scope: 'broad' | 'local'
+}
+
+export function placeOutline(place: HomePlace | null): OutlineRequest[] {
+  if (!place) return []
+  if (place.regionCode === '32') {
+    const query = [place.townName, place.countryName].filter(Boolean).join(', ')
+    return query ? [{ id: 'abroad', query, abroad: true, scope: 'local' }] : []
+  }
+  if (place.cityRegionName && place.townName) {
+    return [{ id: `district:${place.cityRegionCode ?? place.cityRegionName}`, query: districtQuery(place), abroad: false, scope: 'local' }]
+  }
+  if (place.townName) return [{ id: 'town', query: townQuery(place), abroad: false, scope: 'local' }]
+  if (place.municipalityName) return [{ id: 'municipality', query: municipalityQuery(place), abroad: false, scope: 'broad' }]
+  return []
+}
+
+export function travelOutline(profile: Pick<Profile, 'place' | 'radius' | 'extraCityRegions' | 'travelMunicipalities'>): OutlineRequest[] {
+  const place = profile.place
+  if (!place) return []
+  if (place.regionCode === '32') return placeOutline(place)
+  if (profile.radius === 'nearby') {
+    const town = plainTown(place.townName)
+    const districts = [
+      ...(place.cityRegionName ? [{ code: place.cityRegionCode ?? place.cityRegionName, name: place.cityRegionName }] : []),
+      ...profile.extraCityRegions,
+    ]
+    return districts.map((item) => ({
+      id: `district:${item.code}`,
+      query: [`район ${item.name}`, town, place.regionName, 'България'].filter(Boolean).join(', '),
+      abroad: false,
+      scope: 'local' as const,
+    }))
+  }
+  if (profile.radius === 'region' || profile.radius === 'distant') {
+    return profile.travelMunicipalities.map((item) => ({
+      id: `stop:${item.regionCode}:${item.code}`,
+      query: [item.name, item.regionName, 'България'].filter(Boolean).join(', '),
+      abroad: false,
+      scope: 'broad' as const,
+    }))
+  }
+  if (profile.radius === 'cityRegion' || profile.radius === 'settlement' || profile.radius === 'municipality') {
+    const query = mapQuery(place, profile.radius)
+    return query ? [{ id: profile.radius, query, abroad: false, scope: profile.radius === 'municipality' ? 'broad' : 'local' }] : []
+  }
+  return placeOutline(place)
+}
+
+/** A Nominatim boundary, smaller than the oblast outline. Oblast and extra oblasts use the local GeoJSON instead. */
+export function mapUsesBoundary(place: HomePlace | null, radius: Radius | null) {
+  if (!place) return false
+  if (radius === 'region' || radius === 'distant') return place.regionCode === '32' && radius === 'region'
+  return Boolean(mapQuery(place, radius))
+}
+
+/** Broad picks the larger administrative outline (municipality or country). Local picks the smaller one (district or settlement). */
+export function mapScope(place: HomePlace | null, radius: Radius | null): 'broad' | 'local' | null {
+  if (!mapUsesBoundary(place, radius)) return null
+  if (radius === 'municipality') return 'broad'
+  if (place?.regionCode === '32' && radius === 'region') return 'broad'
+  if (!radius && place && !place.townName && place.municipalityName) return 'broad'
+  return 'local'
 }
 
 export function highlightCodes(place: HomePlace | null, radius: Radius | null, distant: string[]) {
@@ -205,7 +321,7 @@ export function highlightCodes(place: HomePlace | null, radius: Radius | null, d
 }
 
 export function roleLabel(role: Role | null, mobileTeam = false) {
-  if (role === 'mobile' || mobileTeam) return 'Мобилен рисков екип'
+  if (role === 'mobile' || mobileTeam) return 'Мобилен екип'
   if (role === 'video') return 'Видеонаблюдение от вкъщи'
   return 'Секция'
 }
@@ -242,6 +358,7 @@ export function radiusOptions(place: HomePlace | null): { id: Radius; label: str
   const options: { id: Radius; label: string }[] = []
   if (place.cityRegionName) {
     options.push({ id: 'cityRegion', label: `Само в ${place.cityRegionName}` })
+    options.push({ id: 'nearby', label: 'В избрани райони наблизо' })
   }
   options.push({
     id: 'settlement',

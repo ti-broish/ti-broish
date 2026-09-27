@@ -1,24 +1,24 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { BulgariaMap, type MapPoint } from '../components/BulgariaMap'
-import type { Geometry } from 'geojson'
-import { OblastPicker } from '../components/OblastPicker'
+import { PartnerBanner } from '../components/PartnerBanner'
 import { PlacesPicker } from '../components/PlacesPicker'
 import { StaffNote } from '../components/StaffNote'
+import { TravelChoice } from '../components/TravelChoice'
 import { loadSignup, saveSignup } from '../signup/db'
 import { geocodePlace } from '../signup/geo'
 import {
   EXPERIENCE,
   codeFor,
   highlightCodes,
-  mapQuery,
-  mapZoom,
   placeLabel,
+  placeOutline,
   placeReady,
   radiusOptions,
   signupGap,
   roleLabel,
   stepsFor,
+  travelOutline,
   validEmail,
   validName,
   validPhone,
@@ -28,7 +28,9 @@ import {
   type Role,
   type StepId,
 } from '../signup/model'
-import { addressStats, sectionDesk } from '../signup/sections'
+import { campaignFromSearch, locationEditable, mirOf, needsWiderTravel, placeChangeAllowed, validEgn } from '../signup/rules'
+import { placeSummaries } from '../signup/sections'
+import { useOutlines } from '../signup/use-outlines'
 import { updateProfile, useProfile } from '../signup/store'
 import type { CityRegion, PollingSection } from '../signup/geo'
 
@@ -49,18 +51,23 @@ function SignupPage() {
   const { profile, ready } = useProfile()
   const [error, setError] = useState('')
   useEffect(() => {
-    const ref = new URLSearchParams(window.location.search).get('ref')
-    if (!ref) return
-    updateProfile((current) => (current.referredBy ? current : { ...current, referredBy: ref }))
+    const found = campaignFromSearch(new URLSearchParams(window.location.search))
+    if (!found.source && !found.referredBy) return
+    updateProfile((current) => ({
+      ...current,
+      source: current.source || found.source,
+      referredBy: current.referredBy || found.referredBy,
+    }))
   }, [])
   useEffect(() => {
     let cancelled = false
     void loadSignup().then((remote) => {
       if (cancelled || !remote) return
-      const ref = new URLSearchParams(window.location.search).get('ref')
+      const found = campaignFromSearch(new URLSearchParams(window.location.search))
       updateProfile({
         ...remote.profile,
-        referredBy: remote.profile.referredBy || ref,
+        source: remote.profile.source || found.source,
+        referredBy: remote.profile.referredBy || found.referredBy,
         referrerName: remote.referrerName,
       })
     })
@@ -84,7 +91,7 @@ function SignupPage() {
   }, [profile, ready])
   const [companion, setCompanion] = useState<Companion>(blankCompanion())
   const steps = stepsFor(profile)
-  const requested = step === 'radius' ? 'place' : step
+  const requested = step === 'radius' ? 'travel' : step
   const current = (steps as readonly string[]).includes(requested) ? (requested as StepId) : 'contact'
   const index = Math.max(0, steps.indexOf(current as (typeof steps)[number]))
 
@@ -101,10 +108,12 @@ function SignupPage() {
   const titles: Record<StepId, string> = {
     contact: 'Как да се свържем с теб',
     confirm: 'Потвърди имейла си',
+    egn: 'ЕГН за разпределението',
     role: 'Как ще пазиш вота',
     rounds: 'Кога можеш да участваш',
     experience: 'Колко си подготвен',
     place: 'Къде е твоето място',
+    travel: 'Докъде можеш да стигнеш',
     seats: profile.role === 'mobile' ? 'Кола и дрон' : 'Свободни места в колата',
     people: 'Хора с теб',
     review: 'Преглед, преди да се запишеш',
@@ -115,13 +124,19 @@ function SignupPage() {
   return (
     <div className="grid gap-4">
       <h1 className="text-3xl font-black text-[#444]">{titles[current]}</h1>
+      <PartnerBanner source={profile.source} />
+      {current === 'contact' ? (
+        <p className="text-lg leading-7">Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. Можеш да добавиш и други хора и да отидете заедно като група.</p>
+      ) : null}
       {profile.referredBy ? <p>Покана от {profile.referrerName || 'човек, който вече се е записал'}.</p> : null}
-      {current === 'contact' ? <Contact error={error} onError={setError} onNext={() => go(profile.emailConfirmed ? 'role' : 'confirm')} /> : null}
-      {current === 'confirm' ? <Confirm error={error} onError={setError} onNext={() => go('role')} /> : null}
+      {current === 'contact' ? <Contact error={error} onError={setError} onNext={() => go(profile.emailConfirmed ? (profile.egn ? 'role' : 'egn') : 'confirm')} /> : null}
+      {current === 'confirm' ? <Confirm error={error} onError={setError} onNext={() => go('egn')} /> : null}
+      {current === 'egn' ? <EgnStep error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'role' ? <RoleStep error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'rounds' ? <Rounds error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'experience' ? <ExperienceStep error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'place' ? <PlaceStep error={error} onError={setError} onNext={nextStep} /> : null}
+      {current === 'travel' ? <TravelStep error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'seats' ? <Seats error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'people' ? <People companion={companion} setCompanion={setCompanion} error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'review' ? <Review error={error} onError={setError} /> : null}
@@ -234,6 +249,33 @@ function Confirm({ error, onError, onNext }: { error: string; onError: (value: s
   )
 }
 
+function EgnStep({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
+  const { profile } = useProfile()
+  return (
+    <form
+      className="grid gap-3"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!validEgn(profile.egn)) {
+          onError('ЕГН е 10 цифри и трябва да е валидно.')
+          return
+        }
+        onNext()
+      }}
+    >
+      <p className="leading-7">ЕГН ни трябва след потвърдения имейл, за да те разпределим и за дигиталното пълномощно. Не се показва в списъци.</p>
+      <label className="grid gap-1 text-sm font-semibold">
+        ЕГН
+        <input className={field} inputMode="numeric" autoComplete="off" maxLength={10} value={profile.egn} onChange={(event) => updateProfile({ egn: event.target.value.replace(/\D/g, '').slice(0, 10) })} />
+      </label>
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      <button className={button} type="submit">
+        Напред
+      </button>
+    </form>
+  )
+}
+
 function RoleStep({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
   const { profile } = useProfile()
   return (
@@ -242,7 +284,7 @@ function RoleStep({ error, onError, onNext }: { error: string; onError: (value: 
       onSubmit={(event) => {
         event.preventDefault()
         if (profile.role !== 'section' && profile.role !== 'mobile') {
-          onError('Избери секция или мобилен рисков екип.')
+          onError('Избери секция или мобилен екип.')
           return
         }
         onNext()
@@ -256,8 +298,8 @@ function RoleStep({ error, onError, onNext }: { error: string; onError: (value: 
       />
       <Choice
         selected={profile.role === 'mobile'}
-        title="Мобилен рисков екип"
-        text="Рисковите места са този екип. Не си вързан за една секция и пак избираш къде можеш да бъдеш."
+        title="Мобилен екип"
+        text="Не си вързан за една секция и пак избираш къде можеш да бъдеш."
         onClick={() => updateProfile({ role: 'mobile', mobileTeam: true })}
       />
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
@@ -291,7 +333,7 @@ function Rounds({ error, onError, onNext }: { error: string; onError: (value: st
         onNext()
       }}
     >
-      <p>По-добре е да си и на двата дни: 25 октомври и балотажа на 1 ноември.</p>
+      <p>Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. По-добре е да си и на двата дни.</p>
       <label className="flex gap-3 rounded-2xl bg-white px-4 py-3">
         <input type="checkbox" checked={profile.rounds.first} onChange={(event) => updateProfile({ rounds: { ...profile.rounds, first: event.target.checked } })} />
         25 октомври
@@ -334,11 +376,13 @@ function ExperienceStep({ error, onError, onNext }: { error: string; onError: (v
   )
 }
 
-function selectMapPoint(profile: Profile, id: string, geography: { sections: PollingSection[] }) {
+function selectAddress(profile: Profile, id: string, sections: PollingSection[]) {
   if (!profile.place || !id.startsWith('address:')) return
-  const section = geography.sections.find((item) => item.id === id.slice('address:'.length))
-  if (!section || sectionDesk(section) === 'machine') return
-  updateProfile({ place: { ...profile.place, sectionId: section.id, sectionPlace: section.place } })
+  const group = placeSummaries(sections).find((item) => item.place === id.slice('address:'.length))
+  if (!group) return
+  const place = { ...profile.place, sectionId: undefined, sectionPlace: group.place, paperCount: group.paper, machineCount: group.machine }
+  if (!placeChangeAllowed(profile.place, place, profile.demoState === 'assigned')) return
+  updateProfile({ place })
 }
 
 function townPlain(name: string | undefined) {
@@ -356,35 +400,14 @@ function toggleDistant(profile: Profile, code: string) {
 
 function PlaceStep({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
   const { profile } = useProfile()
-  const [focus, setFocus] = useState<{ lat: number; lng: number; zoom: number } | null>(null)
-  const [area, setArea] = useState<Geometry | null>(null)
   const [points, setPoints] = useState<MapPoint[]>([])
   const [geography, setGeography] = useState<{ districts: CityRegion[]; sections: PollingSection[] }>({ districts: [], sections: [] })
-  const options = radiusOptions(profile.place)
-  const highlighted = highlightCodes(profile.place, profile.radius, profile.distantRegionCodes)
-  const query = mapQuery(profile.place, profile.radius)
-  const zoom = mapZoom(profile.place, profile.radius)
-
-  useEffect(() => {
-    if (!query || zoom == null) {
-      setFocus(null)
-      setArea(null)
-      return
-    }
-    let cancelled = false
-    const district = Boolean(profile.place?.cityRegionName)
-    void geocodePlace({ data: { query, abroad: profile.place?.regionCode === '32', polygon: district } }).then((hit) => {
-      if (cancelled) return
-      setFocus(hit ? { lat: hit.lat, lng: hit.lng, zoom } : null)
-      setArea(district ? hit?.geojson ?? null : null)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [query, zoom, profile.place?.regionCode, profile.place?.cityRegionName])
+  const outlines = useOutlines(placeOutline(profile.place))
+  const assigned = profile.demoState === 'assigned'
+  const editable = locationEditable(assigned)
   const addressKey = geography.sections.map((section) => section.id).join(',')
   useEffect(() => {
-    const groups = addressStats(geography.sections)
+    const groups = placeSummaries(geography.sections)
     const town = townPlain(profile.place?.townName)
     if (!town || profile.place?.regionCode === '32' || groups.length === 0 || (geography.districts.length > 0 && !profile.place?.cityRegionCode)) {
       setPoints([])
@@ -396,19 +419,17 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
       const next: MapPoint[] = []
       for (const group of groups.slice(0, 25)) {
         if (cancelled) return
-        const hit = await geocodePlace({ data: { query: `${group.place}, ${town}, България` } })
+        const hit = await geocodePlace({ data: { query: `${group.place}, ${town}, България`, priority: 'low' } })
         if (cancelled || !hit || hit.category === 'boundary' || hit.type === 'city' || hit.type === 'administrative') continue
-        const paperSection = group.sections.find((section) => sectionDesk(section) === 'paper')
-        if (!paperSection) continue
         const unknown = group.unknown > 0 ? `, ${group.unknown} без брой` : ''
         next.push({
-          id: `address:${paperSection.id}`,
+          id: `address:${group.place}`,
           lat: hit.lat,
           lng: hit.lng,
           label: group.place,
           detail: `${group.sections.length} секции, ${group.paper} хартиени, ${group.machine} машинни${unknown}`,
-          sectionIds: group.sections.map((section) => section.id),
-          selected: false,
+          sectionIds: [group.place],
+          tone: group.paper > 0 || group.machine === 0 ? 'paper' : 'machine',
         })
         if (!cancelled) setPoints([...next])
       }
@@ -417,6 +438,18 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
       cancelled = true
     }
   }, [addressKey, geography.districts.length, geography.sections, profile.place?.cityRegionCode, profile.place?.regionCode, profile.place?.townName])
+
+  if (assigned && !editable) {
+    return (
+      <div className="grid gap-4">
+        <p className="text-lg leading-7">От 19 октомври до 5 ноември мястото не се сменя.</p>
+        <p>{placeLabel(profile.place)}</p>
+        <button className={button} type="button" onClick={onNext}>
+          Напред
+        </button>
+      </div>
+    )
+  }
 
   return (
     <form
@@ -427,67 +460,118 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
           onError('Избери място до населено място или град в чужбина.')
           return
         }
+        onNext()
+      }}
+    >
+      <div className="order-1 grid gap-3 lg:sticky lg:top-20 lg:order-2">
+        <BulgariaMap
+          regionCodes={highlightCodes(profile.place, null, [])}
+          focus={outlines.focus}
+          areas={outlines.areas}
+          quietCity={outlines.areas.length > 0 && profile.place?.regionCode !== '32'}
+          points={points.map((point) => ({ ...point, selected: point.id === `address:${profile.place?.sectionPlace ?? ''}` }))}
+          onPoint={(id) => selectAddress(profile, id, geography.sections)}
+        />
+        {points.length > 0 ? (
+          <p className="text-sm leading-6">Всяка точка е адрес. В прозореца са адресът, броят секции и колко са хартиени или машинни. Сивите са само машинни.</p>
+        ) : null}
+      </div>
+      <div className="order-2 grid gap-4 lg:order-1">
+        {assigned ? <p className="text-sm leading-6">Можеш да смениш района само в същия МИР, не към район от друг МИР.</p> : null}
+        <PlacesPicker
+          lockedMir={assigned ? mirOf(profile.place) : null}
+          onGeography={setGeography}
+          value={profile.place}
+          onChange={(place) => {
+            if (!placeChangeAllowed(profile.place, place, assigned)) {
+              onError('След разпределение можеш да смениш района само в същия МИР.')
+              return
+            }
+            const regionChanged = place?.regionCode !== profile.place?.regionCode
+            updateProfile({
+              place,
+              radius: regionChanged ? null : profile.radius,
+              distantRegionCodes: regionChanged ? [] : profile.distantRegionCodes,
+              extraCityRegions: regionChanged ? [] : profile.extraCityRegions,
+            })
+          }}
+        />
+        {profile.place?.townId ? (
+          <p className="text-sm leading-6">
+            Избираш адрес, не номер на секция. Първо разпределяме към хартиените секции, тези с под 300 избиратели.
+          </p>
+        ) : null}
+        {error ? <p className="text-sm text-red-700">{error}</p> : null}
+        <button className={button} type="submit">
+          Напред
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function TravelStep({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
+  const { profile } = useProfile()
+  const outlines = useOutlines(travelOutline(profile))
+  const assigned = profile.demoState === 'assigned'
+  if (assigned && !locationEditable(assigned)) {
+    return (
+      <div className="grid gap-4">
+        <p className="text-lg leading-7">От 19 октомври до 5 ноември обхватът не се сменя.</p>
+        <button className={button} type="button" onClick={onNext}>
+          Напред
+        </button>
+      </div>
+    )
+  }
+  return (
+    <form
+      className="grid gap-6 lg:grid-cols-2 lg:items-start"
+      onSubmit={(event) => {
+        event.preventDefault()
         if (!profile.radius) {
           onError('Избери докъде можеш да стигнеш.')
+          return
+        }
+        if (profile.radius === 'nearby' && profile.extraCityRegions.length === 0) {
+          onError('Избери поне един друг район.')
           return
         }
         if (profile.radius === 'distant' && profile.place?.regionCode !== '32' && profile.distantRegionCodes.length === 0) {
           onError('Добави поне една друга област.')
           return
         }
+        if (needsWiderTravel(profile.place, profile.radius)) {
+          onError('На този адрес няма хартиена секция. Избери по-широк обхват.')
+          return
+        }
         onNext()
       }}
     >
-      <div className="order-1 grid gap-3 lg:sticky lg:top-20 lg:order-2">
+      <div className="order-1 lg:sticky lg:top-20 lg:order-2">
         <BulgariaMap
-          regionCodes={highlighted}
-          focus={focus}
+          regionCodes={highlightCodes(profile.place, profile.radius, profile.distantRegionCodes)}
+          focus={outlines.focus}
+          areas={outlines.areas}
+          quietCity={outlines.areas.length > 0 && profile.place?.regionCode !== '32'}
           interactive={profile.radius === 'distant' && profile.place?.regionCode !== '32'}
           onToggle={(code) => toggleDistant(profile, code)}
-          points={points.map((point) => ({ ...point, selected: point.sectionIds.includes(profile.place?.sectionId ?? '') }))}
-          onPoint={(id) => selectMapPoint(profile, id, geography)}
-          area={area}
-          quietCity={Boolean(profile.place?.cityRegionName)}
+          onArea={(id) => {
+            if (!id.startsWith('district:') || profile.radius !== 'nearby') return
+            const code = id.slice('district:'.length)
+            if (code === profile.place?.cityRegionCode) return
+            const district = profile.extraCityRegions.find((item) => item.code === code)
+            if (!district) return
+            updateProfile({ extraCityRegions: profile.extraCityRegions.filter((item) => item.code !== code) })
+          }}
         />
-        {points.length > 0 ? (
-          <p className="text-sm leading-6">Всяка точка е адрес с хартиена секция. В прозореца са адресът, броят секции и колко са хартиени или машинни.</p>
-        ) : null}
       </div>
       <div className="order-2 grid gap-4 lg:order-1">
-      <PlacesPicker
-        deskSections
-        onGeography={setGeography}
-        value={profile.place}
-        onChange={(place) => {
-          const regionChanged = place?.regionCode !== profile.place?.regionCode
-          updateProfile({
-            place,
-            radius: regionChanged ? null : profile.radius,
-            distantRegionCodes: regionChanged ? [] : profile.distantRegionCodes,
-          })
-        }}
-      />
-      {profile.place?.townId ? (
-        <p className="text-sm leading-6">
-          В избраното място първо разпределяме към хартиените секции, тези с под 300 избиратели. Машинна секция остава, ако хартиените вече са заети.
-        </p>
-      ) : null}
-      {options.length > 0 ? (
-        <fieldset className="grid gap-2">
-          <legend className="mb-1 text-sm font-semibold">Докъде можеш да стигнеш</legend>
-          {options.map((option) => (
-            <label key={option.id} className="flex gap-3 rounded-2xl bg-white px-4 py-3">
-              <input type="radio" name="radius" checked={profile.radius === option.id} onChange={() => updateProfile({ radius: option.id })} />
-              {option.label}
-            </label>
-          ))}
-        </fieldset>
-      ) : null}
-      {profile.radius === 'distant' && profile.place?.regionCode !== '32' ? <OblastPicker profile={profile} /> : null}
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      <button className={button} type="submit">
-        Напред
-      </button>
+        <TravelChoice profile={profile} />
+        {error ? <p className="text-sm text-red-700">{error}</p> : null}
+        <button className={button} type="submit">
+          Напред
+        </button>
       </div>
     </form>
   )
@@ -524,7 +608,7 @@ function Seats({ error, onError, onNext }: { error: string; onError: (value: str
       }}
     >
       {mobile ? <YesNo label="Имаш ли кола?" value={profile.hasCar} onChange={(hasCar) => updateProfile({ hasCar, carSeats: hasCar ? profile.carSeats : 0 })} /> : null}
-      {mobile ? <YesNo label="Караш ли дрон или имаш дрон?" value={profile.hasDrone} onChange={(hasDrone) => updateProfile({ hasDrone })} /> : null}
+      {mobile ? <YesNo label="Имаш дрон или можеш да го караш?" value={profile.hasDrone} onChange={(hasDrone) => updateProfile({ hasDrone })} /> : null}
       {askSeats ? (
         <>
           <p>Колко души можеш да вземеш, освен себе си. 0 значи, че не возиш никого.</p>
@@ -573,15 +657,22 @@ function People({
     }
     onError('')
     const filled: Companion = companion.samePlace
-      ? { ...companion, mode: 'full', role: profile.role, mobileTeam: profile.mobileTeam, rounds: profile.rounds, experience: profile.experience }
-      : { ...companion, mode: 'full' }
+      ? { ...companion, mode: 'full', inGroup: !profile.coordinator, role: profile.role, mobileTeam: profile.mobileTeam, rounds: profile.rounds, experience: profile.experience }
+      : { ...companion, mode: 'full', inGroup: !profile.coordinator }
     updateProfile({ companions: [...profile.companions, { ...filled, id: crypto.randomUUID() }] })
     setCompanion(blankCompanion())
   }
 
   return (
     <div className="grid gap-4">
-      <p>Ако идвате заедно, добави пазителите тук. Можеш няколко. Всеки потвърждава своя имейл. Споделянето в социалните мрежи е след записа и не ви слага в една група.</p>
+      <p className="leading-7">
+        {profile.coordinator
+          ? 'Тези хора не са в твоята група. Записваш ги като координатор и всеки потвърждава своя имейл.'
+          : 'Ако идвате заедно, добави пазителите в групата. Можеш няколко. Всеки потвърждава своя имейл.'}
+      </p>
+      <button type="button" className="text-left font-bold text-[#2ab9a8]" onClick={() => updateProfile({ coordinator: !profile.coordinator })}>
+        {profile.coordinator ? 'Добавям към моята група' : 'Добавям хора извън групата, като координатор'}
+      </button>
       <div className="grid gap-2">
         <input className={field} autoComplete="given-name" placeholder="Име" value={companion.firstName} onChange={(event) => setCompanion({ ...companion, firstName: event.target.value })} />
         <input className={field} autoComplete="additional-name" placeholder="Презиме" value={companion.middleName} onChange={(event) => setCompanion({ ...companion, middleName: event.target.value })} />
@@ -605,7 +696,7 @@ function People({
             >
               <option value="">Избери</option>
               <option value="section">Секция</option>
-              <option value="mobile">Мобилен рисков екип</option>
+              <option value="mobile">Мобилен екип</option>
             </select>
           </label>
         ) : null}
@@ -617,7 +708,10 @@ function People({
         <ul className="grid gap-2">
           {profile.companions.map((person) => (
             <li key={person.id} className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-white px-4 py-3">
-              <span>{person.firstName} {person.lastName}</span>
+              <span>
+                {person.firstName} {person.lastName}
+                <span className="block text-sm text-[#666]">{person.inGroup === false ? 'Извън групата' : 'В групата'} · {person.email}</span>
+              </span>
               <button
                 type="button"
                 className="font-bold text-[#2ab9a8]"
@@ -665,7 +759,9 @@ function Review({ error, onError }: { error: string; onError: (value: string) =>
         </li>
         <li>{roleLabel(profile.role, profile.mobileTeam)}</li>
         <li>
-          {profile.rounds.first ? '25 октомври' : ''} {profile.rounds.runoff ? '1 ноември' : ''}
+          Президентски избори 2026 г.
+          {profile.rounds.first ? ' · 25 октомври' : ''}
+          {profile.rounds.runoff ? ' · 1 ноември' : ''}
         </li>
         <li>{experience?.title}</li>
         {profile.role !== 'video' ? (
@@ -677,10 +773,22 @@ function Review({ error, onError }: { error: string; onError: (value: string) =>
           </>
         ) : null}
         <li>
-          {profile.companions.length === 0
-            ? 'Без други хора'
-            : profile.companions.map((person) => (person.mode === 'full' ? `${person.firstName} ${person.lastName}` : person.email)).join(', ')}
+          {profile.companions.filter((person) => person.inGroup !== false).length === 0
+            ? 'Без група'
+            : `Група: ${profile.companions
+                .filter((person) => person.inGroup !== false)
+                .map((person) => `${person.firstName} ${person.lastName}`)
+                .join(', ')}`}
         </li>
+        {profile.companions.some((person) => person.inGroup === false) ? (
+          <li>
+            Като координатор:{' '}
+            {profile.companions
+              .filter((person) => person.inGroup === false)
+              .map((person) => `${person.firstName} ${person.lastName}`)
+              .join(', ')}
+          </li>
+        ) : null}
       </ul>
       <StaffNote />
       <p className="leading-7">Хартиените секции са с предимство. Машинна секция се използва само ако за населеното място вече има твърде много записани.</p>
@@ -721,6 +829,7 @@ function blankCompanion(): Companion {
     rounds: { first: true, runoff: true },
     experience: null,
     samePlace: true,
+    inGroup: true,
     status: 'pending',
   }
 }

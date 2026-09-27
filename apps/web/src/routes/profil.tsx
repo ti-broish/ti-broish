@@ -5,6 +5,7 @@ import { ShareSignup } from '../components/ShareSignup'
 import { StaffNote } from '../components/StaffNote'
 import { loadSignup, saveSignup } from '../signup/db'
 import { nextAssignment, placeLabel, roleLabel, signupGap, type Profile } from '../signup/model'
+import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
 import { ensureReferralCode, updateProfile, useProfile } from '../signup/store'
@@ -106,6 +107,8 @@ function ProfilePage() {
   const view = profileView(profile)
   const wave = nextAssignment(profile)
   const gap = signupGap(profile)
+  const assigned = view === 'assigned'
+  const canEditPlace = locationEditable(assigned)
 
   return (
     <div className="grid gap-8">
@@ -127,21 +130,18 @@ function ProfilePage() {
       ) : null}
       {view === 'waiting' ? (
         <section className="grid gap-3">
-          <h2 className="text-2xl font-black text-[#444]">Записан си</h2>
-          <p className="text-lg leading-7">
-            Следващо разпределение: {wave?.label}. Тогава тук ще видиш секцията и ще получиш имейл.
-          </p>
+          <p className="text-sm font-bold text-[#666]">Следващо за теб</p>
+          <h2 className="text-3xl font-black text-[#444]">{wave?.label}</h2>
+          <p className="text-lg leading-7">На тази дата виждаш секцията тук и получаваш имейл. Дотогава няма назначена секция.</p>
+          {!profile.egn ? <p className="leading-7">Без ЕГН няма да влезеш в разпределението.</p> : null}
           <p className="leading-7">{roleLabel(profile.role, profile.mobileTeam)}. {placeLabel(profile.place)}.</p>
         </section>
       ) : null}
       {view === 'assigned' ? (
         <section className="grid gap-3">
-          <h2 className="text-2xl font-black text-[#444]">Имаш секция</h2>
-          <p className="text-lg leading-7">
-            {placeLabel(profile.place)}
-            {profile.place?.sectionPlace ? `, ${profile.place.sectionPlace}` : ', примерна секция 042'}. {profile.rounds.first ? '25 октомври' : '1 ноември'}.
-          </p>
-          <p className="text-sm leading-6">Това е демо, докато алгоритъмът за разпределение не е готов.</p>
+          <p className="text-sm font-bold text-[#666]">Назначена секция</p>
+          <h2 className="text-3xl font-black text-[#444]">{profile.place?.sectionPlace || placeLabel(profile.place)}</h2>
+          <p className="text-lg leading-7">{profile.rounds.first ? '25 октомври' : '1 ноември'}. Това е демо, докато алгоритъмът за разпределение не е готов.</p>
           <Link to="/znachka" className="brand-button">
             Отпечатай значката
           </Link>
@@ -149,20 +149,25 @@ function ProfilePage() {
       ) : null}
 
       <section className="grid gap-3 border-t border-[var(--line)] pt-6">
-        <h2 className="text-xl font-black text-[#444]">Какво получаваш</h2>
-        <p className="leading-7">Значка за печат. Можеш да я отпечаташ още сега.</p>
+        <h2 className="text-xl font-black text-[#444]">Материали</h2>
+        <p className="leading-7">Прочети ги преди изборния ден. Пълномощното идва след разпределението, в изборната седмица.</p>
+        <Link to="/instructions" className="font-bold">
+          Инструкции за секцията
+        </Link>
+        <a className="font-bold" href="https://tibroish.bg/files/Narachnik-Ti-broish.pdf">
+          Наръчник на пазителя
+        </a>
         {view === 'assigned' ? null : (
           <Link to="/znachka" className="font-bold">
-            Отвори значката
+            Значка за печат, още сега
           </Link>
         )}
-        <p className="leading-7">Пълномощното е дигитално. Идва след разпределението, в изборната седмица.</p>
       </section>
 
       <DemoState value={profile.demoState} onChange={(demoState) => updateProfile({ demoState })} />
 
       <section className="grid gap-4 border-t border-[var(--line)] pt-6 text-base">
-        <h2 className="text-xl font-black text-[#444]">Още</h2>
+        <h2 className="text-xl font-black text-[#444]">Покани</h2>
         {inviteLink ? <ShareSignup link={inviteLink} count={referralCount} /> : null}
         {profile.companions.length > 0 ? (
           <ul className="grid gap-2">
@@ -199,8 +204,19 @@ function ProfilePage() {
         <Link to="/signup" search={{ step: 'contact' }} className="font-bold">
           Промени данните
         </Link>
+        {canEditPlace ? (
+          <Link to="/signup" search={{ step: 'place' }} className="font-bold">
+            Промени мястото{assigned && mirOf(profile.place) ? ` в МИР ${mirOf(profile.place)}` : ''}
+          </Link>
+        ) : (
+          <p className="leading-7">От 19 октомври до 5 ноември мястото не се сменя.</p>
+        )}
         {!profile.withdrawn ? (
-          <button type="button" className="text-left font-bold text-[#666]" onClick={() => updateProfile({ withdrawn: true, submitted: true })}>
+          <button
+            type="button"
+            className="flex min-h-14 w-full items-center justify-center rounded-[20px] border border-[#333] bg-white px-5 text-xl font-bold"
+            onClick={() => updateProfile({ withdrawn: true, submitted: true })}
+          >
             Оттегли записването
           </button>
         ) : null}
@@ -221,9 +237,11 @@ function profileView(profile: Profile): 'incomplete' | 'waiting' | 'assigned' {
 function resumeStep(profile: Profile) {
   if (!profile.firstName || !profile.email || !profile.phone) return 'contact' as const
   if (!profile.emailConfirmed) return 'confirm' as const
+  if (!profile.egn) return 'egn' as const
   if (!profile.role || profile.role === 'video') return 'role' as const
   if (!profile.experience) return 'experience' as const
-  if (!profile.place || !profile.radius) return 'place' as const
+  if (!profile.place) return 'place' as const
+  if (!profile.radius) return 'travel' as const
   return 'review' as const
 }
 

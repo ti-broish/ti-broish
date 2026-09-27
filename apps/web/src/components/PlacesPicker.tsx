@@ -13,7 +13,8 @@ import {
   type Town,
 } from '../signup/geo'
 import type { HomePlace } from '../signup/model'
-import { groupSections, sectionDesk, sectionNumber } from '../signup/sections'
+import { sofiaMir } from '../signup/rules'
+import { placeSummaries } from '../signup/sections'
 
 const inputClass =
   'min-h-11 w-full rounded-xl border border-[var(--line)] bg-white px-3 text-base text-[var(--ink)]'
@@ -21,17 +22,17 @@ const inputClass =
 export function PlacesPicker({
   value,
   onChange,
-  sectionLabel = 'Секция, ако имаш предпочитание',
+  sectionLabel = 'Адрес, ако имаш предпочитание',
   footnote,
-  deskSections = false,
   onGeography,
+  lockedMir = null,
 }: {
   value: HomePlace | null
   onChange: (place: HomePlace | null) => void
   sectionLabel?: string
   footnote?: string
-  deskSections?: boolean
   onGeography?: (info: { districts: CityRegion[]; sections: PollingSection[] }) => void
+  lockedMir?: string | null
 }) {
   const [regions, setRegions] = useState<ElectionRegion[]>([])
   const [countries, setCountries] = useState<Country[]>([])
@@ -124,15 +125,21 @@ export function PlacesPicker({
   }, [abroad, towns, value?.municipalityCode, value?.municipalityName, value?.regionCode, value?.regionName, value?.townId])
 
   useEffect(() => {
-    if (!value?.townId || value.sectionId) return
+    if (!value?.townId || value.sectionPlace) return
     const sectionKey = `${value.townId}:${value.cityRegionCode ?? ''}`
     if (autoSectionFor.current === sectionKey) return
-    const paper = sections.filter((section) => sectionDesk(section) !== 'machine')
-    if (paper.length !== 1) return
+    const groups = placeSummaries(sections)
+    if (groups.length !== 1) return
     autoSectionFor.current = sectionKey
-    const section = paper[0]
-    if (!section) return
-    onChangeRef.current({ ...value, sectionId: section.id, sectionPlace: section.place })
+    const group = groups[0]
+    if (!group) return
+    onChangeRef.current({
+      ...value,
+      sectionId: undefined,
+      sectionPlace: group.place,
+      paperCount: group.paper,
+      machineCount: group.machine,
+    })
   }, [sections, value])
 
   function setRegion(code: string) {
@@ -152,7 +159,10 @@ export function PlacesPicker({
     return a.name.localeCompare(b.name, 'bg')
   })
   const town = towns.find((item) => item.id === value?.townId)
-  const districts = [...(town?.cityRegions ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'bg'))
+  const districts = [...(town?.cityRegions ?? [])]
+    .filter((item) => !lockedMir || value?.regionCode !== 'sofia-merged' || sofiaMir(item.name) === lockedMir)
+    .sort((a, b) => a.name.localeCompare(b.name, 'bg'))
+  const addresses = placeSummaries(sections)
   const districtKey = districts.map((item) => item.code).join(',')
   const sectionKey = sections.map((item) => item.id).join(',')
   const onGeographyRef = useRef(onGeography)
@@ -172,7 +182,7 @@ export function PlacesPicker({
     <div className="grid gap-4">
       <label className="grid gap-1.5 text-sm font-semibold">
         Област
-        <select className={inputClass} value={value?.regionCode ?? ''} onChange={(event) => setRegion(event.target.value)}>
+        <select className={inputClass} value={value?.regionCode ?? ''} disabled={Boolean(lockedMir)} onChange={(event) => setRegion(event.target.value)}>
           <option value="">Избери</option>
           {regions.map((item) => (
             <option key={item.code} value={item.code}>
@@ -304,31 +314,25 @@ export function PlacesPicker({
           {sectionLabel}
           <select
             className={inputClass}
-            value={value.sectionId ?? ''}
+            value={value.sectionPlace ?? ''}
             onChange={(event) => {
-              const section = sections.find((item) => item.id === event.target.value)
-              onChange({ ...(value as HomePlace), sectionId: section?.id, sectionPlace: section?.place })
+              const group = addresses.find((item) => item.place === event.target.value)
+              onChange({
+                ...(value as HomePlace),
+                sectionId: undefined,
+                sectionPlace: group?.place,
+                paperCount: group ? group.paper : null,
+                machineCount: group ? group.machine : null,
+              })
             }}
           >
-            <option value="">Без конкретна секция</option>
-            {groupSections([...sections].sort(compareSections)).map((group) => {
-              const options = group.sections.map((item) => {
-                const machine = deskSections && sectionDesk(item) === 'machine'
-                const several = group.sections.length > 1
-                const label = several ? `Секция ${sectionNumber(item.id)}` : group.place
-                return (
-                  <option key={item.id} value={item.id} disabled={machine}>
-                    {machine ? `${label} · машинна` : label}
-                  </option>
-                )
-              })
-              if (group.sections.length < 2) return options
-              return (
-                <optgroup key={group.place} label={group.place}>
-                  {options}
-                </optgroup>
-              )
-            })}
+            <option value="">Без конкретен адрес</option>
+            {addresses.map((group) => (
+              <option key={group.place} value={group.place}>
+                {group.place} · {group.sections.length} секции, {group.paper} хартиени, {group.machine} машинни
+                {group.unknown > 0 ? `, ${group.unknown} без брой` : ''}
+              </option>
+            ))}
           </select>
         </label>
       ) : null}
@@ -355,15 +359,4 @@ function pickTown(towns: Town[]) {
   return null
 }
 
-function compareSections(a: PollingSection, b: PollingSection) {
-  const desk = Number(sectionDesk(a) === 'machine') - Number(sectionDesk(b) === 'machine')
-  if (desk !== 0) return desk
-  const numA = a.place.match(/^\d+/)
-  const numB = b.place.match(/^\d+/)
-  if (numA && numB) {
-    const diff = Number.parseInt(numA[0], 10) - Number.parseInt(numB[0], 10)
-    if (diff !== 0) return diff
-  } else if (numA) return -1
-  else if (numB) return 1
-  return a.place.localeCompare(b.place, 'bg')
-}
+

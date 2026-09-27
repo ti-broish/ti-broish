@@ -8,6 +8,8 @@
 	},
 	"scripts": {
 		"dev": "vite dev --port 3000",
+		"test": "vitest run --config vitest.config.ts",
+		"test:e2e": "playwright test",
 		"generate-routes": "tsr generate",
 		"build": "vite build",
 		"preview": "pnpm run build && vite preview",
@@ -28,6 +30,7 @@
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.26.0",
+		"@playwright/test": "^1.63.0",
 		"@tailwindcss/typography": "^0.5.16",
 		"@tanstack/devtools-vite": "latest",
 		"@tanstack/router-cli": "^1.132.0",
@@ -39,6 +42,7 @@
 		"@vitejs/plugin-react": "^6.0.1",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.0",
+		"vitest": "^5.0.2",
 		"wrangler": "^4.141.0"
 	},
 	"pnpm": {

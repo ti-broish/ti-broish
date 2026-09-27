@@ -9,6 +9,12 @@ export interface MapPoint {
   detail: string
   sectionIds: string[]
   selected?: boolean
+  tone?: 'paper' | 'machine'
+}
+
+export interface MapArea {
+  id: string
+  geometry: Geometry
 }
 
 type MapProps = {
@@ -19,6 +25,8 @@ type MapProps = {
   points?: MapPoint[]
   onPoint?: (id: string) => void
   area?: Geometry | null
+  areas?: MapArea[]
+  onArea?: (id: string) => void
   quietCity?: boolean
 }
 

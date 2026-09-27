@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CircleMarker, GeoJSON, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet'
-import type { MapPoint } from './BulgariaMap'
+import type { MapArea, MapPoint } from './BulgariaMap'
 import type { FeatureCollection, GeoJsonObject, Geometry } from 'geojson'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -80,22 +80,29 @@ function selectedFeatures(data: FeatureCollection, regionCodes: string[]) {
   }
 }
 
+function areaKey(area: Geometry | null | undefined) {
+  if (!area) return ''
+  const raw = JSON.stringify(area)
+  return `${area.type}:${raw.length}:${raw.slice(0, 24)}:${raw.slice(-24)}`
+}
+
 function FitTo({
   data,
   regionCodes,
   focus,
-  area,
+  areas,
 }: {
   data: FeatureCollection
   regionCodes: string[]
   focus?: { lat: number; lng: number; zoom: number } | null
-  area?: Geometry | null
+  areas: MapArea[]
 }) {
   const map = useMap()
-  const selection = `${regionCodes.join(',')}|${focus?.lat ?? ''}|${focus?.lng ?? ''}|${focus?.zoom ?? ''}|${area?.type ?? ''}`
+  const shape = areas.map((item) => areaKey(item.geometry)).join(';')
+  const selection = `${regionCodes.join(',')}|${focus?.lat ?? ''}|${focus?.lng ?? ''}|${focus?.zoom ?? ''}|${shape}`
   useEffect(() => {
-    if (area) {
-      const bounds = L.geoJSON(area as GeoJsonObject).getBounds()
+    if (areas.length > 0) {
+      const bounds = L.geoJSON({ type: 'GeometryCollection', geometries: areas.map((item) => item.geometry) } as GeoJsonObject).getBounds()
       if (bounds.isValid()) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 })
       return
     }
@@ -107,7 +114,7 @@ function FitTo({
     const features = chosen.features.length > 0 ? chosen : data
     const bounds = L.geoJSON(features as GeoJsonObject).getBounds()
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 8 })
-  }, [area, data, focus, map, regionCodes, selection])
+  }, [areas, data, focus, map, regionCodes, selection])
   return null
 }
 
@@ -119,6 +126,8 @@ export function BulgariaMapClient({
   points = [],
   onPoint,
   area = null,
+  areas = [],
+  onArea,
   quietCity = false,
 }: {
   regionCodes: string[]
@@ -128,9 +137,12 @@ export function BulgariaMapClient({
   points?: MapPoint[]
   onPoint?: (id: string) => void
   area?: Geometry | null
+  areas?: MapArea[]
+  onArea?: (id: string) => void
   quietCity?: boolean
 }) {
   const [data, setData] = useState<FeatureCollection | null>(null)
+  const shapes = areas.length > 0 ? areas : area ? [{ id: 'area', geometry: area }] : []
 
   useEffect(() => {
     void fetch('/oblasts.geojson')
@@ -146,7 +158,7 @@ export function BulgariaMapClient({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {data ? <FitTo data={data} regionCodes={regionCodes} focus={focus} area={area} /> : null}
+        {data ? <FitTo data={data} regionCodes={regionCodes} focus={focus} areas={shapes} /> : null}
         {data ? (
           <GeoJSON
             key={`${regionCodes.join(',')}:${interactive ? '1' : '0'}:${quietCity ? 'q' : 'f'}`}
@@ -171,19 +183,25 @@ export function BulgariaMapClient({
             }}
           />
         ) : null}
-        {area ? (
+        {shapes.map((shape) => (
           <GeoJSON
-            key={area.type + JSON.stringify(area).slice(0, 80)}
-            data={area}
+            key={shape.id + areaKey(shape.geometry)}
+            data={shape.geometry}
             style={{ color: '#0e8f82', weight: 3, fillColor: '#38decb', fillOpacity: 0.45 }}
+            eventHandlers={{ click: () => onArea?.(shape.id) }}
           />
-        ) : null}
+        ))}
         {points.map((point) => (
           <CircleMarker
             key={point.id}
             center={[point.lat, point.lng]}
             radius={point.selected ? 10 : 8}
-            pathOptions={{ color: '#0e8f82', fillColor: '#30cebc', fillOpacity: 0.95, weight: point.selected ? 3 : 1 }}
+            pathOptions={{
+              color: point.tone === 'machine' ? '#666' : '#0e8f82',
+              fillColor: point.tone === 'machine' ? '#bbb' : '#30cebc',
+              fillOpacity: 0.95,
+              weight: point.selected ? 3 : 1,
+            }}
             eventHandlers={{ click: () => onPoint?.(point.id) }}
           >
             <Popup>

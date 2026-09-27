@@ -123,3 +123,11 @@ test('the people step can record guardians outside the group', async ({ page }) 
   await page.goto('/signup?step=people')
   await expect(page.getByRole('button', { name: 'Добавям хора извън групата, като координатор' })).toBeVisible()
 })
+
+test('the badge names the committee and not the person', async ({ page }) => {
+  await seedProfile(page, registered({ firstName: 'Иван', lastName: 'Златков' }))
+  await page.goto('/znachka')
+  await expect(page.getByRole('heading', { name: 'ПРЕДСТАВИТЕЛ НА ИНИЦИАТИВЕН КОМИТЕТ' })).toBeVisible()
+  await expect(page.getByText('Златков')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Свали образеца' })).toHaveAttribute('href', '/oznachenie-predstavitel.pdf')
+})

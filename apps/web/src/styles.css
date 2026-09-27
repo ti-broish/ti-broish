@@ -214,6 +214,14 @@ main h1 {
     max-width: none !important;
     padding: 0 !important;
   }
+
+  .badge-sheet {
+    width: 90mm;
+    height: 55mm;
+    margin: 12mm auto;
+    border: 0.4pt solid #777;
+    break-inside: avoid;
+  }
 }
 
 .photo-input {

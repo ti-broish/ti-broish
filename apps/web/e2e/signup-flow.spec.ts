@@ -104,6 +104,9 @@ test('withdrawing a signup can be undone from the profile', async ({ page }) => 
   await expect(page.getByRole('heading', { name: 'Записването е оттеглено' })).toBeVisible()
   await page.getByRole('button', { name: 'Върни записването' }).click()
   await expect(page.getByRole('heading', { name: '5 октомври' })).toBeVisible()
+  for (const name of ['Сподели във Facebook', 'Сподели във Viber', 'Сподели в Instagram', 'Сподели в Threads', 'Сподели в X (Twitter)', 'Сподели в WhatsApp', 'Сподели в LinkedIn']) {
+    await expect(page.getByRole('link', { name })).toBeVisible()
+  }
 })
 
 test('instructions link the handbook and the signal form', async ({ page }) => {

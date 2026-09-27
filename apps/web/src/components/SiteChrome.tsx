@@ -2,12 +2,10 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
 const links = [
-  { to: '/signup', label: 'Запиши се' },
   { to: '/about', label: 'Кампанията' },
   { to: '/news', label: 'Актуално' },
-  { to: '/izvan-bulgaria', label: 'Извън страната' },
-  { to: '/signal', label: 'Подай сигнал' },
   { to: '/instructions', label: 'Инструкции' },
+  { to: '/signal', label: 'Подай сигнал' },
   { to: '/profil', label: 'Профил' },
 ] as const
 
@@ -61,9 +59,9 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
       <div className="h-10 bg-[#38decb]" />
       <footer className="bg-[#eee] text-[#333]">
         <nav className="mx-auto flex max-w-lg flex-wrap gap-x-4 gap-y-2 px-4 py-6">
-          <a className="font-bold text-[#333]" href="mailto:team@tibroish.bg">
-            team@tibroish.bg
-          </a>
+          <Link to="/kontakt" className="font-bold text-[#333] no-underline">
+            Контакт
+          </Link>
           <Link to="/signup" search={{ step: 'contact' }} className="font-bold text-[#333] no-underline">
             Запиши се
           </Link>

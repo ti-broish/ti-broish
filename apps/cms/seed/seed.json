@@ -126,11 +126,6 @@
 			"items": [
 				{
 					"type": "custom",
-					"label": "Начало",
-					"url": "/"
-				},
-				{
-					"type": "custom",
 					"label": "Кампанията",
 					"url": "/about"
 				},
@@ -141,28 +136,18 @@
 				},
 				{
 					"type": "custom",
-					"label": "Извън страната",
-					"url": "/izvan-bulgaria"
-				},
-				{
-					"type": "custom",
 					"label": "Инструкции",
 					"url": "/instructions"
 				},
 				{
 					"type": "custom",
-					"label": "Поверителност",
-					"url": "/privacy-notice"
-				},
-				{
-					"type": "custom",
-					"label": "Запиши се",
-					"url": "https://d1t.tibroish.bg/signup"
-				},
-				{
-					"type": "custom",
 					"label": "Подай сигнал",
 					"url": "https://d1t.tibroish.bg/signal"
+				},
+				{
+					"type": "custom",
+					"label": "Профил",
+					"url": "https://d1t.tibroish.bg/profil"
 				}
 			]
 		}

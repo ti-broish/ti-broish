@@ -11,9 +11,11 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as FaqRouteImport } from './routes/faq'
 import { Route as InstructionsRouteImport } from './routes/instructions'
 import { Route as IzprateniRouteImport } from './routes/izprateni'
 import { Route as IzvanBulgariaRouteImport } from './routes/izvan-bulgaria'
+import { Route as KontaktRouteImport } from './routes/kontakt'
 import { Route as NewsRouteImport } from './routes/news'
 import { Route as PrivacyNoticeRouteImport } from './routes/privacy-notice'
 import { Route as ProfilRouteImport } from './routes/profil'
@@ -36,6 +38,11 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FaqRoute = FaqRouteImport.update({
+  id: '/faq',
+  path: '/faq',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InstructionsRoute = InstructionsRouteImport.update({
   id: '/instructions',
   path: '/instructions',
@@ -49,6 +56,11 @@ const IzprateniRoute = IzprateniRouteImport.update({
 const IzvanBulgariaRoute = IzvanBulgariaRouteImport.update({
   id: '/izvan-bulgaria',
   path: '/izvan-bulgaria',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KontaktRoute = KontaktRouteImport.update({
+  id: '/kontakt',
+  path: '/kontakt',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NewsRoute = NewsRouteImport.update({
@@ -110,9 +122,11 @@ const RCodeRoute = RCodeRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
   '/izprateni': typeof IzprateniRouteWithChildren
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
+  '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
   '/privacy-notice': typeof PrivacyNoticeRoute
   '/profil': typeof ProfilRoute
@@ -128,9 +142,11 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
   '/izprateni': typeof IzprateniRouteWithChildren
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
+  '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
   '/privacy-notice': typeof PrivacyNoticeRoute
   '/profil': typeof ProfilRoute
@@ -147,9 +163,11 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
   '/izprateni': typeof IzprateniRouteWithChildren
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
+  '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
   '/privacy-notice': typeof PrivacyNoticeRoute
   '/profil': typeof ProfilRoute
@@ -167,9 +185,11 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/faq'
     | '/instructions'
     | '/izprateni'
     | '/izvan-bulgaria'
+    | '/kontakt'
     | '/news'
     | '/privacy-notice'
     | '/profil'
@@ -185,9 +205,11 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/faq'
     | '/instructions'
     | '/izprateni'
     | '/izvan-bulgaria'
+    | '/kontakt'
     | '/news'
     | '/privacy-notice'
     | '/profil'
@@ -203,9 +225,11 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/faq'
     | '/instructions'
     | '/izprateni'
     | '/izvan-bulgaria'
+    | '/kontakt'
     | '/news'
     | '/privacy-notice'
     | '/profil'
@@ -222,9 +246,11 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  FaqRoute: typeof FaqRoute
   InstructionsRoute: typeof InstructionsRoute
   IzprateniRoute: typeof IzprateniRouteWithChildren
   IzvanBulgariaRoute: typeof IzvanBulgariaRoute
+  KontaktRoute: typeof KontaktRoute
   NewsRoute: typeof NewsRoute
   PrivacyNoticeRoute: typeof PrivacyNoticeRoute
   ProfilRoute: typeof ProfilRoute
@@ -253,6 +279,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/faq': {
+      id: '/faq'
+      path: '/faq'
+      fullPath: '/faq'
+      preLoaderRoute: typeof FaqRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/instructions': {
       id: '/instructions'
       path: '/instructions'
@@ -272,6 +305,13 @@ declare module '@tanstack/react-router' {
       path: '/izvan-bulgaria'
       fullPath: '/izvan-bulgaria'
       preLoaderRoute: typeof IzvanBulgariaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kontakt': {
+      id: '/kontakt'
+      path: '/kontakt'
+      fullPath: '/kontakt'
+      preLoaderRoute: typeof KontaktRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/news': {
@@ -369,9 +409,11 @@ const IzprateniRouteWithChildren = IzprateniRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  FaqRoute: FaqRoute,
   InstructionsRoute: InstructionsRoute,
   IzprateniRoute: IzprateniRouteWithChildren,
   IzvanBulgariaRoute: IzvanBulgariaRoute,
+  KontaktRoute: KontaktRoute,
   NewsRoute: NewsRoute,
   PrivacyNoticeRoute: PrivacyNoticeRoute,
   ProfilRoute: ProfilRoute,

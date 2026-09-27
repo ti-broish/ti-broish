@@ -91,16 +91,19 @@ function FitTo({
   regionCodes,
   focus,
   areas,
+  waitForArea,
 }: {
   data: FeatureCollection
   regionCodes: string[]
   focus?: { lat: number; lng: number; zoom: number } | null
   areas: MapArea[]
+  waitForArea?: boolean
 }) {
   const map = useMap()
   const shape = areas.map((item) => areaKey(item.geometry)).join(';')
-  const selection = `${regionCodes.join(',')}|${focus?.lat ?? ''}|${focus?.lng ?? ''}|${focus?.zoom ?? ''}|${shape}`
+  const selection = `${regionCodes.join(',')}|${focus?.lat ?? ''}|${focus?.lng ?? ''}|${focus?.zoom ?? ''}|${shape}|${waitForArea ? 'w' : ''}`
   useEffect(() => {
+    if (areas.length === 0 && waitForArea) return
     if (areas.length > 0) {
       const bounds = L.geoJSON({ type: 'GeometryCollection', geometries: areas.map((item) => item.geometry) } as GeoJsonObject).getBounds()
       if (bounds.isValid()) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 })
@@ -129,6 +132,7 @@ export function BulgariaMapClient({
   areas = [],
   onArea,
   quietCity = false,
+  waitForArea = false,
 }: {
   regionCodes: string[]
   focus?: { lat: number; lng: number; zoom: number } | null
@@ -140,6 +144,7 @@ export function BulgariaMapClient({
   areas?: MapArea[]
   onArea?: (id: string) => void
   quietCity?: boolean
+  waitForArea?: boolean
 }) {
   const [data, setData] = useState<FeatureCollection | null>(null)
   const shapes = areas.length > 0 ? areas : area ? [{ id: 'area', geometry: area }] : []
@@ -158,7 +163,7 @@ export function BulgariaMapClient({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {data ? <FitTo data={data} regionCodes={regionCodes} focus={focus} areas={shapes} /> : null}
+        {data ? <FitTo data={data} regionCodes={regionCodes} focus={focus} areas={shapes} waitForArea={waitForArea} /> : null}
         {data ? (
           <GeoJSON
             key={`${regionCodes.join(',')}:${interactive ? '1' : '0'}:${quietCity ? 'q' : 'f'}`}

@@ -28,6 +28,7 @@ type MapProps = {
   areas?: MapArea[]
   onArea?: (id: string) => void
   quietCity?: boolean
+  waitForArea?: boolean
 }
 
 export function BulgariaMap(props: MapProps) {

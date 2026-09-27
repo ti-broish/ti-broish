@@ -8,11 +8,28 @@ export interface MapArea {
   geometry: Geometry
 }
 
+const geometryCache = new Map<string, Geometry | null>()
+const pointCache = new Map<string, { lat: number; lng: number }>()
+
+function remembered(queries: OutlineRequest[]) {
+  const areas: MapArea[] = []
+  let focus: { lat: number; lng: number; zoom: number } | null = null
+  for (const item of queries) {
+    if (!geometryCache.has(`${item.scope}:${item.query}`)) return null
+    const geometry = geometryCache.get(`${item.scope}:${item.query}`)
+    const point = pointCache.get(`${item.scope}:${item.query}`)
+    if (geometry) areas.push({ id: item.id, geometry })
+    if (point && !focus) focus = { ...point, zoom: item.abroad ? 11 : 14 }
+  }
+  return { areas, focus }
+}
+
 export function useOutlines(queries: OutlineRequest[]) {
   const key = queries.map((item) => `${item.id}:${item.scope}:${item.query}`).join('|')
   const abroad = queries.some((item) => item.abroad)
-  const [areas, setAreas] = useState<MapArea[]>([])
-  const [focus, setFocus] = useState<{ lat: number; lng: number; zoom: number } | null>(null)
+  const initial = remembered(queries)
+  const [areas, setAreas] = useState<MapArea[]>(initial?.areas ?? [])
+  const [focus, setFocus] = useState<{ lat: number; lng: number; zoom: number } | null>(initial?.focus ?? null)
   const latest = useRef(queries)
   latest.current = queries
 
@@ -21,6 +38,12 @@ export function useOutlines(queries: OutlineRequest[]) {
     if (pending.length === 0) {
       setAreas([])
       setFocus(null)
+      return
+    }
+    const cached = remembered(pending)
+    if (cached) {
+      setAreas(cached.areas)
+      setFocus(cached.focus)
       return
     }
     let cancelled = false
@@ -33,11 +56,14 @@ export function useOutlines(queries: OutlineRequest[]) {
             data: { query: item.query, abroad: item.abroad, polygon: true, scope: item.scope, priority: 'high' },
           })
           if (cancelled) return
+          const cacheKey = `${item.scope}:${item.query}`
+          geometryCache.set(cacheKey, hit?.geojson ?? null)
+          if (hit) pointCache.set(cacheKey, { lat: hit.lat, lng: hit.lng })
           if (!hit) continue
           point ??= { lat: hit.lat, lng: hit.lng }
           if (hit.geojson) next.push({ id: item.id, geometry: hit.geojson })
           setAreas([...next])
-          if (point) setFocus({ ...point, zoom: item.abroad ? 11 : 13 })
+          if (point) setFocus({ ...point, zoom: item.abroad ? 11 : 14 })
         }
       })()
     }, abroad ? 700 : 250)

@@ -460,6 +460,7 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
           onError('Избери място до населено място или град в чужбина.')
           return
         }
+        if (!profile.radius && profile.place?.cityRegionName) updateProfile({ radius: 'cityRegion' })
         onNext()
       }}
     >
@@ -468,7 +469,8 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
           regionCodes={highlightCodes(profile.place, null, [])}
           focus={outlines.focus}
           areas={outlines.areas}
-          quietCity={outlines.areas.length > 0 && profile.place?.regionCode !== '32'}
+          quietCity={Boolean(profile.place?.cityRegionName) && profile.place?.regionCode !== '32'}
+          waitForArea={Boolean(profile.place?.cityRegionName)}
           points={points.map((point) => ({ ...point, selected: point.id === `address:${profile.place?.sectionPlace ?? ''}` }))}
           onPoint={(id) => selectAddress(profile, id, geography.sections)}
         />
@@ -488,11 +490,12 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
               return
             }
             const regionChanged = place?.regionCode !== profile.place?.regionCode
+            const districtChanged = place?.cityRegionCode !== profile.place?.cityRegionCode
             updateProfile({
               place,
-              radius: regionChanged ? null : profile.radius,
+              radius: regionChanged || districtChanged ? null : profile.radius,
               distantRegionCodes: regionChanged ? [] : profile.distantRegionCodes,
-              extraCityRegions: regionChanged ? [] : profile.extraCityRegions,
+              extraCityRegions: regionChanged || districtChanged ? [] : profile.extraCityRegions,
             })
           }}
         />
@@ -511,8 +514,9 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
 }
 
 function TravelStep({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
-  const { profile } = useProfile()
-  const outlines = useOutlines(travelOutline(profile))
+  const { profile, ready } = useProfile()
+  const outlines = useOutlines(ready ? travelOutline(profile) : [])
+  if (!ready) return <div className="h-[420px] bg-[#eee]" aria-hidden />
   const assigned = profile.demoState === 'assigned'
   if (assigned && !locationEditable(assigned)) {
     return (
@@ -553,7 +557,8 @@ function TravelStep({ error, onError, onNext }: { error: string; onError: (value
           regionCodes={highlightCodes(profile.place, profile.radius, profile.distantRegionCodes)}
           focus={outlines.focus}
           areas={outlines.areas}
-          quietCity={outlines.areas.length > 0 && profile.place?.regionCode !== '32'}
+          quietCity={profile.place?.regionCode !== '32' && profile.radius !== 'region' && profile.radius !== 'distant'}
+          waitForArea={profile.radius == null || profile.radius === 'cityRegion' || profile.radius === 'nearby' || profile.radius === 'settlement' || profile.radius === 'municipality'}
           interactive={profile.radius === 'distant' && profile.place?.regionCode !== '32'}
           onToggle={(code) => toggleDistant(profile, code)}
           onArea={(id) => {
@@ -567,6 +572,7 @@ function TravelStep({ error, onError, onNext }: { error: string; onError: (value
         />
       </div>
       <div className="order-2 grid gap-4 lg:order-1">
+        <p className="leading-7">Запазено място: {placeLabel(profile.place)}.</p>
         <TravelChoice profile={profile} />
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
         <button className={button} type="submit">

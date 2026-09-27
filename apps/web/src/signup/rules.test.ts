@@ -61,6 +61,8 @@ describe('travel', () => {
 
   it('outlines the home district on the place step and the chosen nearby districts when traveling', () => {
     expect(placeOutline(mladost)[0]?.query).toContain('район Младост')
+    expect(travelOutline({ place: mladost, radius: null, extraCityRegions: [], travelMunicipalities: [] })[0]?.query).toContain('район Младост')
+    expect(travelOutline({ place: mladost, radius: 'cityRegion', extraCityRegions: [], travelMunicipalities: [] })[0]?.query).toContain('район Младост')
     const outlines = travelOutline({
       place: mladost,
       radius: 'nearby',

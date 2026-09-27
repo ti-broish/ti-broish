@@ -20,9 +20,9 @@ resource "cloudflare_dns_record" "sending_spf" {
 
 resource "cloudflare_dns_record" "sending_mx" {
   for_each = {
-    route1 = 12
-    route2 = 31
-    route3 = 86
+    route1 = 37
+    route2 = 91
+    route3 = 81
   }
   zone_id  = var.zone_id
   name     = "cf-bounce.tibroish.bg"

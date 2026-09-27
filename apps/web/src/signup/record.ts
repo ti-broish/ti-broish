@@ -61,7 +61,7 @@ export function storedProfile(profile: Profile): Profile {
 export function signupColumns(profile: Profile): SignupColumns {
   const stored = storedProfile(profile)
   const place = stored.place
-  const { egn: _egn, ...withoutEgn } = stored
+  const { egn: _egn, assignedSection: _assigned, ...withoutEgn } = stored
   return {
     email: stored.email,
     source: stored.source,

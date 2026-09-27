@@ -6,7 +6,7 @@ Monorepo for the new public site and signup.
 - `infra` is OpenTofu for the staging Worker route on `d1t.tibroish.bg`. Production `tibroish.bg` is not in this slice.
 - EmDash will own the editable public pages. The prototype serves those pages from `apps/web` so staging is one clickable site.
 
-Staging data stays in the browser. Email confirmation is simulated.
+Staging signups are stored in D1. `/admin` lists them for the team: export all, one MIR, or abroad; import taken sections and people who still have to confirm. A draft section stays internal until it is published. Mass section mail stays a Brevo campaign from the admin CSV. Cloudflare Email Sending is only for the confirmation code and the imported-person link, and it sends after `tibroish.bg` is onboarded in the Да България account. Until that send works, the confirmation code stays on the page. `/admin` on staging stays closed until the `ADMIN_TOKEN` secret is set on the worker; localhost is open without it.
 
 ## Shipping a change
 

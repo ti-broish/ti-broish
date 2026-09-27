@@ -87,6 +87,7 @@ export interface Profile {
   consent: boolean
   submitted: boolean
   withdrawn: boolean
+  assignedSection: string | null
 }
 
 export const emptyProfile = (): Profile => ({
@@ -126,6 +127,7 @@ export const emptyProfile = (): Profile => ({
   consent: false,
   submitted: false,
   withdrawn: false,
+  assignedSection: null,
 })
 
 export const EXPERIENCE: { id: Experience; title: string; text: string }[] = [
@@ -181,6 +183,17 @@ export function nextAssignment(profile: Pick<Profile, 'rounds'>, now = new Date(
   const waves = relevant.length > 0 ? relevant : ASSIGNMENT_WAVES
   const today = now.toISOString().slice(0, 10)
   return waves.find((wave) => wave.iso >= today) ?? waves[waves.length - 1]
+}
+
+export function assignmentLocked(profile: Pick<Profile, 'demoState' | 'assignedSection'>) {
+  return profile.demoState === 'assigned' || Boolean(profile.assignedSection)
+}
+
+export function profileView(profile: Profile): 'incomplete' | 'waiting' | 'assigned' {
+  if (profile.demoState === 'incomplete' || profile.demoState === 'waiting' || profile.demoState === 'assigned') return profile.demoState
+  if (profile.assignedSection) return 'assigned'
+  if (profile.withdrawn || signupGap(profile)) return 'incomplete'
+  return 'waiting'
 }
 
 export function signupGap(profile: Profile): string | null {

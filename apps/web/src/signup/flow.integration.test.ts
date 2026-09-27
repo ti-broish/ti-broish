@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyProfile, nextAssignment, signupGap, stepsFor, type Companion, type HomePlace } from './model'
+import { emptyProfile, nextAssignment, profileView, signupGap, stepsFor, type Companion, type HomePlace } from './model'
 import { companionRows, signupColumns } from './record'
 import { validateCall, validateProtocol, validateViolation } from './reports-validate'
 import { isProtocolDay } from './election'
@@ -92,6 +92,9 @@ describe('signup flow', () => {
     expect(columns.referredBy).toBeNull()
     expect(columns.egn).toBe('0041010002')
     expect(JSON.parse(columns.payload).egn).toBe('')
+    expect(JSON.parse(signupColumns({ ...profile, assignedSection: '234600101' }).payload).assignedSection).toBeUndefined()
+    expect(profileView({ ...profile, egn: '0041010002', consent: true, assignedSection: '234600101' })).toBe('assigned')
+    expect(profileView({ ...profile, egn: '0041010002', consent: true, demoState: 'waiting', assignedSection: '234600101' })).toBe('waiting')
     expect(columns.mirCode).toBe('23')
     expect(columns.sectionPlace).toBe('ул. Пример 1')
     expect(columns.carSeats).toBe(2)

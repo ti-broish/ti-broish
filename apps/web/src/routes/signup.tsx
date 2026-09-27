@@ -5,10 +5,12 @@ import { PartnerBanner } from '../components/PartnerBanner'
 import { PlacesPicker } from '../components/PlacesPicker'
 import { StaffNote } from '../components/StaffNote'
 import { TravelChoice } from '../components/TravelChoice'
+import { checkEmailCode, requestEmailCode } from '../signup/confirm-mail'
 import { loadSignup, saveSignup } from '../signup/db'
 import { geocodePlace } from '../signup/geo'
 import {
   EXPERIENCE,
+  assignmentLocked,
   codeFor,
   highlightCodes,
   placeLabel,
@@ -164,8 +166,18 @@ function Contact({ error, onError, onNext }: { error: string; onError: (value: s
           onError('Нужни са валидни имейл и телефон.')
           return
         }
-        updateProfile({ confirmCode: codeFor(profile.email) })
-        onNext()
+        void requestEmailCode({
+          data: {
+            email: profile.email,
+            firstName: profile.firstName,
+            middleName: profile.middleName,
+            lastName: profile.lastName,
+            phone: profile.phone,
+          },
+        })
+          .then((result) => updateProfile({ confirmCode: result.previewCode }))
+          .catch(() => updateProfile({ confirmCode: codeFor(profile.email) }))
+          .finally(onNext)
       }}
     >
       <LegalNotice />
@@ -208,35 +220,52 @@ function NameFields() {
 function Confirm({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
   const { profile } = useProfile()
   const [code, setCode] = useState('')
-  const expected = profile.confirmCode || codeFor(profile.email)
+  const preview = profile.confirmCode
   return (
     <div className="grid gap-4">
       <article className="rounded-2xl border border-[var(--line)] bg-white p-4">
         <p className="text-sm text-[var(--ink-soft)]">От: Ти Броиш · До: {profile.email}</p>
         <h2 className="mt-2 text-xl font-extrabold">Потвърди имейла, преди да продължиш</h2>
-        <p className="mt-2 leading-7">Кодът за този прототип е {expected}. В понеделник ще идва в истинско писмо, за да спрем ботовете и да няма усещане, че формулярът сам по себе си е край.</p>
+        {preview ? (
+          <p className="mt-2 leading-7">Кодът за този прототип е {preview}. Щом писмото тръгне, кодът остава само в него.</p>
+        ) : (
+          <p className="mt-2 leading-7">Изпратихме шестцифрен код на {profile.email}. Отвори писмото и го въведи тук.</p>
+        )}
         <LegalNotice />
-        <button
-          type="button"
-          className={`${button} mt-3`}
-          onClick={() => {
-            updateProfile({ emailConfirmed: true, confirmCode: expected })
-            onNext()
-          }}
-        >
-          Отвори линка от писмото
-        </button>
+        {preview ? (
+          <button
+            type="button"
+            className={`${button} mt-3`}
+            onClick={() => {
+              updateProfile({ emailConfirmed: true, confirmCode: preview })
+              onNext()
+            }}
+          >
+            Отвори линка от писмото
+          </button>
+        ) : null}
       </article>
       <form
         className="grid gap-3"
         onSubmit={(event) => {
           event.preventDefault()
-          if (code.trim() !== expected) {
-            onError('Кодът не съвпада.')
+          if (preview) {
+            if (code.trim() !== preview) {
+              onError('Кодът не съвпада.')
+              return
+            }
+            updateProfile({ emailConfirmed: true })
+            onNext()
             return
           }
-          updateProfile({ emailConfirmed: true })
-          onNext()
+          void checkEmailCode({ data: { email: profile.email, code } }).then((result) => {
+            if (!result.ok) {
+              onError('Кодът не съвпада.')
+              return
+            }
+            updateProfile({ emailConfirmed: true })
+            onNext()
+          })
         }}
       >
         <input className={field} inputMode="numeric" placeholder="Шестцифрен код" value={code} onChange={(event) => setCode(event.target.value)} />
@@ -381,7 +410,7 @@ function selectAddress(profile: Profile, id: string, sections: PollingSection[])
   const group = placeSummaries(sections).find((item) => item.place === id.slice('address:'.length))
   if (!group) return
   const place = { ...profile.place, sectionId: undefined, sectionPlace: group.place, paperCount: group.paper, machineCount: group.machine }
-  if (!placeChangeAllowed(profile.place, place, profile.demoState === 'assigned')) return
+  if (!placeChangeAllowed(profile.place, place, assignmentLocked(profile))) return
   updateProfile({ place })
 }
 
@@ -403,7 +432,7 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
   const [points, setPoints] = useState<MapPoint[]>([])
   const [geography, setGeography] = useState<{ districts: CityRegion[]; sections: PollingSection[] }>({ districts: [], sections: [] })
   const outlines = useOutlines(placeOutline(profile.place))
-  const assigned = profile.demoState === 'assigned'
+  const assigned = assignmentLocked(profile)
   const editable = locationEditable(assigned)
   const addressKey = geography.sections.map((section) => section.id).join(',')
   useEffect(() => {
@@ -517,7 +546,7 @@ function TravelStep({ error, onError, onNext }: { error: string; onError: (value
   const { profile, ready } = useProfile()
   const outlines = useOutlines(ready ? travelOutline(profile) : [])
   if (!ready) return <div className="h-[420px] bg-[#eee]" aria-hidden />
-  const assigned = profile.demoState === 'assigned'
+  const assigned = assignmentLocked(profile)
   if (assigned && !locationEditable(assigned)) {
     return (
       <div className="grid gap-4">

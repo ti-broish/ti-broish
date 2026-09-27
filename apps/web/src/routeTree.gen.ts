@@ -11,12 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as InstructionsRouteImport } from './routes/instructions'
 import { Route as IzprateniRouteImport } from './routes/izprateni'
 import { Route as IzvanBulgariaRouteImport } from './routes/izvan-bulgaria'
 import { Route as KontaktRouteImport } from './routes/kontakt'
 import { Route as NewsRouteImport } from './routes/news'
+import { Route as PotvardiRouteImport } from './routes/potvardi'
 import { Route as PrivacyNoticeRouteImport } from './routes/privacy-notice'
 import { Route as ProfilRouteImport } from './routes/profil'
 import { Route as ProtokolRouteImport } from './routes/protokol'
@@ -36,6 +38,11 @@ const IndexRoute = IndexRouteImport.update({
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FaqRoute = FaqRouteImport.update({
@@ -66,6 +73,11 @@ const KontaktRoute = KontaktRouteImport.update({
 const NewsRoute = NewsRouteImport.update({
   id: '/news',
   path: '/news',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PotvardiRoute = PotvardiRouteImport.update({
+  id: '/potvardi',
+  path: '/potvardi',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyNoticeRoute = PrivacyNoticeRouteImport.update({
@@ -122,12 +134,14 @@ const RCodeRoute = RCodeRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/admin': typeof AdminRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
   '/izprateni': typeof IzprateniRouteWithChildren
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
   '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
+  '/potvardi': typeof PotvardiRoute
   '/privacy-notice': typeof PrivacyNoticeRoute
   '/profil': typeof ProfilRoute
   '/protokol': typeof ProtokolRoute
@@ -142,12 +156,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/admin': typeof AdminRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
   '/izprateni': typeof IzprateniRouteWithChildren
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
   '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
+  '/potvardi': typeof PotvardiRoute
   '/privacy-notice': typeof PrivacyNoticeRoute
   '/profil': typeof ProfilRoute
   '/protokol': typeof ProtokolRoute
@@ -163,12 +179,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/admin': typeof AdminRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
   '/izprateni': typeof IzprateniRouteWithChildren
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
   '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
+  '/potvardi': typeof PotvardiRoute
   '/privacy-notice': typeof PrivacyNoticeRoute
   '/profil': typeof ProfilRoute
   '/protokol': typeof ProtokolRoute
@@ -185,12 +203,14 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/admin'
     | '/faq'
     | '/instructions'
     | '/izprateni'
     | '/izvan-bulgaria'
     | '/kontakt'
     | '/news'
+    | '/potvardi'
     | '/privacy-notice'
     | '/profil'
     | '/protokol'
@@ -205,12 +225,14 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/admin'
     | '/faq'
     | '/instructions'
     | '/izprateni'
     | '/izvan-bulgaria'
     | '/kontakt'
     | '/news'
+    | '/potvardi'
     | '/privacy-notice'
     | '/profil'
     | '/protokol'
@@ -225,12 +247,14 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/admin'
     | '/faq'
     | '/instructions'
     | '/izprateni'
     | '/izvan-bulgaria'
     | '/kontakt'
     | '/news'
+    | '/potvardi'
     | '/privacy-notice'
     | '/profil'
     | '/protokol'
@@ -246,12 +270,14 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  AdminRoute: typeof AdminRoute
   FaqRoute: typeof FaqRoute
   InstructionsRoute: typeof InstructionsRoute
   IzprateniRoute: typeof IzprateniRouteWithChildren
   IzvanBulgariaRoute: typeof IzvanBulgariaRoute
   KontaktRoute: typeof KontaktRoute
   NewsRoute: typeof NewsRoute
+  PotvardiRoute: typeof PotvardiRoute
   PrivacyNoticeRoute: typeof PrivacyNoticeRoute
   ProfilRoute: typeof ProfilRoute
   ProtokolRoute: typeof ProtokolRoute
@@ -277,6 +303,13 @@ declare module '@tanstack/react-router' {
       path: '/about'
       fullPath: '/about'
       preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/faq': {
@@ -319,6 +352,13 @@ declare module '@tanstack/react-router' {
       path: '/news'
       fullPath: '/news'
       preLoaderRoute: typeof NewsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/potvardi': {
+      id: '/potvardi'
+      path: '/potvardi'
+      fullPath: '/potvardi'
+      preLoaderRoute: typeof PotvardiRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy-notice': {
@@ -409,12 +449,14 @@ const IzprateniRouteWithChildren = IzprateniRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  AdminRoute: AdminRoute,
   FaqRoute: FaqRoute,
   InstructionsRoute: InstructionsRoute,
   IzprateniRoute: IzprateniRouteWithChildren,
   IzvanBulgariaRoute: IzvanBulgariaRoute,
   KontaktRoute: KontaktRoute,
   NewsRoute: NewsRoute,
+  PotvardiRoute: PotvardiRoute,
   PrivacyNoticeRoute: PrivacyNoticeRoute,
   ProfilRoute: ProfilRoute,
   ProtokolRoute: ProtokolRoute,

@@ -1,128 +1,10 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, setCookie } from '@tanstack/react-start/server'
-import { env } from 'cloudflare:workers'
-import { emptyProfile, type Profile } from './model'
+import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupRow } from './db-core'
+import { type Profile } from './model'
 import { companionRows, egnProblem, signupColumns } from './record'
 
-const COOKIE = 'tb_session'
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS signups (
-  id TEXT PRIMARY KEY,
-  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  session_token TEXT UNIQUE,
-  referral_code TEXT UNIQUE,
-  referred_by TEXT,
-  payload TEXT NOT NULL,
-  email_confirmed INTEGER NOT NULL DEFAULT 0,
-  withdrawn INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_signups_referral ON signups(referral_code);
-CREATE INDEX IF NOT EXISTS idx_signups_session ON signups(session_token);
-`
-
-const ADD_COLUMNS = [
-  'ALTER TABLE signups ADD COLUMN source TEXT',
-  'ALTER TABLE signups ADD COLUMN egn TEXT',
-  'ALTER TABLE signups ADD COLUMN role TEXT',
-  'ALTER TABLE signups ADD COLUMN rounds_first INTEGER',
-  'ALTER TABLE signups ADD COLUMN rounds_runoff INTEGER',
-  'ALTER TABLE signups ADD COLUMN experience TEXT',
-  'ALTER TABLE signups ADD COLUMN region_code TEXT',
-  'ALTER TABLE signups ADD COLUMN mir_code TEXT',
-  'ALTER TABLE signups ADD COLUMN municipality_name TEXT',
-  'ALTER TABLE signups ADD COLUMN town_name TEXT',
-  'ALTER TABLE signups ADD COLUMN city_region_code TEXT',
-  'ALTER TABLE signups ADD COLUMN city_region_name TEXT',
-  'ALTER TABLE signups ADD COLUMN section_place TEXT',
-  'ALTER TABLE signups ADD COLUMN paper_count INTEGER',
-  'ALTER TABLE signups ADD COLUMN machine_count INTEGER',
-  'ALTER TABLE signups ADD COLUMN radius TEXT',
-  'ALTER TABLE signups ADD COLUMN extra_city_regions TEXT',
-  'ALTER TABLE signups ADD COLUMN distant_region_codes TEXT',
-  'ALTER TABLE signups ADD COLUMN travel_municipalities TEXT',
-  'ALTER TABLE signups ADD COLUMN has_car INTEGER',
-  'ALTER TABLE signups ADD COLUMN car_seats INTEGER',
-  'ALTER TABLE signups ADD COLUMN has_drone INTEGER',
-  'ALTER TABLE signups ADD COLUMN coordinator INTEGER NOT NULL DEFAULT 0',
-  'ALTER TABLE signups ADD COLUMN consent INTEGER NOT NULL DEFAULT 0',
-  'ALTER TABLE signups ADD COLUMN submitted INTEGER NOT NULL DEFAULT 0',
-  'ALTER TABLE signups ADD COLUMN notes TEXT',
-]
-
-const COMPANIONS = `
-CREATE TABLE IF NOT EXISTS companions (
-  id TEXT PRIMARY KEY,
-  signup_id TEXT NOT NULL,
-  in_group INTEGER NOT NULL DEFAULT 1,
-  first_name TEXT NOT NULL,
-  middle_name TEXT NOT NULL DEFAULT '',
-  last_name TEXT NOT NULL,
-  email TEXT NOT NULL,
-  phone TEXT NOT NULL,
-  role TEXT,
-  same_place INTEGER NOT NULL DEFAULT 1
-)`
-
-const INDEXES = [
-  'CREATE INDEX IF NOT EXISTS idx_signups_source ON signups(source)',
-  'CREATE INDEX IF NOT EXISTS idx_signups_mir ON signups(mir_code)',
-  'CREATE INDEX IF NOT EXISTS idx_signups_role ON signups(role)',
-  'CREATE INDEX IF NOT EXISTS idx_companions_signup ON companions(signup_id)',
-]
-
-type Row = {
-  id: string
-  payload: string
-  referral_code: string | null
-  referred_by: string | null
-  source: string | null
-  egn: string | null
-}
-
-async function database() {
-  const db = (env as unknown as { DB?: SignupD1 }).DB
-  if (!db) return null
-  await db.exec(SCHEMA)
-  for (const sql of ADD_COLUMNS) {
-    try {
-      await db.prepare(sql).run()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (!/duplicate column/i.test(message)) throw error
-    }
-  }
-  await db.prepare(COMPANIONS).run()
-  for (const sql of INDEXES) await db.prepare(sql).run()
-  return db
-}
-
-interface SignupD1 {
-  prepare(sql: string): {
-    run(): Promise<unknown>
-    bind(...values: unknown[]): {
-      run(): Promise<unknown>
-      first<T>(): Promise<T | null>
-    }
-  }
-  exec(sql: string): Promise<unknown>
-}
-
-function profileFrom(row: Row): Profile {
-  const parsed = JSON.parse(row.payload) as Partial<Profile>
-  return {
-    ...emptyProfile(),
-    ...parsed,
-    referralCode: row.referral_code ?? parsed.referralCode ?? '',
-    referredBy: row.referred_by ?? parsed.referredBy ?? null,
-    source: row.source ?? parsed.source ?? null,
-    egn: row.egn || parsed.egn || '',
-  }
-}
-
-async function referrerName(db: NonNullable<Awaited<ReturnType<typeof database>>>, code: string | null) {
+async function referrerName(db: NonNullable<Awaited<ReturnType<typeof signupDatabase>>>, code: string | null) {
   if (!code) return null
   const row = await db
     .prepare('SELECT payload FROM signups WHERE referral_code = ?')
@@ -136,13 +18,19 @@ async function referrerName(db: NonNullable<Awaited<ReturnType<typeof database>>
 export const saveSignup = createServerFn({ method: 'POST' })
   .validator((profile: Profile) => profile)
   .handler(async ({ data }) => {
-    const db = await database()
+    const db = await signupDatabase()
     if (!db || !data.email.trim()) return { ok: false as const, message: 'Няма запис.' }
     const problem = egnProblem(data.egn)
     if (problem) return { ok: false as const, message: problem }
     const now = new Date().toISOString()
     const columns = signupColumns(data)
-    const existing = await db.prepare('SELECT id, session_token FROM signups WHERE email = ?').bind(columns.email).first<{ id: string; session_token: string | null }>()
+    const existing = await db
+      .prepare('SELECT id, session_token, imported, email_confirmed FROM signups WHERE email = ?')
+      .bind(columns.email)
+      .first<{ id: string; session_token: string | null; imported: number | null; email_confirmed: number | null }>()
+    if (existing?.imported && !existing.email_confirmed && getCookie(SESSION_COOKIE) !== existing.session_token) {
+      return { ok: false as const, message: 'Този имейл чака потвърждение от писмото.' }
+    }
     const id = existing?.id ?? crypto.randomUUID()
     const token = existing?.session_token ?? crypto.randomUUID()
     await db
@@ -182,7 +70,12 @@ export const saveSignup = createServerFn({ method: 'POST' })
            has_drone = excluded.has_drone,
            coordinator = excluded.coordinator,
            payload = excluded.payload,
-           email_confirmed = excluded.email_confirmed,
+           email_confirmed = CASE
+             WHEN signups.email_confirmed = 1 THEN 1
+             WHEN COALESCE(signups.imported, 0) = 1 AND signups.email_confirmed = 0 THEN 0
+             WHEN signups.email_code IS NOT NULL AND signups.email_code != '' THEN signups.email_confirmed
+             ELSE excluded.email_confirmed
+           END,
            consent = excluded.consent,
            submitted = excluded.submitted,
            withdrawn = excluded.withdrawn,
@@ -238,7 +131,7 @@ export const saveSignup = createServerFn({ method: 'POST' })
         .bind(person.id || crypto.randomUUID(), id, person.inGroup, person.firstName, person.middleName, person.lastName, person.email, person.phone, person.role, person.samePlace)
         .run()
     }
-    setCookie(COOKIE, token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
+    setCookie(SESSION_COOKIE, token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
     const countRow = data.referralCode
       ? await db.prepare('SELECT COUNT(*) AS n FROM signups WHERE referred_by = ?').bind(data.referralCode).first<{ n: number }>()
       : null
@@ -246,13 +139,14 @@ export const saveSignup = createServerFn({ method: 'POST' })
   })
 
 export const loadSignup = createServerFn({ method: 'GET' }).handler(async () => {
-  const db = await database()
-  const token = getCookie(COOKIE)
+  const db = await signupDatabase()
+  const token = getCookie(SESSION_COOKIE)
   if (!db || !token) return null
+  // published_section is the only assignment this session may see. draft_section is not selected.
   const row = await db
-    .prepare('SELECT id, payload, referral_code, referred_by, source, egn FROM signups WHERE session_token = ?')
+    .prepare('SELECT id, payload, referral_code, referred_by, source, egn, published_section FROM signups WHERE session_token = ?')
     .bind(token)
-    .first<Row>()
+    .first<SignupRow>()
   if (!row) return null
   const profile = profileFrom(row)
   const countRow = profile.referralCode

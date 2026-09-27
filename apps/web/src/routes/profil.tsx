@@ -5,7 +5,7 @@ import { ShareSignup } from '../components/ShareSignup'
 import { StaffNote } from '../components/StaffNote'
 import { loadSignup, saveSignup } from '../signup/db'
 import { isProtocolDay } from '../signup/election'
-import { nextAssignment, placeLabel, roleLabel, signupGap, type Profile } from '../signup/model'
+import { assignmentLocked, nextAssignment, placeLabel, profileView, roleLabel, signupGap, type Profile } from '../signup/model'
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
@@ -112,7 +112,7 @@ function ProfilePage() {
   const view = profileView(profile)
   const wave = nextAssignment(profile)
   const gap = signupGap(profile)
-  const assigned = view === 'assigned'
+  const assigned = assignmentLocked(profile)
   const canEditPlace = locationEditable(assigned)
 
   return (
@@ -145,8 +145,12 @@ function ProfilePage() {
       {view === 'assigned' ? (
         <section className="grid gap-3">
           <p className="text-sm font-bold text-[#666]">Назначена секция</p>
-          <h2 className="text-3xl font-black text-[#444]">{profile.place?.sectionPlace || placeLabel(profile.place)}</h2>
-          <p className="text-lg leading-7">{profile.rounds.first ? '25 октомври' : '1 ноември'}. Това е демо, докато алгоритъмът за разпределение не е готов.</p>
+          <h2 className="text-3xl font-black text-[#444]">{profile.assignedSection || profile.place?.sectionPlace || placeLabel(profile.place)}</h2>
+          {profile.assignedSection && profile.place?.sectionPlace ? <p className="leading-7">{profile.place.sectionPlace}</p> : null}
+          <p className="text-lg leading-7">
+            {profile.rounds.first ? '25 октомври' : '1 ноември'}.{' '}
+            {profile.assignedSection ? 'Секцията е публикувана от екипа.' : 'Това е демо, докато алгоритъмът за разпределение не е готов.'}
+          </p>
           <Link to="/znachka" className="brand-button">
             Отпечатай значката
           </Link>
@@ -235,12 +239,6 @@ function ProfilePage() {
       </section>
     </div>
   )
-}
-
-function profileView(profile: Profile): 'incomplete' | 'waiting' | 'assigned' {
-  if (profile.demoState === 'incomplete' || profile.demoState === 'waiting' || profile.demoState === 'assigned') return profile.demoState
-  if (profile.withdrawn || signupGap(profile)) return 'incomplete'
-  return 'waiting'
 }
 
 function resumeStep(profile: Profile) {

@@ -56,7 +56,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       ) : null}
-      <main className={path === '/signup' ? 'mx-auto w-full max-w-lg bg-white px-4 py-8 lg:max-w-6xl' : 'mx-auto w-full max-w-lg bg-white px-4 py-8'}>{children}</main>
+      <main className={path === '/signup' || path === '/admin' ? 'mx-auto w-full max-w-lg bg-white px-4 py-8 lg:max-w-6xl' : 'mx-auto w-full max-w-lg bg-white px-4 py-8'}>{children}</main>
       <div className="h-10 bg-[#38decb]" />
       <footer className="bg-[#eee] text-[#333]">
         <nav className="mx-auto flex max-w-lg flex-wrap gap-x-4 gap-y-2 px-4 py-6">

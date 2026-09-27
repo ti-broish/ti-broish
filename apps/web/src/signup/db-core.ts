@@ -1,0 +1,147 @@
+import { env } from 'cloudflare:workers'
+import { visibleSection } from './admin-csv'
+import { emptyProfile, type Profile } from './model'
+
+export const SESSION_COOKIE = 'tb_session'
+
+const SIGNUPS = `
+CREATE TABLE IF NOT EXISTS signups (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  session_token TEXT UNIQUE,
+  referral_code TEXT UNIQUE,
+  referred_by TEXT,
+  payload TEXT NOT NULL,
+  email_confirmed INTEGER NOT NULL DEFAULT 0,
+  withdrawn INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`
+
+const BASE_INDEXES = [
+  'CREATE INDEX IF NOT EXISTS idx_signups_referral ON signups(referral_code)',
+  'CREATE INDEX IF NOT EXISTS idx_signups_session ON signups(session_token)',
+]
+
+const ADD_COLUMNS = [
+  'ALTER TABLE signups ADD COLUMN source TEXT',
+  'ALTER TABLE signups ADD COLUMN egn TEXT',
+  'ALTER TABLE signups ADD COLUMN role TEXT',
+  'ALTER TABLE signups ADD COLUMN rounds_first INTEGER',
+  'ALTER TABLE signups ADD COLUMN rounds_runoff INTEGER',
+  'ALTER TABLE signups ADD COLUMN experience TEXT',
+  'ALTER TABLE signups ADD COLUMN region_code TEXT',
+  'ALTER TABLE signups ADD COLUMN mir_code TEXT',
+  'ALTER TABLE signups ADD COLUMN municipality_name TEXT',
+  'ALTER TABLE signups ADD COLUMN town_name TEXT',
+  'ALTER TABLE signups ADD COLUMN city_region_code TEXT',
+  'ALTER TABLE signups ADD COLUMN city_region_name TEXT',
+  'ALTER TABLE signups ADD COLUMN section_place TEXT',
+  'ALTER TABLE signups ADD COLUMN paper_count INTEGER',
+  'ALTER TABLE signups ADD COLUMN machine_count INTEGER',
+  'ALTER TABLE signups ADD COLUMN radius TEXT',
+  'ALTER TABLE signups ADD COLUMN extra_city_regions TEXT',
+  'ALTER TABLE signups ADD COLUMN distant_region_codes TEXT',
+  'ALTER TABLE signups ADD COLUMN travel_municipalities TEXT',
+  'ALTER TABLE signups ADD COLUMN has_car INTEGER',
+  'ALTER TABLE signups ADD COLUMN car_seats INTEGER',
+  'ALTER TABLE signups ADD COLUMN has_drone INTEGER',
+  'ALTER TABLE signups ADD COLUMN coordinator INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE signups ADD COLUMN consent INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE signups ADD COLUMN submitted INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE signups ADD COLUMN notes TEXT',
+  'ALTER TABLE signups ADD COLUMN draft_section TEXT',
+  'ALTER TABLE signups ADD COLUMN published_section TEXT',
+  'ALTER TABLE signups ADD COLUMN published_at TEXT',
+  'ALTER TABLE signups ADD COLUMN imported INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE signups ADD COLUMN confirm_token TEXT',
+  'ALTER TABLE signups ADD COLUMN email_code TEXT',
+]
+
+const COMPANIONS = `
+CREATE TABLE IF NOT EXISTS companions (
+  id TEXT PRIMARY KEY,
+  signup_id TEXT NOT NULL,
+  in_group INTEGER NOT NULL DEFAULT 1,
+  first_name TEXT NOT NULL,
+  middle_name TEXT NOT NULL DEFAULT '',
+  last_name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  role TEXT,
+  same_place INTEGER NOT NULL DEFAULT 1
+)`
+
+const TAKEN = `
+CREATE TABLE IF NOT EXISTS taken_sections (
+  section_code TEXT PRIMARY KEY,
+  mir_code TEXT,
+  place TEXT,
+  organisation TEXT NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL
+)`
+
+const INDEXES = [
+  'CREATE INDEX IF NOT EXISTS idx_signups_source ON signups(source)',
+  'CREATE INDEX IF NOT EXISTS idx_signups_mir ON signups(mir_code)',
+  'CREATE INDEX IF NOT EXISTS idx_signups_role ON signups(role)',
+  'CREATE INDEX IF NOT EXISTS idx_signups_confirm ON signups(confirm_token)',
+  'CREATE INDEX IF NOT EXISTS idx_companions_signup ON companions(signup_id)',
+  'CREATE INDEX IF NOT EXISTS idx_taken_mir ON taken_sections(mir_code)',
+]
+
+export interface SignupRow {
+  id: string
+  payload: string
+  referral_code: string | null
+  referred_by: string | null
+  source: string | null
+  egn: string | null
+  published_section: string | null
+}
+
+interface Statement {
+  run(): Promise<unknown>
+  first<T>(): Promise<T | null>
+  all<T>(): Promise<{ results?: T[] }>
+  bind(...values: unknown[]): Statement
+}
+
+export interface SignupD1 {
+  prepare(sql: string): Statement
+}
+
+export async function signupDatabase() {
+  const db = (env as unknown as { DB?: SignupD1 }).DB
+  if (!db) return null
+  await db.prepare(SIGNUPS).run()
+  for (const sql of BASE_INDEXES) await db.prepare(sql).run()
+  for (const sql of ADD_COLUMNS) {
+    try {
+      await db.prepare(sql).run()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!/duplicate column/i.test(message)) throw error
+    }
+  }
+  await db.prepare(COMPANIONS).run()
+  await db.prepare(TAKEN).run()
+  for (const sql of INDEXES) await db.prepare(sql).run()
+  return db
+}
+
+export function profileFrom(row: SignupRow): Profile {
+  const parsed = JSON.parse(row.payload) as Partial<Profile> & { draftSection?: unknown }
+  delete parsed.draftSection
+  delete parsed.assignedSection
+  return {
+    ...emptyProfile(),
+    ...parsed,
+    referralCode: row.referral_code ?? parsed.referralCode ?? '',
+    referredBy: row.referred_by ?? parsed.referredBy ?? null,
+    source: row.source ?? parsed.source ?? null,
+    egn: row.egn || parsed.egn || '',
+    assignedSection: visibleSection(row.published_section),
+  }
+}

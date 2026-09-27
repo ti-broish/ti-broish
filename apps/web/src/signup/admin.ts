@@ -1,0 +1,393 @@
+import { createServerFn } from '@tanstack/react-start'
+import { getCookie, getRequestHost, getRequestUrl, setCookie } from '@tanstack/react-start/server'
+import { env } from 'cloudflare:workers'
+import { campaignCsv, internalCsv, normalizeSection, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
+import { signupDatabase, type SignupD1 } from './db-core'
+import { deliverMail, importConfirmMail } from './mail'
+import { emptyProfile, type Profile } from './model'
+import { signupColumns } from './record'
+
+const ADMIN_COOKIE = 'tb_admin'
+const VIEWS: RosterView[] = ['all', 'assigned', 'unassigned', 'draft', 'abroad', 'mir']
+const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+type Database = SignupD1
+
+interface RawPerson {
+  id: string
+  email: string
+  first_name: string
+  middle_name: string
+  last_name: string
+  phone: string
+  mir: string
+  region: string
+  town: string
+  place: string
+  role: string
+  submitted: number
+  withdrawn: number
+  email_confirmed: number
+  imported: number
+  draft_section: string
+  published_section: string
+  egn?: string
+}
+
+function configuredToken() {
+  return (env as unknown as { ADMIN_TOKEN?: string }).ADMIN_TOKEN?.trim() ?? ''
+}
+
+function localHost(host: string) {
+  const bare = host.replace(/:\d+$/, '').replace(/^\[|\]$/g, '')
+  return bare === 'localhost' || bare === '127.0.0.1' || bare === '::1'
+}
+
+function safeEqual(input: string, expected: string) {
+  const left = new TextEncoder().encode(input)
+  const right = new TextEncoder().encode(expected)
+  if (left.byteLength !== right.byteLength || left.byteLength === 0) return false
+  const compare = (crypto.subtle as SubtleCrypto & { timingSafeEqual?: (a: Uint8Array, b: Uint8Array) => boolean }).timingSafeEqual
+  if (compare) return compare(left, right)
+  let mismatch = 0
+  for (let index = 0; index < left.length; index += 1) mismatch |= (left[index] ?? 0) ^ (right[index] ?? 0)
+  return mismatch === 0
+}
+
+function allowed() {
+  const token = configuredToken()
+  if (token) return safeEqual(getCookie(ADMIN_COOKIE) ?? '', token)
+  return import.meta.env.DEV === true && localHost(getRequestHost())
+}
+
+function denied() {
+  if (configuredToken()) return { ok: false as const, needsLogin: true as const, message: 'Нужен е код за достъп.' }
+  return { ok: false as const, needsLogin: false as const, message: 'Няма достъп.' }
+}
+
+function viewOf(value: string): RosterView {
+  return VIEWS.includes(value as RosterView) ? (value as RosterView) : 'all'
+}
+
+function origin() {
+  const url = getRequestUrl()
+  return `${url.protocol}//${url.host}`
+}
+
+function referralCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(6))
+  return [...bytes].map((byte) => ALPHABET[byte % ALPHABET.length]).join('')
+}
+
+function secretToken() {
+  return `${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`
+}
+
+function fieldsOf(row: RawPerson): RosterFields {
+  return {
+    id: row.id,
+    email: row.email,
+    firstName: row.first_name,
+    middleName: row.middle_name,
+    lastName: row.last_name,
+    phone: row.phone,
+    mir: row.mir,
+    region: row.region,
+    town: row.town,
+    place: row.place,
+    role: row.role,
+    submitted: row.submitted === 1,
+    withdrawn: row.withdrawn === 1,
+    emailConfirmed: row.email_confirmed === 1,
+    imported: row.imported === 1,
+    draftSection: row.draft_section,
+    publishedSection: row.published_section,
+    egn: row.egn ?? '',
+  }
+}
+
+const PERSON_SQL = `id, email,
+  COALESCE(json_extract(payload, '$.firstName'), '') AS first_name,
+  COALESCE(json_extract(payload, '$.middleName'), '') AS middle_name,
+  COALESCE(json_extract(payload, '$.lastName'), '') AS last_name,
+  COALESCE(json_extract(payload, '$.phone'), '') AS phone,
+  COALESCE(mir_code, '') AS mir,
+  COALESCE(region_code, '') AS region,
+  COALESCE(town_name, '') AS town,
+  COALESCE(section_place, '') AS place,
+  COALESCE(role, '') AS role,
+  COALESCE(submitted, 0) AS submitted,
+  COALESCE(withdrawn, 0) AS withdrawn,
+  COALESCE(email_confirmed, 0) AS email_confirmed,
+  COALESCE(imported, 0) AS imported,
+  COALESCE(draft_section, '') AS draft_section,
+  COALESCE(published_section, '') AS published_section`
+
+function bound(db: Database, sql: string, binds: unknown[]) {
+  const statement = db.prepare(sql)
+  return binds.length > 0 ? statement.bind(...binds) : statement
+}
+
+async function selectPeople(db: Database, clause: string, binds: string[], limit: number, offset: number, withEgn: boolean) {
+  const egn = withEgn ? ", COALESCE(egn, '') AS egn" : ''
+  const result = await bound(
+    db,
+    `SELECT ${PERSON_SQL}${egn} FROM signups WHERE ${clause} ORDER BY updated_at DESC LIMIT ${limit} OFFSET ${offset}`,
+    binds,
+  ).all<RawPerson>()
+  return result.results ?? []
+}
+
+export const adminLogin = createServerFn({ method: 'POST' })
+  .validator((input: { token: string }) => input)
+  .handler(async ({ data }) => {
+    const expected = configuredToken()
+    if (!expected) return { ok: false as const, message: 'Достъпът не е отворен на този адрес.' }
+    if (!safeEqual(data.token, expected)) return { ok: false as const, message: 'Кодът не съвпада.' }
+    setCookie(ADMIN_COOKIE, expected, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 12 })
+    return { ok: true as const }
+  })
+
+export const adminRoster = createServerFn({ method: 'POST' })
+  .validator((input: { view: string; mir: string }) => input)
+  .handler(async ({ data }) => {
+    if (!allowed()) return denied()
+    const db = await signupDatabase()
+    if (!db) return { ok: false as const, needsLogin: false as const, message: 'Няма база за записванията.' }
+    const filter = rosterWhere(viewOf(data.view), data.mir)
+    if ('error' in filter) return { ok: false as const, needsLogin: false as const, message: filter.error }
+    const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
+    const people = (await selectPeople(db, filter.clause, filter.binds, 300, 0, false)).map(fieldsOf)
+    const takenMir = viewOf(data.view) === 'mir' ? filter.binds[0] ?? '' : ''
+    const taken = await db
+      .prepare(
+        `SELECT section_code, COALESCE(mir_code, '') AS mir_code, COALESCE(place, '') AS place, organisation, COALESCE(note, '') AS note
+         FROM taken_sections WHERE (? = '' OR mir_code = ?) ORDER BY created_at DESC LIMIT 200`,
+      )
+      .bind(takenMir, takenMir)
+      .all<{ section_code: string; mir_code: string; place: string; organisation: string; note: string }>()
+    return {
+      ok: true as const,
+      total: total?.n ?? people.length,
+      people,
+      taken: taken.results ?? [],
+    }
+  })
+
+export const adminExport = createServerFn({ method: 'POST' })
+  .validator((input: { view: string; mir: string; kind: string }) => input)
+  .handler(async ({ data }) => {
+    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
+    const db = await signupDatabase()
+    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const filter = rosterWhere(viewOf(data.view), data.mir)
+    if ('error' in filter) return { ok: false as const, message: filter.error }
+    const people: RosterFields[] = []
+    for (let offset = 0; people.length < 5000; offset += 400) {
+      const chunk = await selectPeople(db, filter.clause, filter.binds, 400, offset, data.kind !== 'campaign')
+      people.push(...chunk.map(fieldsOf))
+      if (chunk.length < 400) break
+    }
+    const campaign = data.kind === 'campaign'
+    const exported = campaign ? people.map((person) => ({ ...person, egn: '', draftSection: '' })) : people
+    const csv = campaign ? campaignCsv(exported) : internalCsv(exported)
+    const stamp = new Date().toISOString().slice(0, 10)
+    return { ok: true as const, csv, filename: campaign ? `ti-broish-brevo-${stamp}.csv` : `ti-broish-ekip-${stamp}.csv` }
+  })
+
+export const adminDraft = createServerFn({ method: 'POST' })
+  .validator((input: { id: string; section: string }) => input)
+  .handler(async ({ data }) => {
+    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
+    const db = await signupDatabase()
+    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const section = normalizeSection(data.section).slice(0, 32)
+    await db.prepare(`UPDATE signups SET draft_section = NULLIF(?, ''), updated_at = ? WHERE id = ?`).bind(section, new Date().toISOString(), data.id).run()
+    const taken = section
+      ? await db.prepare('SELECT organisation FROM taken_sections WHERE section_code = ?').bind(section).first<{ organisation: string }>()
+      : null
+    return { ok: true as const, warning: taken ? `Секцията е заета от ${taken.organisation}.` : '' }
+  })
+
+export const adminPublish = createServerFn({ method: 'POST' })
+  .validator((input: { view: string; mir: string }) => input)
+  .handler(async ({ data }) => {
+    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
+    const db = await signupDatabase()
+    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const filter = rosterWhere(viewOf(data.view), data.mir)
+    if ('error' in filter) return { ok: false as const, message: filter.error }
+    const pending = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
+    const count = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE (${filter.clause}) AND ${pending}`, filter.binds).first<{ n: number }>()
+    const now = new Date().toISOString()
+    await bound(db, `UPDATE signups SET published_section = draft_section, published_at = ?, updated_at = ? WHERE (${filter.clause}) AND ${pending}`, [now, now, ...filter.binds]).run()
+    return { ok: true as const, published: count?.n ?? 0 }
+  })
+
+export const adminImportTaken = createServerFn({ method: 'POST' })
+  .validator((input: { csv: string }) => input)
+  .handler(async ({ data }) => {
+    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
+    if (data.csv.length > 500_000) return { ok: false as const, message: 'Файлът е твърде голям.' }
+    const parsed = parseTakenCsv(data.csv)
+    if (parsed.rows.length > 2000) return { ok: false as const, message: 'Най-много 2000 секции наведнъж.' }
+    const db = await signupDatabase()
+    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const now = new Date().toISOString()
+    for (const row of parsed.rows) {
+      await db
+        .prepare(
+          `INSERT INTO taken_sections (section_code, mir_code, place, organisation, note, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(section_code) DO UPDATE SET
+             mir_code = excluded.mir_code, place = excluded.place, organisation = excluded.organisation, note = excluded.note`,
+        )
+        .bind(row.sectionCode, row.mirCode, row.place, row.organisation, row.note, now)
+        .run()
+    }
+    return { ok: true as const, imported: parsed.rows.length, errors: parsed.errors.slice(0, 8) }
+  })
+
+export const adminImportPeople = createServerFn({ method: 'POST' })
+  .validator((input: { csv: string }) => input)
+  .handler(async ({ data }) => {
+    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
+    if (data.csv.length > 500_000) return { ok: false as const, message: 'Файлът е твърде голям.' }
+    const parsed = parsePeopleCsv(data.csv)
+    if (parsed.rows.length > 500) return { ok: false as const, message: 'Най-много 500 души наведнъж.' }
+    const db = await signupDatabase()
+    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const links: { email: string; link: string }[] = []
+    let imported = 0
+    let skipped = 0
+    let mailed = 0
+    const errors = [...parsed.errors]
+    for (const person of parsed.rows) {
+      try {
+        const result = await importPerson(db, person)
+        if (!result) {
+          skipped += 1
+          errors.push(`${person.email}: вече има запис.`)
+          continue
+        }
+        imported += 1
+        const sent = await deliverMail(importConfirmMail(person.email, result.link))
+        if (sent) mailed += 1
+        else if (links.length < 30) links.push({ email: person.email, link: result.link })
+      } catch {
+        skipped += 1
+        errors.push(`${person.email}: не можа да се запише.`)
+      }
+    }
+    return { ok: true as const, imported, skipped, mailed, links, errors: errors.slice(0, 8) }
+  })
+
+export const adminResendImports = createServerFn({ method: 'POST' })
+  .validator((input: { limit: number }) => input)
+  .handler(async ({ data }) => {
+    if (!allowed()) return { ok: false as const, message: 'Няма достъп.' }
+    const db = await signupDatabase()
+    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    const limit = Math.min(100, Math.max(1, Math.floor(data.limit || 100)))
+    const rows = await db
+      .prepare(
+        `SELECT email, confirm_token FROM signups
+         WHERE COALESCE(imported, 0) = 1 AND COALESCE(email_confirmed, 0) = 0 AND COALESCE(confirm_token, '') != ''
+         ORDER BY updated_at DESC LIMIT ${limit}`,
+      )
+      .all<{ email: string; confirm_token: string }>()
+    let mailed = 0
+    const links: { email: string; link: string }[] = []
+    for (const row of rows.results ?? []) {
+      const link = `${origin()}/potvardi?token=${row.confirm_token}`
+      const sent = await deliverMail(importConfirmMail(row.email, link))
+      if (sent) mailed += 1
+      else if (links.length < 30) links.push({ email: row.email, link })
+    }
+    return { ok: true as const, mailed, pending: (rows.results ?? []).length, links }
+  })
+
+async function importPerson(db: Database, person: { firstName: string; middleName: string; lastName: string; email: string; phone: string; mir: string; place: string; note: string; role: string }) {
+  const existing = await db
+    .prepare('SELECT email_confirmed, imported, payload, referral_code FROM signups WHERE email = ?')
+    .bind(person.email)
+    .first<{ email_confirmed: number | null; imported: number | null; payload: string; referral_code: string | null }>()
+  if (existing && (existing.email_confirmed === 1 || !existing.imported)) return null
+  const token = secretToken()
+  const now = new Date().toISOString()
+  const referral = existing?.referral_code || referralCode()
+  const columns = columnsFor(existing?.payload ?? '', person, referral)
+  const link = `${origin()}/potvardi?token=${token}`
+  if (existing) {
+    await db
+      .prepare(
+        `UPDATE signups SET payload = ?, confirm_token = ?, mir_code = COALESCE(NULLIF(?, ''), mir_code),
+           section_place = COALESCE(NULLIF(?, ''), section_place), role = COALESCE(NULLIF(?, ''), role), notes = ?, updated_at = ?
+         WHERE email = ? AND COALESCE(email_confirmed, 0) = 0 AND COALESCE(imported, 0) = 1`,
+      )
+      .bind(columns.payload, token, columns.mirCode, columns.sectionPlace, columns.role, columns.notes, now, person.email)
+      .run()
+    return { link }
+  }
+  await db
+    .prepare(
+      `INSERT INTO signups (
+         id, email, session_token, referral_code, payload, email_confirmed, withdrawn, imported, confirm_token,
+         mir_code, section_place, role, notes, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, 0, 0, 1, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      person.email,
+      crypto.randomUUID(),
+      referral,
+      columns.payload,
+      token,
+      columns.mirCode,
+      columns.sectionPlace,
+      columns.role,
+      columns.notes,
+      now,
+      now,
+    )
+    .run()
+  return { link }
+}
+
+function columnsFor(
+  current: string,
+  person: { firstName: string; middleName: string; lastName: string; email: string; phone: string; mir: string; place: string; note: string; role: string },
+  referral: string,
+) {
+  let parsed: Partial<Profile> = {}
+  if (current) {
+    try {
+      parsed = JSON.parse(current) as Partial<Profile>
+    } catch {
+      parsed = {}
+    }
+  }
+  const profile = {
+    ...emptyProfile(),
+    ...parsed,
+    firstName: person.firstName || parsed.firstName || '',
+    middleName: person.middleName || parsed.middleName || '',
+    lastName: person.lastName || parsed.lastName || '',
+    email: person.email,
+    phone: person.phone || parsed.phone || '',
+    notes: person.note || parsed.notes || '',
+    referralCode: referral,
+    egn: '',
+    assignedSection: null,
+    role: person.role === 'mobile' || person.role === 'section' ? person.role : (parsed.role ?? null),
+  }
+  delete (profile as Profile & { draftSection?: unknown }).draftSection
+  if (person.place) {
+    profile.place = {
+      regionCode: person.mir ? person.mir.padStart(2, '0') : (parsed.place?.regionCode ?? ''),
+      regionName: parsed.place?.regionName ?? '',
+      sectionPlace: person.place,
+    }
+  }
+  return signupColumns(profile)
+}

@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { getCookie, getRequestUrl } from '@tanstack/react-start/server'
+import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
 import { campaignCsv, internalCsv, normalizeSection, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { deliverMail, importConfirmMail, staffInviteMail } from './mail'
@@ -60,6 +60,24 @@ async function listStaff(db: Database) {
     return role ? [{ email: row.email, role, invitedBy: row.invited_by }] : []
   })
 }
+
+export const claimStaffSession = createServerFn({ method: 'POST' })
+  .validator((input: { email: string }) => input)
+  .handler(async ({ data }) => {
+    const db = await signupDatabase()
+    const email = data.email.trim().toLowerCase()
+    if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
+    if (!validEmail(email)) return { ok: false as const, message: 'Имейлът не е валиден.' }
+    const row = await db
+      .prepare('SELECT session_token, email_confirmed FROM signups WHERE lower(email) = ?')
+      .bind(email)
+      .first<{ session_token: string | null; email_confirmed: number }>()
+    if (!row?.email_confirmed || !row.session_token) return { ok: false as const, message: 'Няма потвърден профил с този имейл.' }
+    const member = await db.prepare('SELECT role FROM staff WHERE email = ?').bind(email).first<{ role: string }>()
+    if (!parseStaffRole(member?.role)) return { ok: false as const, message: 'Този имейл не е поканен в екипа.' }
+    setCookie(SESSION_COOKIE, row.session_token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
+    return { ok: true as const }
+  })
 
 async function adminCount(db: Database) {
   const row = await db.prepare(`SELECT COUNT(*) AS n FROM staff WHERE role = 'admin'`).first<{ n: number }>()

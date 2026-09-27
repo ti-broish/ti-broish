@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { emptyProfile, nextAssignment, signupGap, stepsFor, type Companion, type HomePlace } from './model'
 import { companionRows, signupColumns } from './record'
 import { validateCall, validateProtocol, validateViolation } from './reports-validate'
+import { isProtocolDay } from './election'
 import { placeSummaries } from './sections'
 
 const home: HomePlace = {
@@ -99,6 +100,15 @@ describe('signup flow', () => {
       ['maria@example.com', 1],
       ['peter@example.com', 0],
     ])
+  })
+})
+
+describe('protocol day', () => {
+  it('is only the two election dates in Sofia', () => {
+    expect(isProtocolDay(new Date('2026-10-25T09:00:00Z'))).toBe(true)
+    expect(isProtocolDay(new Date('2026-11-01T09:00:00Z'))).toBe(true)
+    expect(isProtocolDay(new Date('2026-10-24T09:00:00Z'))).toBe(false)
+    expect(isProtocolDay(new Date('2026-09-27T09:00:00Z'))).toBe(false)
   })
 })
 

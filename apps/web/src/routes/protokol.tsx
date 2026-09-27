@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
 import { PhotoField } from '../components/PhotoField'
 import { loadSignup } from '../signup/db'
+import { isProtocolDay } from '../signup/election'
 import { rememberReport } from '../signup/report-memory'
 import { submitProtocol } from '../signup/reports'
 import type { PhotoInput } from '../signup/reports-validate'
@@ -35,6 +36,20 @@ function ProtocolPage() {
       cancelled = true
     }
   }, [ready, profile.email])
+
+  if (!isProtocolDay()) {
+    return (
+      <div className="grid gap-4">
+        <PageIntro
+          title="Протоколът се праща в изборния ден"
+          lede="Изпращането е отворено на 25 октомври и на 1 ноември. Дотогава сигналът за нарушение си остава."
+        />
+        <Link to="/signal" className="brand-button">
+          Подай сигнал
+        </Link>
+      </div>
+    )
+  }
 
   if (sent) {
     return (

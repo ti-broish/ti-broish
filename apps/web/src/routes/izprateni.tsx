@@ -1,6 +1,7 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
+import { isProtocolDay } from '../signup/election'
 import { readReports } from '../signup/report-memory'
 import { listReports, type ReportSummary } from '../signup/reports'
 
@@ -21,9 +22,11 @@ function SentPage() {
       <Link to="/signal" className="brand-button">
         Подай сигнал
       </Link>
-      <Link to="/protokol" className="brand-button">
-        Изпрати протокол
-      </Link>
+      {isProtocolDay() ? (
+        <Link to="/protokol" className="brand-button">
+          Изпрати протокол
+        </Link>
+      ) : null}
       {items === null ? <p>Зареждаме…</p> : null}
       {items?.length === 0 ? <p>Още няма изпратени неща от този браузър.</p> : null}
       <ul className="grid gap-3">

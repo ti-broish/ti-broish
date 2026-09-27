@@ -801,7 +801,7 @@ function Review({ error, onError }: { error: string; onError: (value: string) =>
       <label className="flex items-start gap-3 rounded-2xl bg-white px-4 py-4 leading-7">
         <input type="checkbox" className="mt-1" checked={profile.consent} onChange={(event) => updateProfile({ consent: event.target.checked })} />
         <span>
-          Разбирам, че това е доброволна дейност без заплащане и че ще бъдете представител на Инициативния комитет за президентската двойка Андрей Гюров и Георги Кандев. Запознат съм с{' '}
+          Разбирам, че това е доброволна дейност без заплащане и че ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев. Запознат съм с{' '}
           <Link to="/privacy-notice">декларацията за поверителност</Link>.
         </span>
       </label>
@@ -816,7 +816,7 @@ function Review({ error, onError }: { error: string; onError: (value: string) =>
 function LegalNotice() {
   return (
     <p className="rounded-xl bg-[#eee] px-3 py-3 text-sm leading-6 text-[#333]">
-      Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за президентската двойка Андрей Гюров и Георги Кандев.
+      Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.
     </p>
   )
 }

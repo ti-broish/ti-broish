@@ -4,6 +4,7 @@ import { PageIntro } from '../components/SiteChrome'
 import { PhotoField } from '../components/PhotoField'
 import { PlacesPicker } from '../components/PlacesPicker'
 import { loadSignup } from '../signup/db'
+import { isProtocolDay } from '../signup/election'
 import { placeLabel, placeReady, validEmail, validPhone, type HomePlace } from '../signup/model'
 import { rememberReport } from '../signup/report-memory'
 import { submitViolation } from '../signup/reports'
@@ -59,9 +60,11 @@ function SignalPage() {
         <button type="button" className="brand-button" onClick={() => setSent(null)}>
           Изпрати друг сигнал
         </button>
-        <Link to="/protokol" className="brand-button">
-          Изпрати протокол
-        </Link>
+        {isProtocolDay() ? (
+          <Link to="/protokol" className="brand-button">
+            Изпрати протокол
+          </Link>
+        ) : null}
       </div>
     )
   }

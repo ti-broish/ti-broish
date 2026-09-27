@@ -4,6 +4,7 @@ import { PageIntro } from '../components/SiteChrome'
 import { ShareSignup } from '../components/ShareSignup'
 import { StaffNote } from '../components/StaffNote'
 import { loadSignup, saveSignup } from '../signup/db'
+import { isProtocolDay } from '../signup/election'
 import { nextAssignment, placeLabel, roleLabel, signupGap, type Profile } from '../signup/model'
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
@@ -90,14 +91,18 @@ function ProfilePage() {
   if (!profile.email) {
     return (
       <div className="grid gap-4">
-        <PageIntro title="Още нямаш профил" lede="Запиши се. Сигнал и протокол можеш да изпратиш и без профил." />
+        <PageIntro title="Още нямаш профил" lede="Запиши се. Сигнал можеш да изпратиш и без профил." />
         <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
           Запиши се
         </Link>
         <p className="text-sm leading-7">
           <Link to="/signal">Подай сигнал</Link>
-          {' · '}
-          <Link to="/protokol">Изпрати протокол</Link>
+          {isProtocolDay() ? (
+            <>
+              {' · '}
+              <Link to="/protokol">Изпрати протокол</Link>
+            </>
+          ) : null}
         </p>
         <AnonymousCall />
       </div>
@@ -196,8 +201,12 @@ function ProfilePage() {
         <StaffNote />
         <p>
           <Link to="/signal">Подай сигнал</Link>
-          {' · '}
-          <Link to="/protokol">Изпрати протокол</Link>
+          {isProtocolDay() ? (
+            <>
+              {' · '}
+              <Link to="/protokol">Изпрати протокол</Link>
+            </>
+          ) : null}
           {' · '}
           <Link to="/izprateni">Изпратените</Link>
         </p>
@@ -221,7 +230,7 @@ function ProfilePage() {
           </button>
         ) : null}
         <p className="text-sm leading-6">
-          Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за президентската двойка Андрей Гюров и Георги Кандев.
+          Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.
         </p>
       </section>
     </div>

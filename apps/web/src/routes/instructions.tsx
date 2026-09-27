@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
+import { isProtocolDay } from '../signup/election'
 
 export const Route = createFileRoute('/instructions')({ component: InstructionsPage })
 
@@ -21,8 +22,14 @@ function InstructionsPage() {
         <li>Не пречиш на СИК и не пропускаш нарушение.</li>
         <li>Без копие от протокола работата не е приключила.</li>
         <li>
-          Нарушение, което СИК не махне, се подава от <Link to="/signal">сигнала</Link>. Копието от протокола се праща от{' '}
-          <Link to="/protokol">протокола</Link>. И двете работят без профил.
+          Нарушение, което СИК не махне, се подава от <Link to="/signal">сигнала</Link>. Копието от протокола се праща в изборния ден
+          {isProtocolDay() ? (
+            <>
+              {' '}
+              от <Link to="/protokol">протокола</Link>
+            </>
+          ) : null}
+          . Работи и без профил.
         </li>
       </ul>
       <ul className="space-y-3 text-lg leading-7">

@@ -1,5 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
+import { isProtocolDay } from '../signup/election'
 
 const links = [
   { to: '/about', label: 'Кампанията' },
@@ -68,14 +69,22 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
           <Link to="/signal" className="font-bold text-[#333] no-underline">
             Подай сигнал
           </Link>
-          <Link to="/protokol" className="font-bold text-[#333] no-underline">
-            Изпрати протокол
-          </Link>
+          {isProtocolDay() ? (
+            <Link to="/protokol" className="font-bold text-[#333] no-underline">
+              Изпрати протокол
+            </Link>
+          ) : null}
           <Link to="/privacy-notice" className="font-bold text-[#333] no-underline">
             Поверителност
           </Link>
           <a className="font-bold text-[#333]" href="https://www.facebook.com/tibroish/">
             Facebook
+          </a>
+          <a className="font-bold text-[#333]" href="https://www.instagram.com/tibroish/">
+            Instagram
+          </a>
+          <a className="font-bold text-[#333]" href="https://www.tiktok.com/@tibroish">
+            TikTok
           </a>
         </nav>
         <p className="bg-[#666] py-4 text-center font-bold text-white">Ти Броиш © {new Date().getFullYear()}</p>

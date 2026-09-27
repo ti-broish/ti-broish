@@ -55,7 +55,9 @@ export function storedProfile(profile: Profile): Profile {
     source = source || referredBy.toLowerCase()
     referredBy = null
   }
-  return { ...profile, email, source, referredBy }
+  const stored = { ...profile, email, source, referredBy }
+  delete (stored as { demoState?: unknown }).demoState
+  return stored
 }
 
 export function signupColumns(profile: Profile): SignupColumns {

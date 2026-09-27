@@ -13,8 +13,15 @@ test('the top nav matches the short menu and the footer links to contact', async
   const footer = page.locator('footer')
   await expect(footer).not.toContainText('team@tibroish.bg')
   await expect(footer).not.toContainText('Изпрати протокол')
-  await expect(footer.getByRole('link', { name: 'Instagram' })).toHaveAttribute('href', 'https://www.instagram.com/tibroish/')
-  await expect(footer.getByRole('link', { name: 'TikTok' })).toHaveAttribute('href', 'https://www.tiktok.com/@tibroish')
+  for (const [name, href] of [
+    ['Facebook', 'https://www.facebook.com/tibroish/'],
+    ['Instagram', 'https://www.instagram.com/tibroish/'],
+    ['TikTok', 'https://www.tiktok.com/@tibroish'],
+  ] as const) {
+    const link = footer.getByRole('link', { name })
+    await expect(link).toHaveAttribute('href', href)
+    await expect(link).toHaveAttribute('target', '_blank')
+  }
   await page.locator('footer').getByRole('link', { name: 'Контакт' }).click()
   await expect(page.getByRole('heading', { name: 'Връзка с нас' })).toBeVisible()
   await page.getByRole('link', { name: 'въпросите и отговорите' }).click()

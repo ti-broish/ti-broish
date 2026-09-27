@@ -22,7 +22,13 @@
 			"database_name": "ti-broish-signup-staging",
 			"database_id": "9625b7ab-b6a0-474a-9fa7-2d9bfd1ca6e7"
 		}
-	]
+	],
+	"env": {
+		"production": {
+			"name": "ti-broish-web",
+			"workers_dev": false
+		}
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

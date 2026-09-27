@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  check:
+  unit:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -24,5 +24,37 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --noEmit --pretty false
       - run: pnpm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+
+  check:
+    needs: [unit, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless unit and e2e succeeded
+        run: |
+          unit="${{ needs.unit.result }}"
+          e2e="${{ needs.e2e.result }}"
+          if [ "$unit" = "success" ] && [ "$e2e" = "success" ]; then
+            exit 0
+          fi
+          echo "unit=$unit e2e=$e2e"
+          exit 1

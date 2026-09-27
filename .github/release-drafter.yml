@@ -1,0 +1,12 @@
+name-template: v$NEXT_PATCH_VERSION
+tag-template: v$NEXT_PATCH_VERSION
+change-template: '- $TITLE (#$NUMBER)'
+change-title-escapes: '\<*_&'
+categories:
+  - title: Changes
+template: |
+  ## Changes since $PREVIOUS_TAG
+
+  $CHANGES
+
+  These changes are already on staging after they merged. Publishing this release deploys production only when production is enabled. Until then, publishing keeps the notes and does not change tibroish.bg.

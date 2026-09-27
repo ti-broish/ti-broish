@@ -56,6 +56,7 @@ test('a city district does not ask for car seats, and travel outside the city do
 
   await seedProfile(page, registered({ radius: 'municipality' }))
   await page.goto('/signup?step=travel')
+  await expect(page.getByRole('radio', { name: 'В община Столична' })).toBeChecked()
   await page.getByRole('button', { name: 'Напред' }).click()
   await expect(page.getByRole('heading', { name: 'Свободни места в колата' })).toBeVisible()
 })

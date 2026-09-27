@@ -1,7 +1,8 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
-import { adminDraft, adminExport, adminImportPeople, adminImportTaken, adminInvite, adminPublish, adminResendImports, adminRoster, adminStaffRemove, adminStaffRole } from '../signup/admin'
+import { adminDraft, adminExport, adminImportPeople, adminImportTaken, adminInvite, adminPublish, adminResendImports, adminRoster, adminStaffRemove, adminStaffRole, claimStaffSession } from '../signup/admin'
+import { useProfile } from '../signup/store'
 import type { RosterFields } from '../signup/admin-csv'
 import { STAFF_ROLES, staffRoleLabel, type StaffRole } from '../signup/staff'
 
@@ -105,11 +106,7 @@ function AdminPage() {
       <div className="grid gap-4">
         <PageIntro title="Записани хора" lede="Достъпът е по покана за потвърден имейл." />
         <p>{access.kind === 'loading' ? 'Проверяваме достъпа…' : access.message}</p>
-        {access.kind === 'closed' ? (
-          <Link to="/profil" className="font-bold">
-            Отвори профила
-          </Link>
-        ) : null}
+        {access.kind === 'closed' ? <StaffSignIn onDone={() => load()} /> : null}
       </div>
     )
   }
@@ -342,6 +339,40 @@ function AdminPage() {
       </>
       ) : null}
     </div>
+  )
+}
+
+function StaffSignIn({ onDone }: { onDone: () => void }) {
+  const { profile, ready } = useProfile()
+  const [email, setEmail] = useState('')
+  const [note, setNote] = useState('')
+  useEffect(() => {
+    if (ready && profile.email) setEmail(profile.email)
+  }, [ready, profile.email])
+  return (
+    <form
+      className="grid gap-3"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void claimStaffSession({ data: { email } }).then((result) => {
+          if (!result.ok) {
+            setNote(result.message)
+            return
+          }
+          onDone()
+        })
+      }}
+    >
+      <p>Профилът в браузъра не отваря списъка. Влез с потвърдения имейл, който е в екипа.</p>
+      <label className="grid gap-1 text-sm font-semibold">
+        Имейл
+        <input className={field} type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+      </label>
+      {note ? <p className="text-sm text-red-700">{note}</p> : null}
+      <button className={button} type="submit">
+        Влез в списъка
+      </button>
+    </form>
   )
 }
 

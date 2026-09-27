@@ -146,9 +146,10 @@ export async function signupDatabase() {
 }
 
 export function profileFrom(row: SignupRow): Profile {
-  const parsed = JSON.parse(row.payload) as Partial<Profile> & { draftSection?: unknown }
+  const parsed = JSON.parse(row.payload) as Partial<Profile> & { draftSection?: unknown; demoState?: unknown }
   delete parsed.draftSection
   delete parsed.assignedSection
+  delete parsed.demoState
   return {
     ...emptyProfile(),
     ...parsed,

@@ -93,8 +93,10 @@ describe('signup flow', () => {
     expect(columns.egn).toBe('0041010002')
     expect(JSON.parse(columns.payload).egn).toBe('')
     expect(JSON.parse(signupColumns({ ...profile, assignedSection: '234600101' }).payload).assignedSection).toBeUndefined()
-    expect(profileView({ ...profile, egn: '0041010002', consent: true, assignedSection: '234600101' })).toBe('assigned')
-    expect(profileView({ ...profile, egn: '0041010002', consent: true, demoState: 'waiting', assignedSection: '234600101' })).toBe('waiting')
+    const assigned = { ...profile, egn: '0041010002', consent: true, assignedSection: '234600101' }
+    expect(profileView(assigned)).toBe('assigned')
+    expect(profileView({ ...assigned, demoState: 'waiting' } as typeof assigned & { demoState: string })).toBe('assigned')
+    expect(JSON.parse(signupColumns({ ...assigned, demoState: 'waiting' } as typeof assigned & { demoState: string }).payload).demoState).toBeUndefined()
     expect(columns.mirCode).toBe('23')
     expect(columns.sectionPlace).toBe('ул. Пример 1')
     expect(columns.carSeats).toBe(2)

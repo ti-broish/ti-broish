@@ -10,7 +10,9 @@ function read(): Profile {
   try {
     const raw = window.localStorage.getItem(KEY)
     if (!raw) return emptyProfile()
-    return { ...emptyProfile(), ...JSON.parse(raw) }
+    const parsed = JSON.parse(raw) as Partial<Profile> & { demoState?: unknown }
+    delete parsed.demoState
+    return { ...emptyProfile(), ...parsed }
   } catch {
     return emptyProfile()
   }

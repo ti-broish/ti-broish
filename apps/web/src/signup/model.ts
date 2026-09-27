@@ -72,7 +72,6 @@ export interface Profile {
   carSeats: number
   hasCar: boolean | null
   hasDrone: boolean | null
-  demoState: 'auto' | 'incomplete' | 'waiting' | 'assigned'
   wantsAction: boolean
   companions: Companion[]
   inviteCode: string
@@ -112,7 +111,6 @@ export const emptyProfile = (): Profile => ({
   carSeats: 0,
   hasCar: null,
   hasDrone: null,
-  demoState: 'auto',
   wantsAction: false,
   companions: [],
   inviteCode: '',
@@ -185,12 +183,11 @@ export function nextAssignment(profile: Pick<Profile, 'rounds'>, now = new Date(
   return waves.find((wave) => wave.iso >= today) ?? waves[waves.length - 1]
 }
 
-export function assignmentLocked(profile: Pick<Profile, 'demoState' | 'assignedSection'>) {
-  return profile.demoState === 'assigned' || Boolean(profile.assignedSection)
+export function assignmentLocked(profile: Pick<Profile, 'assignedSection'>) {
+  return Boolean(profile.assignedSection)
 }
 
 export function profileView(profile: Profile): 'incomplete' | 'waiting' | 'assigned' {
-  if (profile.demoState === 'incomplete' || profile.demoState === 'waiting' || profile.demoState === 'assigned') return profile.demoState
   if (profile.assignedSection) return 'assigned'
   if (profile.withdrawn || signupGap(profile)) return 'incomplete'
   return 'waiting'

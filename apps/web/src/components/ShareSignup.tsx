@@ -43,7 +43,7 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
           className={`${iconClass} bg-[#1877f2] hover:bg-[#166fe5]`}
           href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           aria-label="Сподели във Facebook"
           onClick={() => {
             void copyText(message)
@@ -56,10 +56,12 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
         <a
           className={`${iconClass} bg-[#7360f2] hover:bg-[#5a4bc7]`}
           href={`viber://forward?text=${encodeURIComponent(message)}`}
+          target="_blank"
+          rel="noopener noreferrer"
           aria-label="Сподели във Viber"
           onClick={() => {
             window.setTimeout(() => {
-              window.open(`https://vb.me/share?url=${encodeURIComponent(link)}&text=${encodeURIComponent(shareText)}`, '_blank')
+              window.open(`https://vb.me/share?url=${encodeURIComponent(link)}&text=${encodeURIComponent(shareText)}`, '_blank', 'noopener,noreferrer')
             }, 500)
           }}
         >
@@ -71,15 +73,11 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
         <a
           className={`${iconClass} bg-[linear-gradient(45deg,#f09433_0%,#e6683c_25%,#dc2743_50%,#cc2366_75%,#bc1888_100%)]`}
           href="https://www.instagram.com/"
+          target="_blank"
+          rel="noopener noreferrer"
           aria-label="Сподели в Instagram"
-          onClick={(event) => {
-            event.preventDefault()
-            void copyText(message).finally(() => {
-              window.location.href = 'instagram://'
-              window.setTimeout(() => {
-                window.open('https://www.instagram.com/', '_blank')
-              }, 500)
-            })
+          onClick={() => {
+            void copyText(message)
           }}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -90,7 +88,7 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
           className={`${iconClass} bg-black hover:bg-[#333]`}
           href={`https://www.threads.net/intent/post?text=${encodeURIComponent(message)}`}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           aria-label="Сподели в Threads"
         >
           <svg width="20" height="20" viewBox="0 0 192 192" fill="white" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -101,7 +99,7 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
           className={`${iconClass} bg-black hover:bg-[#333]`}
           href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(link)}&text=${encodeURIComponent(shareText)}`}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           aria-label="Сподели в X (Twitter)"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -112,7 +110,7 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
           className={`${iconClass} bg-[#25d366] hover:bg-[#20ba5a]`}
           href={`https://wa.me/?text=${encodeURIComponent(message)}`}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           aria-label="Сподели в WhatsApp"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -123,7 +121,7 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
           className={`${iconClass} bg-[#0077b5] hover:bg-[#005885]`}
           href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(link)}`}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           aria-label="Сподели в LinkedIn"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

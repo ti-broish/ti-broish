@@ -145,11 +145,10 @@ function ProfilePage() {
       {view === 'assigned' ? (
         <section className="grid gap-3">
           <p className="text-sm font-bold text-[#666]">Назначена секция</p>
-          <h2 className="text-3xl font-black text-[#444]">{profile.assignedSection || profile.place?.sectionPlace || placeLabel(profile.place)}</h2>
-          {profile.assignedSection && profile.place?.sectionPlace ? <p className="leading-7">{profile.place.sectionPlace}</p> : null}
+          <h2 className="text-3xl font-black text-[#444]">{profile.assignedSection}</h2>
+          {profile.place?.sectionPlace ? <p className="leading-7">{profile.place.sectionPlace}</p> : null}
           <p className="text-lg leading-7">
-            {profile.rounds.first ? '25 октомври' : '1 ноември'}.{' '}
-            {profile.assignedSection ? 'Секцията е публикувана от екипа.' : 'Това е демо, докато алгоритъмът за разпределение не е готов.'}
+            {profile.rounds.first ? '25 октомври' : '1 ноември'}. Секцията е публикувана от екипа.
           </p>
           <Link to="/znachka" className="brand-button">
             Отпечатай значката
@@ -172,8 +171,6 @@ function ProfilePage() {
           </Link>
         )}
       </section>
-
-      <DemoState value={profile.demoState} onChange={(demoState) => updateProfile({ demoState })} />
 
       <section className="grid gap-4 border-t border-[var(--line)] pt-6 text-base">
         <h2 className="text-xl font-black text-[#444]">Покани</h2>
@@ -252,28 +249,3 @@ function resumeStep(profile: Profile) {
   return 'review' as const
 }
 
-function DemoState({ value, onChange }: { value: Profile['demoState']; onChange: (value: Profile['demoState']) => void }) {
-  const options = [
-    ['auto', 'Както е'],
-    ['incomplete', 'Недовършено'],
-    ['waiting', 'Без секция'],
-    ['assigned', 'Със секция'],
-  ] as const
-  return (
-    <fieldset className="grid gap-2 border-t border-dashed border-[#ddd] pt-4">
-      <legend className="text-sm font-bold text-[#666]">Демо на състоянието</legend>
-      <div className="flex flex-wrap gap-2">
-        {options.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={value === id ? 'min-h-10 rounded-full bg-[#333] px-3 text-sm font-bold text-white' : 'min-h-10 rounded-full border border-[#ddd] bg-white px-3 text-sm font-bold'}
-            onClick={() => onChange(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-    </fieldset>
-  )
-}

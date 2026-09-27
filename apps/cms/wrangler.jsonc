@@ -10,13 +10,20 @@
 	"d1_databases": [
 		{
 			"binding": "DB",
-			"database_name": "ti-broish-cms-staging"
+			"database_name": "ti-broish-cms-staging",
+			"database_id": "a2871feb-080e-46d7-baa8-d989a70babc0"
 		}
 	],
 	"r2_buckets": [
 		{
 			"binding": "MEDIA",
 			"bucket_name": "ti-broish-cms-media"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "SESSION",
+			"id": "8a70029b00d04949848fb8e69e9ca838"
 		}
 	],
 	"triggers": {

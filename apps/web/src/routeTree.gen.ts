@@ -11,7 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
-import { Route as AdminRouteImport } from './routes/admin'
+import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as InstructionsRouteImport } from './routes/instructions'
 import { Route as IzprateniRouteImport } from './routes/izprateni'
@@ -26,6 +26,10 @@ import { Route as SignalRouteImport } from './routes/signal'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as VhodRouteImport } from './routes/vhod'
 import { Route as ZnachkaRouteImport } from './routes/znachka'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminAccessRouteImport } from './routes/admin/access'
+import { Route as AdminSectionsRouteImport } from './routes/admin/sections'
+import { Route as AdminSignupsRouteImport } from './routes/admin/signups'
 import { Route as IzprateniIdRouteImport } from './routes/izprateni.$id'
 import { Route as PokanaCodeRouteImport } from './routes/pokana.$code'
 import { Route as RCodeRouteImport } from './routes/r.$code'
@@ -40,7 +44,7 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminRoute = AdminRouteImport.update({
+const AdminRouteRoute = AdminRouteRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => rootRouteImport,
@@ -115,6 +119,26 @@ const ZnachkaRoute = ZnachkaRouteImport.update({
   path: '/znachka',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminAccessRoute = AdminAccessRouteImport.update({
+  id: '/access',
+  path: '/access',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminSectionsRoute = AdminSectionsRouteImport.update({
+  id: '/sections',
+  path: '/sections',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminSignupsRoute = AdminSignupsRouteImport.update({
+  id: '/signups',
+  path: '/signups',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const IzprateniIdRoute = IzprateniIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -133,8 +157,8 @@ const RCodeRoute = RCodeRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteRouteWithChildren
   '/about': typeof AboutRoute
-  '/admin': typeof AdminRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
   '/izprateni': typeof IzprateniRouteWithChildren
@@ -149,14 +173,17 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/vhod': typeof VhodRoute
   '/znachka': typeof ZnachkaRoute
+  '/admin/access': typeof AdminAccessRoute
+  '/admin/sections': typeof AdminSectionsRoute
+  '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
   '/pokana/$code': typeof PokanaCodeRoute
   '/r/$code': typeof RCodeRoute
+  '/admin/': typeof AdminIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/admin': typeof AdminRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
   '/izprateni': typeof IzprateniRouteWithChildren
@@ -171,15 +198,19 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/vhod': typeof VhodRoute
   '/znachka': typeof ZnachkaRoute
+  '/admin/access': typeof AdminAccessRoute
+  '/admin/sections': typeof AdminSectionsRoute
+  '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
   '/pokana/$code': typeof PokanaCodeRoute
   '/r/$code': typeof RCodeRoute
+  '/admin': typeof AdminIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteRouteWithChildren
   '/about': typeof AboutRoute
-  '/admin': typeof AdminRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
   '/izprateni': typeof IzprateniRouteWithChildren
@@ -194,16 +225,20 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/vhod': typeof VhodRoute
   '/znachka': typeof ZnachkaRoute
+  '/admin/access': typeof AdminAccessRoute
+  '/admin/sections': typeof AdminSectionsRoute
+  '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
   '/pokana/$code': typeof PokanaCodeRoute
   '/r/$code': typeof RCodeRoute
+  '/admin/': typeof AdminIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/about'
     | '/admin'
+    | '/about'
     | '/faq'
     | '/instructions'
     | '/izprateni'
@@ -218,14 +253,17 @@ export interface FileRouteTypes {
     | '/signup'
     | '/vhod'
     | '/znachka'
+    | '/admin/access'
+    | '/admin/sections'
+    | '/admin/signups'
     | '/izprateni/$id'
     | '/pokana/$code'
     | '/r/$code'
+    | '/admin/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
-    | '/admin'
     | '/faq'
     | '/instructions'
     | '/izprateni'
@@ -240,14 +278,18 @@ export interface FileRouteTypes {
     | '/signup'
     | '/vhod'
     | '/znachka'
+    | '/admin/access'
+    | '/admin/sections'
+    | '/admin/signups'
     | '/izprateni/$id'
     | '/pokana/$code'
     | '/r/$code'
+    | '/admin'
   id:
     | '__root__'
     | '/'
-    | '/about'
     | '/admin'
+    | '/about'
     | '/faq'
     | '/instructions'
     | '/izprateni'
@@ -262,15 +304,19 @@ export interface FileRouteTypes {
     | '/signup'
     | '/vhod'
     | '/znachka'
+    | '/admin/access'
+    | '/admin/sections'
+    | '/admin/signups'
     | '/izprateni/$id'
     | '/pokana/$code'
     | '/r/$code'
+    | '/admin/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRouteRoute: typeof AdminRouteRouteWithChildren
   AboutRoute: typeof AboutRoute
-  AdminRoute: typeof AdminRoute
   FaqRoute: typeof FaqRoute
   InstructionsRoute: typeof InstructionsRoute
   IzprateniRoute: typeof IzprateniRouteWithChildren
@@ -309,7 +355,7 @@ declare module '@tanstack/react-router' {
       id: '/admin'
       path: '/admin'
       fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteImport
+      preLoaderRoute: typeof AdminRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/faq': {
@@ -410,6 +456,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ZnachkaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/access': {
+      id: '/admin/access'
+      path: '/access'
+      fullPath: '/admin/access'
+      preLoaderRoute: typeof AdminAccessRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/sections': {
+      id: '/admin/sections'
+      path: '/sections'
+      fullPath: '/admin/sections'
+      preLoaderRoute: typeof AdminSectionsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/signups': {
+      id: '/admin/signups'
+      path: '/signups'
+      fullPath: '/admin/signups'
+      preLoaderRoute: typeof AdminSignupsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/izprateni/$id': {
       id: '/izprateni/$id'
       path: '/$id'
@@ -434,6 +508,24 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AdminRouteRouteChildren {
+  AdminAccessRoute: typeof AdminAccessRoute
+  AdminSectionsRoute: typeof AdminSectionsRoute
+  AdminSignupsRoute: typeof AdminSignupsRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteRouteChildren: AdminRouteRouteChildren = {
+  AdminAccessRoute: AdminAccessRoute,
+  AdminSectionsRoute: AdminSectionsRoute,
+  AdminSignupsRoute: AdminSignupsRoute,
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
+  AdminRouteRouteChildren,
+)
+
 interface IzprateniRouteChildren {
   IzprateniIdRoute: typeof IzprateniIdRoute
 }
@@ -448,8 +540,8 @@ const IzprateniRouteWithChildren = IzprateniRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRouteRoute: AdminRouteRouteWithChildren,
   AboutRoute: AboutRoute,
-  AdminRoute: AdminRoute,
   FaqRoute: FaqRoute,
   InstructionsRoute: InstructionsRoute,
   IzprateniRoute: IzprateniRouteWithChildren,
@@ -470,12 +562,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

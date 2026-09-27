@@ -20,6 +20,11 @@
 			"bucket_name": "ti-broish-cms-media"
 		}
 	],
+	"send_email": [
+		{
+			"name": "EMAIL"
+		}
+	],
 	"kv_namespaces": [
 		{
 			"binding": "SESSION",

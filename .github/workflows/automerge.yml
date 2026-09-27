@@ -1,0 +1,66 @@
+name: Automerge
+
+on:
+  workflow_run:
+    workflows: [Web]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        id: merge
+        with:
+          script: |
+            const run = context.payload.workflow_run
+            const pulls = run.pull_requests ?? []
+            if (pulls.length === 0) {
+              core.info('No same-repo pull request is attached to this run.')
+              return
+            }
+            const merged = []
+            for (const pull of pulls) {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pull.number,
+              })
+              if (pr.draft || pr.merged_at || pr.state !== 'open' || pr.base.ref !== 'main') continue
+              if ((pr.labels ?? []).some((label) => label.name === 'hold')) {
+                core.info(`#${pr.number} is labelled hold`)
+                continue
+              }
+              const threads = await github.graphql(
+                `query($owner:String!, $name:String!, $number:Int!) {
+                  repository(owner:$owner, name:$name) {
+                    pullRequest(number:$number) {
+                      reviewThreads(first:100) { nodes { isResolved } }
+                    }
+                  }
+                }`,
+                { owner: context.repo.owner, name: context.repo.repo, number: pr.number },
+              )
+              const openThreads = threads.repository.pullRequest.reviewThreads.nodes.filter((node) => !node.isResolved)
+              if (openThreads.length > 0) {
+                core.info(`#${pr.number} has ${openThreads.length} unresolved review threads`)
+                continue
+              }
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                merge_method: 'squash',
+                sha: pr.head.sha,
+              })
+              merged.push(pr.number)
+              core.info(`Merged #${pr.number}`)
+            }
+            core.setOutput('merged', merged.join(' '))
+      - uses: release-drafter/release-drafter@v7
+        if: steps.merge.outputs.merged != ''

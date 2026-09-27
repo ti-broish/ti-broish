@@ -60,7 +60,7 @@ export function PhotoField({
         {photos.map((photo, index) => (
           <li key={`${index}-${photo.data.slice(0, 24)}`} className="grid gap-2">
             <img src={`data:image/jpeg;base64,${photo.data}`} alt="" className="max-h-48 w-full rounded-xl object-contain" />
-            <button type="button" className="text-left font-bold text-[#24082c]" onClick={() => onChange(photos.filter((_, item) => item !== index))}>
+            <button type="button" className="text-left font-bold text-[#2b062f]" onClick={() => onChange(photos.filter((_, item) => item !== index))}>
               Махни снимката
             </button>
           </li>

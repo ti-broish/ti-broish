@@ -89,7 +89,7 @@ export function TravelChoice({ profile }: { profile: Profile }) {
                 <button
                   key={item.code}
                   type="button"
-                  className={on ? 'min-h-12 rounded-full bg-[#70bca4] px-4 font-bold text-[#24082c]' : 'min-h-12 rounded-full border border-[#ddd] bg-white px-4 font-bold'}
+                  className={on ? 'min-h-12 rounded-full bg-[#53c0a4] px-4 font-bold text-[#2b062f]' : 'min-h-12 rounded-full border border-[#ddd] bg-white px-4 font-bold'}
                   onClick={() => toggleDistrict(item)}
                 >
                   {item.name}
@@ -113,7 +113,7 @@ export function TravelChoice({ profile }: { profile: Profile }) {
                   <p className="font-bold">{group[0]?.regionName}</p>
                   <button
                     type="button"
-                    className="font-bold text-[#24082c]"
+                    className="font-bold text-[#2b062f]"
                     onClick={() =>
                       updateProfile({
                         travelMunicipalities: profile.travelMunicipalities.filter((item) => item.regionCode !== code),
@@ -130,7 +130,7 @@ export function TravelChoice({ profile }: { profile: Profile }) {
                       <button
                         key={`${item.regionCode}:${item.code}`}
                         type="button"
-                        className={on ? 'min-h-12 rounded-full bg-[#70bca4] px-4 font-bold text-[#24082c]' : 'min-h-12 rounded-full border border-[#ddd] bg-white px-4 font-bold'}
+                        className={on ? 'min-h-12 rounded-full bg-[#53c0a4] px-4 font-bold text-[#2b062f]' : 'min-h-12 rounded-full border border-[#ddd] bg-white px-4 font-bold'}
                         onClick={() => toggleStop(item)}
                       >
                         {item.name}

@@ -15,7 +15,7 @@ test('the top nav matches the short menu and the footer links to contact', async
   await expect(footer).not.toContainText('Изпрати протокол')
   for (const [name, href] of [
     ['Facebook', 'https://www.facebook.com/tibroish/'],
-    ['Instagram', 'https://www.instagram.com/tibroish/'],
+    ['Instagram', 'https://www.instagram.com/tibroish.bg/'],
     ['TikTok', 'https://www.tiktok.com/@tibroish'],
   ] as const) {
     const link = footer.getByRole('link', { name })

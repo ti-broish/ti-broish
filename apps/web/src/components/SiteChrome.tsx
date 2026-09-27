@@ -80,7 +80,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
           <a className="font-bold text-[#333]" href="https://www.facebook.com/tibroish/" target="_blank" rel="noopener noreferrer">
             Facebook
           </a>
-          <a className="font-bold text-[#333]" href="https://www.instagram.com/tibroish/" target="_blank" rel="noopener noreferrer">
+          <a className="font-bold text-[#333]" href="https://www.instagram.com/tibroish.bg/" target="_blank" rel="noopener noreferrer">
             Instagram
           </a>
           <a className="font-bold text-[#333]" href="https://www.tiktok.com/@tibroish" target="_blank" rel="noopener noreferrer">

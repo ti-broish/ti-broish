@@ -36,6 +36,12 @@ jobs:
                 core.info(`#${pr.number} is labelled hold`)
                 continue
               }
+              const fromThisRepo = pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`
+              const member = pr.author_association === 'OWNER' || pr.author_association === 'MEMBER'
+              if (!fromThisRepo || !member) {
+                core.info(`#${pr.number} from ${pr.user?.login} (${pr.author_association}) is not an organization member of this repository`)
+                continue
+              }
               const threads = await github.graphql(
                 `query($owner:String!, $name:String!, $number:Int!) {
                   repository(owner:$owner, name:$name) {

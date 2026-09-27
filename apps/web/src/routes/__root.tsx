@@ -10,7 +10,7 @@ export const Route = createRootRoute({
       { name: 'robots', content: 'noindex, nofollow' },
       { title: 'Ти Броиш' },
       { name: 'description', content: 'Запиши се като пазител на вота. Доброволно и без заплащане.' },
-      { name: 'theme-color', content: '#38decb' },
+      { name: 'theme-color', content: '#24082c' },
       { name: 'mobile-web-app-capable', content: 'yes' },
       { name: 'apple-mobile-web-app-capable', content: 'yes' },
       { name: 'apple-mobile-web-app-title', content: 'Ти Броиш' },

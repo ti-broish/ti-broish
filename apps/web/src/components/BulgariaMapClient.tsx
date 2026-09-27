@@ -173,9 +173,9 @@ export function BulgariaMapClient({
               const codes = nuts ? REGION_CODES[nuts] ?? [] : []
               const on = codes.some((code) => regionCodes.includes(code))
               return {
-                color: '#0e8f82',
+                color: '#24082c',
                 weight: on && !quietCity ? 2 : 1,
-                fillColor: on && !quietCity ? '#38decb' : '#ffffff',
+                fillColor: on && !quietCity ? '#70bca4' : '#ffffff',
                 fillOpacity: on && !quietCity ? 0.35 : 0.05,
               }
             }}
@@ -192,7 +192,7 @@ export function BulgariaMapClient({
           <GeoJSON
             key={shape.id + areaKey(shape.geometry)}
             data={shape.geometry}
-            style={{ color: '#0e8f82', weight: 3, fillColor: '#38decb', fillOpacity: 0.45 }}
+            style={{ color: '#24082c', weight: 3, fillColor: '#70bca4', fillOpacity: 0.45 }}
             eventHandlers={{ click: () => onArea?.(shape.id) }}
           />
         ))}
@@ -202,8 +202,8 @@ export function BulgariaMapClient({
             center={[point.lat, point.lng]}
             radius={point.selected ? 10 : 8}
             pathOptions={{
-              color: point.tone === 'machine' ? '#666' : '#0e8f82',
-              fillColor: point.tone === 'machine' ? '#bbb' : '#30cebc',
+              color: point.tone === 'machine' ? '#666' : '#24082c',
+              fillColor: point.tone === 'machine' ? '#bbb' : '#70bca4',
               fillOpacity: 0.95,
               weight: point.selected ? 3 : 1,
             }}

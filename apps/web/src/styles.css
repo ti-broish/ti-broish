@@ -10,11 +10,13 @@
   --ink-soft: #666;
   --heading: #444;
   --muted: #888;
-  --teal: #38decb;
-  --teal-button: #30cebc;
-  --teal-active: #2ab9a8;
-  --teal-menu: #20a898;
-  --blue: #30cebc;
+  --teal: #70bca4;
+  --teal-button: #70bca4;
+  --teal-hover: #86cbb6;
+  --teal-active: #5aa892;
+  --purple: #24082c;
+  --teal-wash: #ebf6f2;
+  --blue: #70bca4;
   --sand: #eee;
   --line: #ddd;
   --paper: #fff;
@@ -35,7 +37,7 @@ body {
 }
 
 a {
-  color: #2ab9a8;
+  color: var(--purple);
   font-weight: 700;
 }
 
@@ -57,7 +59,7 @@ main h1 {
   box-sizing: border-box;
   height: 60px;
   width: 100%;
-  background-color: #38decb;
+  background-color: var(--purple);
   padding: 10px;
 }
 
@@ -122,7 +124,7 @@ main h1 {
   left: 0;
   z-index: 19;
   overflow: auto;
-  background: #20a898;
+  background: var(--purple);
   padding: 12px 20px 32px;
 }
 
@@ -178,9 +180,9 @@ main h1 {
   justify-content: center;
   border: none;
   border-radius: 20px;
-  background: #30cebc;
+  background: var(--teal-button);
   padding: 14px 20px;
-  color: white;
+  color: var(--purple);
   font-size: 20px;
   font-weight: 700;
   text-decoration: none;
@@ -188,12 +190,12 @@ main h1 {
 }
 
 .brand-button:hover {
-  background: #38decb;
-  color: white;
+  background: var(--teal-hover);
+  color: var(--purple);
 }
 
 .brand-button:active {
-  background: #2ab9a8;
+  background: var(--teal-active);
   box-shadow: inset 0 0 10px #444;
 }
 

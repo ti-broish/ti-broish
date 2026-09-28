@@ -93,9 +93,98 @@ test('people in the group and people added as a coordinator both show on the rev
   await expect(page.getByText('Извън групата · peter@example.com')).toBeVisible()
 
   await page.getByRole('button', { name: 'Напред' }).click()
-  await expect(page.getByRole('heading', { name: 'Преглед, преди да се запишеш' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Преглед на данните' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Запази' })).toBeVisible()
   await expect(page.getByText('Група: Мария Петрова')).toBeVisible()
   await expect(page.getByText(/Като координатор:.*Петър Георгиев/)).toBeVisible()
+})
+
+test('a finished signup reviews changes instead of signing up again', async ({ page }) => {
+  await seedProfile(page, registered())
+  await page.goto('/signup?step=review')
+  await expect(page.getByRole('heading', { name: 'Преглед на данните' })).toBeVisible()
+  await expect(page.getByText('Провери промените и ги запази.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Запази' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Запиши ме' })).toHaveCount(0)
+
+  await page.goto('/signup?step=contact')
+  await expect(page.getByText('Тук променяш как да се свържем с теб.')).toBeVisible()
+  await expect(page.getByText('Записването е за президентските избори')).toHaveCount(0)
+
+  await page.goto('/signup?step=rounds')
+  await expect(page.getByText('Дните са 25 октомври и 1 ноември.')).toBeVisible()
+})
+
+test('the first review still asks the person to sign up', async ({ page }) => {
+  await seedProfile(page, registered({ submitted: false, consent: false }))
+  await page.goto('/signup?step=review')
+  await expect(page.getByRole('heading', { name: 'Преглед, преди да се запишеш' })).toBeVisible()
+  await page.getByRole('checkbox', { name: /доброволна дейност/ }).check()
+  await expect(page.getByRole('heading', { name: 'Преглед, преди да се запишеш' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Запиши ме' })).toBeVisible()
+})
+
+test('a registered profile leads with the date, then the answers, without the national number', async ({ page }) => {
+  await seedProfile(page, registered())
+  await page.goto('/profil')
+  await expect(page.getByRole('heading', { name: '5 октомври' })).toBeVisible()
+  const text = await page.locator('main').innerText()
+  expect(text.indexOf('5 октомври')).toBeLessThan(text.indexOf('Твоите данни'))
+  expect(text.indexOf('Твоите данни')).toBeLessThan(text.indexOf('Материали'))
+  expect(text.indexOf('Материали')).toBeLessThan(text.indexOf('Покани'))
+  expect(text.indexOf('Покани')).toBeLessThan(text.indexOf('Оттегли записването'))
+
+  const facts = page.getByRole('region', { name: 'Твоите данни' })
+  await expect(facts.getByRole('definition').filter({ hasText: 'Иван Иванов Иванов' })).toBeVisible()
+  await expect(facts.getByRole('definition').filter({ hasText: 'ivan@example.com' })).toBeVisible()
+  await expect(facts.getByRole('definition').filter({ hasText: '0888123456' })).toBeVisible()
+  await expect(facts.getByRole('definition').filter({ hasText: 'Секция' })).toBeVisible()
+  await expect(facts.getByRole('definition').filter({ hasText: '25 октомври и 1 ноември' })).toBeVisible()
+  await expect(facts.getByRole('definition').filter({ hasText: 'София-град, Столична, гр. София, Младост, ул. Пример 1' })).toBeVisible()
+  await expect(facts.getByRole('definition').filter({ hasText: 'Само в Младост' })).toBeVisible()
+  await expect(facts.getByRole('definition').filter({ hasText: 'Броил си 1–2 пъти' })).toBeVisible()
+  await expect(facts.getByText('Без група', { exact: true })).toBeVisible()
+  await expect(facts.getByRole('definition').filter({ hasText: 'Въведено' })).toBeVisible()
+  await expect(facts).not.toContainText('0041010002')
+})
+
+test('the profile summary stacks on a phone and pairs labels on a wide screen', async ({ page }) => {
+  await seedProfile(page, registered())
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/profil')
+  await expect(page.getByRole('heading', { name: 'Твоите данни' })).toBeVisible()
+  const row = page.locator('dl > div').first()
+  const term = row.locator('dt')
+  const value = row.locator('dd')
+  await expect(term).toHaveText('Име')
+  await expect(value).toHaveText('Иван Иванов Иванов')
+  const phoneTerm = await term.boundingBox()
+  const phoneValue = await value.boundingBox()
+  expect(phoneValue!.y).toBeGreaterThan(phoneTerm!.y + phoneTerm!.height - 4)
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const wideTerm = await term.boundingBox()
+  const wideValue = await value.boundingBox()
+  expect(wideValue!.x).toBeGreaterThan(wideTerm!.x + wideTerm!.width - 4)
+  expect(Math.abs(wideValue!.y - wideTerm!.y)).toBeLessThan(12)
+})
+
+test('an unfinished profile points at the missing step', async ({ page }) => {
+  await seedProfile(page, registered({ egn: '', submitted: false, consent: false }))
+  await page.goto('/profil')
+  await expect(page.getByRole('heading', { name: 'Записването не е готово' })).toBeVisible()
+  await expect(page.getByText('Остава ЕГН, за да те разпределим.')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Продължи записването' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Твоите данни' }).getByRole('definition').filter({ hasText: 'Липсва' })).toBeVisible()
+  await expect(page.locator('main')).not.toContainText('0041010002')
+})
+
+test('an assigned profile leads with the section and the badge', async ({ page }) => {
+  await seedProfile(page, registered({ assignedSection: '234600101' }))
+  await page.goto('/profil')
+  await expect(page.getByRole('heading', { name: '234600101' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Отпечатай значката' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '5 октомври' })).toHaveCount(0)
 })
 
 test('withdrawing a signup can be undone from the profile', async ({ page }) => {

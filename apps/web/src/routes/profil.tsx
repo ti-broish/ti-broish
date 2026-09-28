@@ -1,12 +1,13 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { AssignedSectionMap } from '../components/AssignedSectionMap'
+import { ProfileSummary } from '../components/ProfileSummary'
 import { PageIntro } from '../components/SiteChrome'
 import { ShareSignup } from '../components/ShareSignup'
 import { StaffNote } from '../components/StaffNote'
 import { loadSignup, saveSignup } from '../signup/db'
 import { isProtocolDay } from '../signup/election'
-import { assignmentLocked, nextAssignment, placeLabel, profileView, roleLabel, signupGap, type Profile } from '../signup/model'
+import { assignmentLocked, nextAssignment, profileView, signupGap, type Profile } from '../signup/model'
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
@@ -114,52 +115,26 @@ function ProfilePage() {
   }
 
   const view = profileView(profile)
-  const wave = nextAssignment(profile)
-  const gap = signupGap(profile)
   const assigned = assignmentLocked(profile)
   const canEditPlace = locationEditable(assigned)
 
   return (
     <div className="grid gap-8">
       <PageIntro title={`${profile.firstName}, това е профилът ти`} />
-      {view === 'incomplete' ? (
-        <section className="grid gap-4">
-          <h2 className="text-2xl font-black text-[#444]">{profile.withdrawn ? 'Записването е оттеглено' : 'Записването не е готово'}</h2>
-          <p className="text-lg leading-7">{profile.withdrawn ? 'Мястото се освобождава. Можеш да го върнеш.' : gap}</p>
-          {profile.withdrawn ? (
-            <button type="button" className="brand-button" onClick={() => updateProfile({ withdrawn: false, submitted: true })}>
-              Върни записването
-            </button>
-          ) : (
-            <Link to="/signup" search={{ step: resumeStep(profile) }} className="brand-button">
-              Продължи записването
-            </Link>
-          )}
-        </section>
-      ) : null}
-      {view === 'waiting' ? (
-        <section className="grid gap-3">
-          <p className="text-sm font-bold text-[#666]">Следващо за теб</p>
-          <h2 className="text-3xl font-black text-[#444]">{wave?.label}</h2>
-          <p className="text-lg leading-7">На тази дата виждаш секцията тук и получаваш имейл. Дотогава няма назначена секция.</p>
-          {!profile.egn ? <p className="leading-7">Без ЕГН няма да влезеш в разпределението.</p> : null}
-          <p className="leading-7">{roleLabel(profile.role, profile.mobileTeam)}. {placeLabel(profile.place)}.</p>
-        </section>
-      ) : null}
-      {view === 'assigned' ? (
-        <section className="grid gap-3">
-          <p className="text-sm font-bold text-[#666]">Назначена секция</p>
-          <h2 className="text-3xl font-black text-[#444]">{profile.assignedSection}</h2>
-          {profile.place?.sectionPlace ? <p className="leading-7">{profile.place.sectionPlace}</p> : null}
-          <p className="text-lg leading-7">
-            {profile.rounds.first ? '25 октомври' : '1 ноември'}. Секцията е публикувана от екипа.
-          </p>
-          {profile.assignedSection ? <AssignedSectionMap place={profile.place} section={profile.assignedSection} /> : null}
-          <Link to="/znachka" className="brand-button">
-            Отпечатай значката
+      <NextStep profile={profile} />
+      <ProfileSummary profile={profile} />
+      <div className="grid gap-2">
+        <Link to="/signup" search={{ step: 'contact' }} className="font-bold">
+          Промени данните
+        </Link>
+        {canEditPlace ? (
+          <Link to="/signup" search={{ step: 'place' }} className="font-bold">
+            Промени мястото{assigned && mirOf(profile.place) ? ` в МИР ${mirOf(profile.place)}` : ''}
           </Link>
-        </section>
-      ) : null}
+        ) : (
+          <p className="leading-7">От 19 октомври до 5 ноември мястото не се сменя.</p>
+        )}
+      </div>
 
       <section className="grid gap-3 border-t border-[var(--line)] pt-6">
         <h2 className="text-xl font-black text-[#444]">Материали</h2>
@@ -177,7 +152,7 @@ function ProfilePage() {
         )}
       </section>
 
-      <section className="grid gap-4 border-t border-[var(--line)] pt-6 text-base">
+      <section className="grid gap-4 border-t border-[var(--line)] pt-6">
         <h2 className="text-xl font-black text-[#444]">Покани</h2>
         {inviteLink ? <ShareSignup link={inviteLink} count={referralCount} /> : null}
         {profile.companions.length > 0 ? (
@@ -196,22 +171,14 @@ function ProfilePage() {
               )
             })}
           </ul>
-        ) : null}
-        <p>
-          {profile.firstName} {profile.middleName} {profile.lastName}
-          <br />
-          {profile.email}
-          <br />
-          {profile.phone}
-          {profile.role === 'mobile' ? (
-            <>
-              <br />
-              {profile.hasCar ? `Кола, ${profile.carSeats} места` : 'Без кола'}
-              {' · '}
-              {profile.hasDrone ? 'има дрон' : 'без дрон'}
-            </>
-          ) : null}
-        </p>
+        ) : (
+          <p className="leading-7">
+            {inviteLink ? 'Още няма поканени. Сподели линка, за да дойдат с теб.' : 'Още няма поканени. Поканата се отключва, след като потвърдиш имейла.'}
+          </p>
+        )}
+      </section>
+
+      <section className="grid gap-4 border-t border-[var(--line)] pt-6">
         <StaffNote />
         <p>
           <Link to="/signal">Подай сигнал</Link>
@@ -224,16 +191,6 @@ function ProfilePage() {
           {' · '}
           <Link to="/izprateni">Изпратените</Link>
         </p>
-        <Link to="/signup" search={{ step: 'contact' }} className="font-bold">
-          Промени данните
-        </Link>
-        {canEditPlace ? (
-          <Link to="/signup" search={{ step: 'place' }} className="font-bold">
-            Промени мястото{assigned && mirOf(profile.place) ? ` в МИР ${mirOf(profile.place)}` : ''}
-          </Link>
-        ) : (
-          <p className="leading-7">От 19 октомври до 5 ноември мястото не се сменя.</p>
-        )}
         {!profile.withdrawn ? (
           <button
             type="button"
@@ -248,6 +205,58 @@ function ProfilePage() {
         </p>
       </section>
     </div>
+  )
+}
+
+function NextStep({ profile }: { profile: Profile }) {
+  const view = profileView(profile)
+  if (view === 'incomplete') {
+    return (
+      <section className="grid gap-4" aria-label={profile.withdrawn ? 'Оттеглено' : 'Още една стъпка'}>
+        <p className="text-sm font-bold text-[#666]">{profile.withdrawn ? 'Оттеглено' : 'Още една стъпка'}</p>
+        <h2 className="text-3xl font-black text-[#444]">
+          {profile.withdrawn ? 'Записването е оттеглено' : 'Записването не е готово'}
+        </h2>
+        <p className="text-lg leading-7">{profile.withdrawn ? 'Мястото се освобождава. Можеш да го върнеш, ако още искаш да участваш.' : signupGap(profile)}</p>
+        {profile.withdrawn ? (
+          <button type="button" className="brand-button" onClick={() => updateProfile({ withdrawn: false, submitted: true })}>
+            Върни записването
+          </button>
+        ) : (
+          <Link to="/signup" search={{ step: resumeStep(profile) }} className="brand-button">
+            Продължи записването
+          </Link>
+        )}
+      </section>
+    )
+  }
+  if (view === 'assigned') {
+    return (
+      <section className="grid gap-3" aria-label="Назначена секция">
+        <p className="text-sm font-bold text-[#666]">Назначена секция</p>
+        <h2 className="text-3xl font-black text-[#444]">
+          {profile.assignedSection}
+        </h2>
+        {profile.place?.sectionPlace ? <p className="leading-7">{profile.place.sectionPlace}</p> : null}
+        <p className="text-lg leading-7">
+          {profile.rounds.first ? '25 октомври' : '1 ноември'}. Секцията е публикувана от екипа. Отпечатай значката и я вземи в изборния ден.
+        </p>
+        {profile.assignedSection ? <AssignedSectionMap place={profile.place} section={profile.assignedSection} /> : null}
+        <Link to="/znachka" className="brand-button">
+          Отпечатай значката
+        </Link>
+      </section>
+    )
+  }
+  const wave = nextAssignment(profile)
+  return (
+    <section className="grid gap-3" aria-label="Следващо за теб">
+      <p className="text-sm font-bold text-[#666]">Следващо за теб</p>
+      <h2 className="text-3xl font-black text-[#444]">
+        {wave?.label}
+      </h2>
+      <p className="text-lg leading-7">На тази дата виждаш секцията тук и получаваш имейл. Дотогава няма назначена секция.</p>
+    </section>
   )
 }
 

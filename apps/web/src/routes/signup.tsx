@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BulgariaMap, type MapPoint } from '../components/BulgariaMap'
 import { PartnerBanner } from '../components/PartnerBanner'
 import { PlacesPicker } from '../components/PlacesPicker'
@@ -16,6 +16,7 @@ import {
   placeOutline,
   placeReady,
   radiusOptions,
+  registrationSettled,
   signupGap,
   roleLabel,
   stepsFor,
@@ -99,6 +100,7 @@ function SignupPage() {
   const requested = step === 'radius' ? 'travel' : step
   const current = (steps as readonly string[]).includes(requested) ? (requested as StepId) : 'contact'
   const index = Math.max(0, steps.indexOf(current as (typeof steps)[number]))
+  const settled = useReviewCopy(current, profile, ready)
 
   function go(next: StepId) {
     setError('')
@@ -121,7 +123,7 @@ function SignupPage() {
     travel: 'Докъде можеш да стигнеш',
     seats: profile.role === 'mobile' ? 'Кола и дрон' : 'Свободни места в колата',
     people: 'Хора с теб',
-    review: 'Преглед, преди да се запишеш',
+    review: settled ? 'Преглед на данните' : 'Преглед, преди да се запишеш',
   }
 
   if (!ready) return <p>Зареждаме данните…</p>
@@ -130,8 +132,13 @@ function SignupPage() {
     <div className="grid gap-4">
       <h1 className="text-3xl font-black text-[#444]">{titles[current]}</h1>
       <PartnerBanner source={profile.source} />
+      {current === 'review' && settled ? <p className="text-lg leading-7">Провери промените и ги запази.</p> : null}
       {current === 'contact' ? (
-        <p className="text-lg leading-7">Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. Можеш да добавиш и други хора и да отидете заедно като група.</p>
+        <p className="text-lg leading-7">
+          {settled
+            ? 'Президентските избори 2026 г. са на 25 октомври и 1 ноември. Тук променяш как да се свържем с теб.'
+            : 'Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. Можеш да добавиш и други хора и да отидете заедно като група.'}
+        </p>
       ) : null}
       {profile.referredBy ? <p>Покана от {profile.referrerName || 'човек, който вече се е записал'}.</p> : null}
       {current === 'contact' ? <Contact error={error} onError={setError} onMailFailed={setMailFailed} onNext={() => go(profile.emailConfirmed ? (profile.egn ? 'role' : 'egn') : 'confirm')} /> : null}
@@ -144,7 +151,7 @@ function SignupPage() {
       {current === 'travel' ? <TravelStep error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'seats' ? <Seats error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'people' ? <People companion={companion} setCompanion={setCompanion} error={error} onError={setError} onNext={nextStep} unsentLinks={unsentCompanionLinks} /> : null}
-      {current === 'review' ? <Review error={error} onError={setError} /> : null}
+      {current === 'review' ? <Review settled={settled} error={error} onError={setError} /> : null}
       {index > 0 ? (
         <button type="button" className={`${ghost} mt-6`} onClick={() => go(steps[index - 1] ?? 'contact')}>
           Назад
@@ -412,7 +419,11 @@ function Rounds({ error, onError, onNext }: { error: string; onError: (value: st
         onNext()
       }}
     >
-      <p>Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. По-добре е да си и на двата дни.</p>
+      <p>
+        {registrationSettled(profile)
+          ? 'Дните са 25 октомври и 1 ноември. По-добре е да си и на двата.'
+          : 'Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. По-добре е да си и на двата дни.'}
+      </p>
       <label className="flex gap-3 rounded-2xl bg-white px-4 py-3">
         <input type="checkbox" checked={profile.rounds.first} onChange={(event) => updateProfile({ rounds: { ...profile.rounds, first: event.target.checked } })} />
         25 октомври
@@ -822,13 +833,13 @@ function People({
       )}
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button type="button" className={button} onClick={onNext}>
-        {profile.companions.length > 0 ? 'Напред' : 'Продължи без група'}
+        {registrationSettled(profile) || profile.companions.length > 0 ? 'Напред' : 'Продължи без група'}
       </button>
     </div>
   )
 }
 
-function Review({ error, onError }: { error: string; onError: (value: string) => void }) {
+function Review({ settled, error, onError }: { settled: boolean; error: string; onError: (value: string) => void }) {
   const { profile } = useProfile()
   const navigate = useNavigate()
   const experience = EXPERIENCE.find((item) => item.id === profile.experience)
@@ -896,10 +907,24 @@ function Review({ error, onError }: { error: string; onError: (value: string) =>
       </label>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button className={button} type="submit">
-        Запиши ме
+        {settled ? 'Запази' : 'Запиши ме'}
       </button>
     </form>
   )
+}
+
+function useReviewCopy(step: string, profile: Profile, ready: boolean) {
+  // Freeze the first-time title once a real profile is on screen. A later submitted
+  // flag with the same consent is a load from the server, not the consent checkbox.
+  const locked = useRef<{ settled: boolean; consent: boolean } | null>(null)
+  if (step !== 'review') locked.current = null
+  else if (ready && profile.email.includes('@') && locked.current === null) {
+    locked.current = { settled: registrationSettled(profile), consent: profile.consent }
+  } else if (locked.current && !locked.current.settled && profile.submitted && profile.consent === locked.current.consent && registrationSettled(profile)) {
+    locked.current = { settled: true, consent: profile.consent }
+  }
+  if (!ready || step !== 'review') return ready && registrationSettled(profile)
+  return locked.current?.settled === true
 }
 
 function LegalNotice() {

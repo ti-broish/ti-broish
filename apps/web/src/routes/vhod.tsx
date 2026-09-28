@@ -20,7 +20,7 @@ function LoginPage() {
 
   return (
     <div className="grid gap-4">
-      <PageIntro title="Влез в профила си" lede="Въведи потвърдения имейл. Ще пратим шестцифрен код, ако записването вече е в списъка." />
+      <PageIntro title="Влез в профила си" lede="Въведи имейла от записването. Ако вече си го потвърдил, пращаме шестцифрен код." />
       {here ? (
         <p className="leading-7">
           На това устройство вече си влязъл като {profile.email}. <Link to="/profil">Отвори профила</Link>.
@@ -28,7 +28,7 @@ function LoginPage() {
       ) : null}
       {phase === 'missing' ? (
         <p className="leading-7">
-          Няма потвърден запис за този имейл. <Link to="/signup" search={{ step: 'contact' }}>Запиши се</Link>.
+          Няма потвърдено записване с този имейл. <Link to="/signup" search={{ step: 'contact' }}>Запиши се</Link>.
         </p>
       ) : null}
       {phase === 'failed' ? <p className="leading-7">Писмото не тръгна. Опитай отново след малко.</p> : null}
@@ -50,7 +50,7 @@ function LoginPage() {
           }}
         >
           <p className="leading-7">
-            {preview ? `Писмото не се изпраща от този адрес. Кодът е ${preview}.` : `Изпратихме код на ${email}.`}
+            {preview ? `Оттук писмото не тръгва. Кодът е ${preview}.` : `Изпратихме код на ${email}.`}
           </p>
           <label className="grid gap-1 text-sm font-semibold">
             Код от писмото
@@ -94,7 +94,7 @@ function LoginPage() {
               })
               .catch(() => {
                 setBusy(false)
-                setError('Кодът не можа да се изпрати. Опитай отново.')
+                setError('Писмото не тръгна. Опитай отново.')
               })
           }}
         >

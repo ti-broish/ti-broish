@@ -22,12 +22,12 @@ function InvitePage() {
   return (
     <div className="max-w-xl">
       <PageIntro
-        title={own ? 'Това е твоята покана' : 'Поканиха те да се запишете заедно'}
-        lede="Групата няма име. Тя събира хора, които се познават. В един град може да има повече от една. Мястото си избираш сам."
+        title={own ? 'Това е твоята покана' : 'Поканиха те да се запишеш'}
+        lede="Това е лична покана. Записването е твое и не те слага в група с човека, който ти я праща."
       />
       <p className="mb-4 font-bold tracking-widest">{code}</p>
       <a href={`/signup?ref=${encodeURIComponent(code)}`} className="brand-button">
-        {own ? 'Към записването' : 'Приеми и се запиши'}
+        {own ? 'Към записването' : 'Запиши се'}
       </a>
     </div>
   )

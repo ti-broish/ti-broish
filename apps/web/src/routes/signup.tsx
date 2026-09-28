@@ -120,7 +120,7 @@ function SignupPage() {
     role: 'Как ще пазиш вота',
     rounds: 'Кога можеш да участваш',
     experience: 'Колко си подготвен',
-    place: 'Къде е твоето място',
+    place: 'Къде искаш да бъдеш',
     travel: 'Докъде можеш да стигнеш',
     seats: profile.role === 'mobile' ? 'Кола и дрон' : 'Свободни места в колата',
     people: 'Хора с теб',
@@ -300,9 +300,9 @@ function Confirm({
         <p className="text-sm text-[var(--ink-soft)]">От: Ти Броиш · До: {profile.email}</p>
         <h2 className="mt-2 text-xl font-extrabold">Потвърди имейла, преди да продължиш</h2>
         {preview ? (
-          <p className="mt-2 leading-7">Писмото не се изпраща от този адрес. Кодът е {preview}.</p>
+          <p className="mt-2 leading-7">Оттук писмото не тръгва. Кодът е {preview}.</p>
         ) : mailFailed ? (
-          <p className="mt-2 leading-7">Писмото не тръгна до {profile.email}. Кодът не важи, докато не го изпратим отново.</p>
+          <p className="mt-2 leading-7">Писмото не тръгна до {profile.email}. Прати кода отново, за да продължиш.</p>
         ) : (
           <p className="mt-2 leading-7">Изпратихме шестцифрен код на {profile.email}. Отвори писмото и го въведи тук.</p>
         )}
@@ -358,7 +358,7 @@ function EgnStep({ error, onError, onNext }: { error: string; onError: (value: s
         onNext()
       }}
     >
-      <p className="leading-7">ЕГН ни трябва след потвърдения имейл, за да те разпределим и за дигиталното пълномощно. Не се показва в списъци.</p>
+      <p className="leading-7">ЕГН ни трябва, след като потвърдиш имейла, за да те разпределим и за дигиталното пълномощно. Числото не се показва в профила.</p>
       <label className="grid gap-1 text-sm font-semibold">
         ЕГН
         <input className={field} inputMode="numeric" autoComplete="off" maxLength={10} value={profile.egn} onChange={(event) => updateProfile({ egn: event.target.value.replace(/\D/g, '').slice(0, 10) })} />
@@ -388,7 +388,7 @@ function RoleStep({ error, onError, onNext }: { error: string; onError: (value: 
       <Choice
         selected={profile.role === 'section'}
         title="В секция"
-        text="Това е за предпочитане. Хартиените секции са с предимство. Машинна секция се ползва само ако за населеното място вече има твърде много записани. Ти не избираш кое от двете."
+        text="Това е за предпочитане. В избраното място първо те пращаме в хартиена секция. Машинна идва само ако там вече има твърде много хора. Ти не избираш кое от двете."
         onClick={() => updateProfile({ role: 'section', mobileTeam: false })}
       />
       <Choice
@@ -458,7 +458,7 @@ function ExperienceStep({ error, onError, onNext }: { error: string; onError: (v
       onSubmit={(event) => {
         event.preventDefault()
         if (!profile.experience) {
-          onError('Избери едно ниво.')
+          onError('Избери кое ти е най-близо.')
           return
         }
         onNext()
@@ -520,7 +520,7 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
         if (cancelled) return
         const hit = await geocodePlace({ data: { query: `${group.place}, ${town}, България`, priority: 'low' } })
         if (cancelled || !hit || hit.category === 'boundary' || hit.type === 'city' || hit.type === 'administrative') continue
-        const unknown = group.unknown > 0 ? `, ${group.unknown} без брой` : ''
+        const unknown = group.unknown > 0 ? `, ${group.unknown} без брой избиратели` : ''
         next.push({
           id: `address:${group.place}`,
           lat: hit.lat,
@@ -541,7 +541,7 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
   if (assigned && !editable) {
     return (
       <div className="grid gap-4">
-        <p className="text-lg leading-7">От 19 октомври до 5 ноември мястото не се сменя.</p>
+        <p className="text-lg leading-7">От 19 октомври до 5 ноември не можеш да смениш мястото.</p>
         <p>{placeLabel(profile.place)}</p>
         <button className={button} type="button" onClick={onNext}>
           Напред
@@ -556,7 +556,7 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
       onSubmit={(event) => {
         event.preventDefault()
         if (!placeReady(profile.place)) {
-          onError('Избери място до населено място или град в чужбина.')
+          onError('Избери населено място или град в чужбина.')
           return
         }
         if (!profile.radius && profile.place?.cityRegionName) updateProfile({ radius: 'cityRegion' })
@@ -574,11 +574,11 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
           onPoint={(id) => selectAddress(profile, id, geography.sections)}
         />
         {points.length > 0 ? (
-          <p className="text-sm leading-6">Всяка точка е адрес. В прозореца са адресът, броят секции и колко са хартиени или машинни. Сивите са само машинни.</p>
+          <p className="text-sm leading-6">Всяка точка е адрес с хартиена секция. В прозореца са адресът, броят секции и колко са хартиени или машинни.</p>
         ) : null}
       </div>
       <div className="order-2 grid gap-4 lg:order-1">
-        {assigned ? <p className="text-sm leading-6">Можеш да смениш района само в същия МИР, не към район от друг МИР.</p> : null}
+        {assigned ? <p className="text-sm leading-6">След разпределението сменяш района само в същия МИР.</p> : null}
         <PlacesPicker
           lockedMir={assigned ? mirOf(profile.place) : null}
           onGeography={setGeography}
@@ -600,7 +600,7 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
         />
         {profile.place?.townId ? (
           <p className="text-sm leading-6">
-            Избираш адрес, не номер на секция. Първо разпределяме към хартиените секции, тези с под 300 избиратели.
+            Избираш адрес, не номер на секция. В избраното място първо те пращаме в хартиена секция, с под 300 избиратели.
           </p>
         ) : null}
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
@@ -620,7 +620,7 @@ function TravelStep({ error, onError, onNext }: { error: string; onError: (value
   if (assigned && !locationEditable(assigned)) {
     return (
       <div className="grid gap-4">
-        <p className="text-lg leading-7">От 19 октомври до 5 ноември обхватът не се сменя.</p>
+        <p className="text-lg leading-7">От 19 октомври до 5 ноември не можеш да смениш докъде пътуваш.</p>
         <button className={button} type="button" onClick={onNext}>
           Напред
         </button>
@@ -759,7 +759,7 @@ function People({
       return
     }
     if (!companion.samePlace && !companion.role) {
-      onError('Избери роля, или остави същите място и дни като теб.')
+      onError('Избери роля или остави същите място и дни като теб.')
       return
     }
     onError('')
@@ -919,11 +919,11 @@ function Review({ settled, error, onError }: { settled: boolean; error: string; 
         ) : null}
       </ul>
       <StaffNote />
-      <p className="leading-7">Хартиените секции са с предимство. Машинна секция се използва само ако за населеното място вече има твърде много записани.</p>
+      <p className="leading-7">В избраното място първо те пращаме в хартиена секция. Машинна идва само ако там вече има твърде много хора.</p>
       <label className="flex items-start gap-3 rounded-2xl bg-white px-4 py-4 leading-7">
         <input type="checkbox" className="mt-1" checked={profile.consent} onChange={(event) => updateProfile({ consent: event.target.checked })} />
         <span>
-          Разбирам, че това е доброволна дейност без заплащане и че ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев. Запознат съм с{' '}
+          Разбирам, че това е доброволна дейност без заплащане и че ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев. Прочетох{' '}
           <Link to="/privacy-notice">декларацията за поверителност</Link>.
         </span>
       </label>

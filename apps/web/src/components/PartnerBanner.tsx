@@ -6,7 +6,7 @@ export function PartnerBanner({ source }: { source: string | null }) {
   if (!partner) {
     return (
       <p className="rounded-2xl border border-[#53c0a4] bg-[#e4f5f0] px-4 py-3 leading-7">
-        Записването е отбелязано, че идва от {source}.
+        Записването идва от {source}.
       </p>
     )
   }

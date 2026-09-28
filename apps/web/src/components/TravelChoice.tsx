@@ -97,13 +97,13 @@ export function TravelChoice({ profile }: { profile: Profile }) {
               )
             })}
           </div>
-          <p className="text-sm leading-6">Може и от картата, като натиснеш очертан район.</p>
+          <p className="text-sm leading-6">Може и от картата: натисни очертан район.</p>
         </div>
       ) : null}
       {profile.radius === 'distant' && profile.place?.regionCode !== '32' ? <OblastPicker profile={profile} /> : null}
       {oblastCodes.some((code) => stops.filter((item) => item.regionCode === code).length > 1) ? (
         <div className="grid gap-3">
-          <p className="text-sm font-semibold">Общини. Ако не избереш, остава цялата област.</p>
+          <p className="text-sm font-semibold">Общини. Ако не избереш нито една, остава цялата област.</p>
           {oblastCodes.map((code) => {
             const group = stops.filter((item) => item.regionCode === code)
             if (group.length < 2) return null

@@ -72,7 +72,7 @@ export const adminPublishOne = createServerFn({ method: 'POST' })
       )
       .bind(data.id)
       .first<{ email: string; mir: string; draft_section: string; published_section: string; section_place: string; payload_place: string }>()
-    if (!row) return { ok: false as const, message: 'Няма такъв запис.' }
+    if (!row) return { ok: false as const, message: 'Няма такова записване.' }
     const section = row.draft_section || row.published_section
     if (!section) return { ok: false as const, message: 'Няма чернова или публикувана секция за този човек.' }
     const blocked = await blockReason(db, section, data.id, row.mir)
@@ -112,7 +112,7 @@ export const adminNotifyAssignment = createServerFn({ method: 'POST' })
       )
       .bind(data.id)
       .first<{ email: string; published_section: string; section_place: string; payload_place: string }>()
-    if (!row) return { ok: false as const, message: 'Няма такъв запис.' }
+    if (!row) return { ok: false as const, message: 'Няма такова записване.' }
     if (!row.published_section) return { ok: false as const, message: 'Първо публикувай секцията за този човек, после извести.' }
     const address = row.section_place || row.payload_place || ''
     const sent = await deliverMail(assignmentMail(row.email, row.published_section, address, `${origin()}/profil`))

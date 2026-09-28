@@ -7,7 +7,7 @@ function BadgePage() {
   return (
     <div className="grid gap-6">
       <div className="no-print">
-        <PageIntro title="Значка за печат" lede="На значката пише „Представител на инициативен комитет“. Името и датите не се печатат." />
+        <PageIntro title="Значка за печат" lede="На значката пише „Представител на инициативен комитет“. Името ти и датите не се печатат." />
         <button type="button" className="brand-button" onClick={() => window.print()}>
           Отпечатай
         </button>

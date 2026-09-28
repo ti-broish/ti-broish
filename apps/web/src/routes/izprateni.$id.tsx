@@ -26,7 +26,7 @@ function ReportPage() {
   if (!report) {
     return (
       <div className="grid gap-4">
-        <PageIntro title="Няма такъв запис" lede="Отвори го от браузъра, от който е изпратен, или от профила." />
+        <PageIntro title="Не намираме това изпратено" lede="Отвори го от браузъра, от който си го пратил, или от профила." />
         <Link to="/izprateni" className="brand-button">
           Изпратените от теб
         </Link>
@@ -37,7 +37,7 @@ function ReportPage() {
   return (
     <div className="grid gap-4">
       <PageIntro title={labels[report.kind]} lede={new Date(report.createdAt).toLocaleString('bg-BG')} />
-      <p className="rounded-2xl bg-[#eee] px-4 py-3">Получен. Екипът го преглежда.</p>
+      <p className="rounded-2xl bg-[#eee] px-4 py-3">Получихме го. Екипът го преглежда.</p>
       {report.description ? <p className="leading-7">{report.description}</p> : null}
       {report.note ? <p className="leading-7">{report.note}</p> : null}
       {report.message ? <p className="leading-7">{report.message}</p> : null}
@@ -45,7 +45,7 @@ function ReportPage() {
       {report.email ? <p>{report.email}</p> : null}
       {report.phone ? <p>{report.phone}</p> : null}
       {report.place ? <p>{placeLabel(report.place)}</p> : null}
-      {report.wantCall ? <p>Поискано е обаждане по този сигнал.</p> : null}
+      {report.wantCall ? <p>Искаш обаждане по този сигнал.</p> : null}
       <ul className="grid gap-3">
         {report.photos.map((src) => (
           <li key={src.slice(0, 48)}>

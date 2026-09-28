@@ -252,7 +252,7 @@ function StaffSignIn({ onDone }: { onDone: () => void }) {
         })
       }}
     >
-      <p className="text-[#1a1020]">Профилът в браузъра не отваря списъка. Влез с потвърдения имейл, който е в екипа.</p>
+      <p className="text-[#1a1020]">Профилът на това устройство не отваря списъка. Влез с имейла, с който си в екипа.</p>
       <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="staff-email">
         Имейл
         <input id="staff-email" className={field} type="email" value={email} onChange={(event) => setEmail(event.target.value)} />

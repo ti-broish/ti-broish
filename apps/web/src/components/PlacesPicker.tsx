@@ -330,7 +330,7 @@ export function PlacesPicker({
             {addresses.map((group) => (
               <option key={group.place} value={group.place}>
                 {group.place} · {group.sections.length} секции, {group.paper} хартиени, {group.machine} машинни
-                {group.unknown > 0 ? `, ${group.unknown} без брой` : ''}
+                {group.unknown > 0 ? `, ${group.unknown} без брой избиратели` : ''}
               </option>
             ))}
           </select>

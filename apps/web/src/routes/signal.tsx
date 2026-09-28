@@ -130,7 +130,7 @@ function SignalPage() {
       </label>
       <label className="flex items-start gap-3 leading-7">
         <input type="checkbox" className="mt-1" checked={wantCall} onChange={(event) => setWantCall(event.target.checked)} />
-        <span>Искам да ми се обадите по този сигнал.</span>
+        <span>Искам екипът да ми се обади по този сигнал.</span>
       </label>
       <PhotoField photos={photos} onChange={setPhotos} />
       {place ? <p className="text-sm leading-6">{placeLabel(place)}</p> : null}

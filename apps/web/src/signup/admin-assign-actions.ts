@@ -46,7 +46,7 @@ export const adminDraft = createServerFn({ method: 'POST' })
       .prepare(`SELECT id, email, COALESCE(mir_code, '') AS mir FROM signups WHERE id = ?`)
       .bind(data.id)
       .first<{ id: string; email: string; mir: string }>()
-    if (!person) return { ok: false as const, message: 'Няма такъв запис.' }
+    if (!person) return { ok: false as const, message: 'Няма такова записване.' }
     const warnings = section ? await assignmentWarnings(db, section, person.id, person.mir) : []
     await db.prepare(`UPDATE signups SET draft_section = NULLIF(?, ''), updated_at = ? WHERE id = ?`).bind(section, new Date().toISOString(), data.id).run()
     return {

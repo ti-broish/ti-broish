@@ -18,7 +18,7 @@ function AccessPage() {
 
   return (
     <div className="grid max-w-3xl gap-5">
-      <AdminHeading title="Достъп" lede="Кой влиза в админа и с каква роля. Преглед само гледа. Редактор пише чернови. Админ публикува и кани." />
+      <AdminHeading title="Достъп" lede="Кой влиза в списъка и с каква роля. Преглед само гледа. Редактор пише чернови. Админ публикува и кани." />
       {message ? <p className="text-sm font-bold text-[#1a1020]">{message}</p> : null}
       <ul className="grid gap-2">
         {access.staff.map((member) => (

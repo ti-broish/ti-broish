@@ -275,13 +275,14 @@ test('a confirmed email can sign in from a fresh browser', async ({ page, browse
 
   const fresh = await browser.newContext()
   const other = await fresh.newPage()
-  await other.goto('/vhod')
+  await other.goto('/vhod', { waitUntil: 'networkidle' })
   await expect(other.getByRole('heading', { name: 'Влез в профила си' })).toBeVisible()
   await expect(other.getByText('tb_session')).toHaveCount(0)
-  await other.getByLabel('Имейл').fill(email)
-  await expect(other.getByLabel('Имейл')).toHaveValue(email)
+  const emailField = other.getByLabel('Имейл')
+  await emailField.fill(email)
+  await expect(emailField).toHaveValue(email)
   await other.getByRole('button', { name: 'Изпрати код' }).click()
-  await expect(other.getByText(/Кодът е \d{6}/)).toBeVisible()
+  await expect(other.locator('main')).toContainText(/Кодът е \d{6}/)
   const code = (await other.locator('main').innerText()).match(/Кодът е (\d{6})/)?.[1]
   await other.getByLabel('Код от писмото').fill(code ?? '')
   await other.getByRole('button', { name: 'Влез' }).click()

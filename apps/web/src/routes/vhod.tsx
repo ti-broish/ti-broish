@@ -66,34 +66,41 @@ function LoginPage() {
           className="grid gap-3"
           onSubmit={(event) => {
             event.preventDefault()
+            const entered = String(new FormData(event.currentTarget).get('email') ?? email)
+            setEmail(entered)
             setError('')
-            if (!validEmail(email)) {
+            if (!validEmail(entered)) {
               setError('Нужен е валиден имейл.')
               return
             }
             setBusy(true)
-            void requestSignInCode({ data: { email } }).then((result) => {
-              setBusy(false)
-              if (result.status === 'missing') {
-                setPhase('missing')
-                return
-              }
-              if (result.status === 'failed' || result.status === 'unavailable') {
-                setPhase('failed')
-                return
-              }
-              if (result.status === 'invalid') {
-                setError('Нужен е валиден имейл.')
-                return
-              }
-              setPreview(result.previewCode)
-              setPhase('code')
-            })
+            void requestSignInCode({ data: { email: entered } })
+              .then((result) => {
+                setBusy(false)
+                if (result.status === 'missing') {
+                  setPhase('missing')
+                  return
+                }
+                if (result.status === 'failed' || result.status === 'unavailable') {
+                  setPhase('failed')
+                  return
+                }
+                if (result.status === 'invalid') {
+                  setError('Нужен е валиден имейл.')
+                  return
+                }
+                setPreview(result.previewCode)
+                setPhase('code')
+              })
+              .catch(() => {
+                setBusy(false)
+                setError('Кодът не можа да се изпрати. Опитай отново.')
+              })
           }}
         >
           <label className="grid gap-1.5 text-sm font-semibold">
             Имейл
-            <input className="min-h-11 rounded-xl border border-[var(--line)] px-3" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input name="email" className="min-h-11 rounded-xl border border-[var(--line)] px-3" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
           </label>
           {error ? <p className="text-sm text-red-700">{error}</p> : null}
           <button type="submit" className="brand-button" disabled={busy}>

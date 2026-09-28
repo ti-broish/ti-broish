@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyProfile, nextAssignment, profileView, registrationSettled, signupGap, stepsFor, type Companion, type HomePlace } from './model'
+import { emptyProfile, nextAssignment, profileView, registrationSettled, resumeSignupStep, signupGap, stepsFor, type Companion, type HomePlace } from './model'
 import { companionRows, signupColumns } from './record'
 import { validateCall, validateProtocol, validateViolation } from './reports-validate'
 import { isProtocolDay } from './election'
@@ -58,6 +58,7 @@ describe('signup flow', () => {
       lastName: 'Иванов',
       email: 'ivan@example.com',
       phone: '0888123456',
+      emailConfirmed: true,
       egn: '0041010002',
       role: 'section' as const,
       rounds: { first: true, runoff: false },
@@ -66,6 +67,10 @@ describe('signup flow', () => {
       consent: true,
     }
     expect(signupGap(ready)).toBeNull()
+    expect(signupGap({ ...ready, emailConfirmed: false })).toMatch(/имейл/)
+    expect(profileView({ ...ready, emailConfirmed: false })).toBe('incomplete')
+    expect(resumeSignupStep({ ...ready, emailConfirmed: false })).toBe('confirm')
+    expect(resumeSignupStep({ ...ready, rounds: { first: false, runoff: false } })).toBe('rounds')
     expect(registrationSettled(ready)).toBe(true)
     expect(registrationSettled({ ...ready, submitted: true, consent: false })).toBe(true)
     expect(registrationSettled({ ...ready, submitted: true, withdrawn: true })).toBe(false)

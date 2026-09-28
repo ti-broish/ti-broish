@@ -7,7 +7,7 @@ import { ShareSignup } from '../components/ShareSignup'
 import { StaffNote } from '../components/StaffNote'
 import { loadSignup, saveSignup } from '../signup/db'
 import { isProtocolDay } from '../signup/election'
-import { assignmentLocked, nextAssignment, profileView, signupGap, type Profile } from '../signup/model'
+import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signupGap, type Profile } from '../signup/model'
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
@@ -40,9 +40,18 @@ function AnonymousCall() {
       }}
     >
       <p className="leading-7">Ако искаш обаждане, без да се записваш, остави телефон.</p>
-      <input className={field} autoComplete="name" placeholder="Име" value={name} onChange={(event) => setName(event.target.value)} required />
-      <input className={field} type="tel" autoComplete="tel" placeholder="Телефон" value={phone} onChange={(event) => setPhone(event.target.value)} required />
-      <textarea className={`${field} min-h-24 py-2`} placeholder="По какъв въпрос" value={message} onChange={(event) => setMessage(event.target.value)} />
+      <label className="grid gap-1 text-sm font-semibold">
+        Име
+        <input className={field} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required />
+      </label>
+      <label className="grid gap-1 text-sm font-semibold">
+        Телефон
+        <input className={field} type="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} required />
+      </label>
+      <label className="grid gap-1 text-sm font-semibold">
+        По какъв въпрос
+        <textarea className={`${field} min-h-24 py-2`} value={message} onChange={(event) => setMessage(event.target.value)} />
+      </label>
       {error ? <p className="text-red-700">{error}</p> : null}
       <button className="brand-button" type="submit">
         Поискай обаждане
@@ -208,6 +217,11 @@ function ProfilePage() {
   )
 }
 
+function assignedDays(profile: Profile) {
+  const days = [profile.rounds.first ? '25 октомври' : '', profile.rounds.runoff ? '1 ноември' : ''].filter(Boolean)
+  return days.join(' и ') || 'Изборният ден'
+}
+
 function NextStep({ profile }: { profile: Profile }) {
   const view = profileView(profile)
   if (view === 'incomplete') {
@@ -223,7 +237,7 @@ function NextStep({ profile }: { profile: Profile }) {
             Върни записването
           </button>
         ) : (
-          <Link to="/signup" search={{ step: resumeStep(profile) }} className="brand-button">
+          <Link to="/signup" search={{ step: resumeSignupStep(profile) }} className="brand-button">
             Продължи записването
           </Link>
         )}
@@ -239,7 +253,7 @@ function NextStep({ profile }: { profile: Profile }) {
         </h2>
         {profile.place?.sectionPlace ? <p className="leading-7">{profile.place.sectionPlace}</p> : null}
         <p className="text-lg leading-7">
-          {profile.rounds.first ? '25 октомври' : '1 ноември'}. Секцията е публикувана от екипа. Отпечатай значката и я вземи в изборния ден.
+          {assignedDays(profile)}. Секцията е публикувана от екипа. Отпечатай значката и я вземи в изборния ден.
         </p>
         {profile.assignedSection ? <AssignedSectionMap place={profile.place} section={profile.assignedSection} /> : null}
         <Link to="/znachka" className="brand-button">
@@ -260,13 +274,4 @@ function NextStep({ profile }: { profile: Profile }) {
   )
 }
 
-function resumeStep(profile: Profile) {
-  if (!profile.firstName || !profile.email || !profile.phone) return 'contact' as const
-  if (!profile.emailConfirmed) return 'confirm' as const
-  if (!profile.egn) return 'egn' as const
-  if (!profile.role || profile.role === 'video') return 'role' as const
-  if (!profile.experience) return 'experience' as const
-  if (!profile.place) return 'place' as const
-  if (!profile.radius) return 'travel' as const
-  return 'review' as const
-}
+

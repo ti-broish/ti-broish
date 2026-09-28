@@ -10,6 +10,7 @@ import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { deliverMail, importConfirmMail, staffInviteMail } from './mail'
 import { emptyProfile, validEmail, type Profile } from './model'
 import { signupColumns } from './record'
+import { sessionCookieSecure } from './session-cookie'
 import { keepsAnAdmin, parseStaffRole, permissionsFor, roleAllows, staffRoleLabel, type StaffAction, type StaffRole } from './staff'
 
 // Server helpers stay in this file, next to createServerFn. A barrel re-export
@@ -209,7 +210,13 @@ export const claimStaffSession = createServerFn({ method: 'POST' })
     if (!row?.email_confirmed || !row.session_token) return { ok: false as const, message: 'Няма потвърден профил с този имейл.' }
     const member = await db.prepare('SELECT role FROM staff WHERE email = ?').bind(email).first<{ role: string }>()
     if (!parseStaffRole(member?.role)) return { ok: false as const, message: 'Този имейл не е поканен в екипа.' }
-    setCookie(SESSION_COOKIE, row.session_token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
+    setCookie(SESSION_COOKIE, row.session_token, {
+      httpOnly: true,
+      secure: sessionCookieSecure(new URL(getRequestUrl()).hostname),
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 180,
+    })
     return { ok: true as const }
   })
 

@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
-import { confirmCompanion, previewCompanion } from '../signup/companion-lifecycle'
+import { confirmCompanion, previewCompanion } from '../signup/companion-confirm'
 import { confirmImported, previewImport } from '../signup/confirm-mail'
 
 export const Route = createFileRoute('/potvardi')({

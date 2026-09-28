@@ -1,25 +1,13 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
-import { useProfile } from '../signup/store'
 
 export const Route = createFileRoute('/znachka')({ component: BadgePage })
 
 function BadgePage() {
-  const { profile, ready } = useProfile()
-  const name = [profile.firstName, profile.lastName].filter(Boolean).join(' ')
-  const section = profile.assignedSection
-  const personalized = Boolean(name && section)
   return (
     <div className="grid gap-6">
       <div className="no-print">
-        <PageIntro
-          title="Значка за печат"
-          lede={
-            personalized
-              ? 'На значката са името и секцията. Пълномощното е отделно и идва дигитално след разпределението.'
-              : 'На значката пише „Представител на инициативен комитет“. Когато имаш назначена секция, тук ще видим и името, и номера.'
-          }
-        />
+        <PageIntro title="Значка за печат" lede="На значката пише „Представител на инициативен комитет“. Името и датите не се печатат." />
         <button type="button" className="brand-button" onClick={() => window.print()}>
           Отпечатай
         </button>
@@ -36,12 +24,6 @@ function BadgePage() {
           <br />
           ИНИЦИАТИВЕН КОМИТЕТ
         </h2>
-        {ready && personalized ? (
-          <>
-            <p className="text-base font-bold text-black">{name}</p>
-            <p className="text-sm text-black">Секция {section}</p>
-          </>
-        ) : null}
       </article>
     </div>
   )

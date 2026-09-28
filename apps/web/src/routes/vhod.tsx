@@ -1,45 +1,106 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
+import { checkEmailCode, requestSignInCode } from '../signup/confirm-mail'
 import { validEmail } from '../signup/model'
 import { useProfile } from '../signup/store'
 
 export const Route = createFileRoute('/vhod')({ component: LoginPage })
 
 function LoginPage() {
+  const navigate = useNavigate()
   const { profile, ready } = useProfile()
   const [email, setEmail] = useState('')
-  const [sent, setSent] = useState(false)
-  const matches = ready && profile.emailConfirmed && email.trim().toLowerCase() === profile.email.trim().toLowerCase()
+  const [code, setCode] = useState('')
+  const [preview, setPreview] = useState('')
+  const [phase, setPhase] = useState<'email' | 'code' | 'missing' | 'failed'>('email')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const here = ready && profile.emailConfirmed && profile.email.includes('@')
 
   return (
-    <div className="max-w-xl">
-      <PageIntro title="Влез в профила си" lede="Влез с потвърдения си имейл. Сесията е в cookie (tb_session); записът е в базата, не само в този браузър." />
-      <form
-        className="grid gap-3"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (validEmail(email)) setSent(true)
-        }}
-      >
-        <label className="grid gap-1.5 text-sm font-semibold">
-          Имейл
-          <input className="min-h-11 rounded-xl border border-[var(--line)] px-3" value={email} onChange={(event) => setEmail(event.target.value)} />
-        </label>
-        <button type="submit" className="brand-button">
-          Изпрати линк
-        </button>
-      </form>
-      {sent && matches ? (
-        <p className="mt-4">
-          Ако вече си потвърдил този имейл на това устройство, <Link to="/profil">отвори профила</Link>.
+    <div className="grid gap-4">
+      <PageIntro title="Влез в профила си" lede="Въведи потвърдения имейл. Ще пратим шестцифрен код, ако записването вече е в списъка." />
+      {here ? (
+        <p className="leading-7">
+          На това устройство вече си влязъл като {profile.email}. <Link to="/profil">Отвори профила</Link>.
         </p>
       ) : null}
-      {sent && !matches ? (
-        <p className="mt-4">
-          Няма активна сесия за този имейл тук. <Link to="/signup" search={{ step: 'contact' }}>Запиши се или потвърди имейла</Link>
+      {phase === 'missing' ? (
+        <p className="leading-7">
+          Няма потвърден запис за този имейл. <Link to="/signup" search={{ step: 'contact' }}>Запиши се</Link>.
         </p>
       ) : null}
+      {phase === 'failed' ? <p className="leading-7">Писмото не тръгна. Опитай отново след малко.</p> : null}
+      {phase === 'code' ? (
+        <form
+          className="grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            setError('')
+            setBusy(true)
+            void checkEmailCode({ data: { email, code } }).then(async (result) => {
+              setBusy(false)
+              if (!result.ok) {
+                setError('Кодът не съвпада.')
+                return
+              }
+              await navigate({ to: '/profil' })
+            })
+          }}
+        >
+          <p className="leading-7">
+            {preview ? `Писмото не се изпраща от този адрес. Кодът е ${preview}.` : `Изпратихме код на ${email}.`}
+          </p>
+          <label className="grid gap-1 text-sm font-semibold">
+            Код от писмото
+            <input className="min-h-11 rounded-xl border border-[var(--line)] px-3" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value)} />
+          </label>
+          {error ? <p className="text-sm text-red-700">{error}</p> : null}
+          <button type="submit" className="brand-button" disabled={busy}>
+            Влез
+          </button>
+        </form>
+      ) : (
+        <form
+          className="grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            setError('')
+            if (!validEmail(email)) {
+              setError('Нужен е валиден имейл.')
+              return
+            }
+            setBusy(true)
+            void requestSignInCode({ data: { email } }).then((result) => {
+              setBusy(false)
+              if (result.status === 'missing') {
+                setPhase('missing')
+                return
+              }
+              if (result.status === 'failed' || result.status === 'unavailable') {
+                setPhase('failed')
+                return
+              }
+              if (result.status === 'invalid') {
+                setError('Нужен е валиден имейл.')
+                return
+              }
+              setPreview(result.previewCode)
+              setPhase('code')
+            })
+          }}
+        >
+          <label className="grid gap-1.5 text-sm font-semibold">
+            Имейл
+            <input className="min-h-11 rounded-xl border border-[var(--line)] px-3" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </label>
+          {error ? <p className="text-sm text-red-700">{error}</p> : null}
+          <button type="submit" className="brand-button" disabled={busy}>
+            Изпрати код
+          </button>
+        </form>
+      )}
     </div>
   )
 }

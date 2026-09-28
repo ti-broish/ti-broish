@@ -17,7 +17,7 @@ function sixDigit() {
 }
 
 function sessionCookie(token: string) {
-  setCookie(SESSION_COOKIE, token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
+  setCookie(SESSION_COOKIE, token, { httpOnly: true, secure: !isDevMailHost(), sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
 }
 
 export const requestEmailCode = createServerFn({ method: 'POST' })
@@ -64,6 +64,30 @@ export const requestEmailCode = createServerFn({ method: 'POST' })
       return { sent: false, previewCode: isDevMailHost() ? code : '' }
     }
     return { sent: true, previewCode: '' }
+  })
+
+/** A code for someone who already confirmed. Does not create a signup for an unknown address. */
+export const requestSignInCode = createServerFn({ method: 'POST' })
+  .validator((input: { email: string }) => input)
+  .handler(async ({ data }) => {
+    const email = data.email.trim().toLowerCase()
+    if (!validEmail(email)) return { status: 'invalid' as const, previewCode: '' }
+    const db = await signupDatabase()
+    if (!db) return { status: 'unavailable' as const, previewCode: '' }
+    const row = await db.prepare('SELECT email_confirmed FROM signups WHERE email = ?').bind(email).first<{ email_confirmed: number | null }>()
+    if (!row?.email_confirmed) return { status: 'missing' as const, previewCode: '' }
+    const code = sixDigit()
+    const now = new Date().toISOString()
+    await db.prepare('UPDATE signups SET email_code = ?, updated_at = ? WHERE email = ?').bind(code, now, email).run()
+    const sent = await deliverMail(confirmCodeMail(email, code))
+    if (!sent) {
+      if (!isDevMailHost()) {
+        await db.prepare('UPDATE signups SET email_code = NULL WHERE email = ?').bind(email).run()
+        return { status: 'failed' as const, previewCode: '' }
+      }
+      return { status: 'preview' as const, previewCode: code }
+    }
+    return { status: 'sent' as const, previewCode: '' }
   })
 
 export const checkEmailCode = createServerFn({ method: 'POST' })

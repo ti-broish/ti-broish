@@ -1,9 +1,18 @@
 import { createServerFn } from '@tanstack/react-start'
-import { getCookie, setCookie } from '@tanstack/react-start/server'
+import { getCookie, getRequestHost, setCookie } from '@tanstack/react-start/server'
 import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupRow } from './db-core'
 import { type Profile } from './model'
 import { companionsForSignup, syncCompanions } from './companion-lifecycle'
 import { egnProblem, signupColumns } from './record'
+import { sessionCookieSecure } from './session-cookie'
+
+function requestHost() {
+  try {
+    return getRequestHost()
+  } catch {
+    return ''
+  }
+}
 
 async function referrerName(db: NonNullable<Awaited<ReturnType<typeof signupDatabase>>>, code: string | null) {
   if (!code) return null
@@ -126,7 +135,7 @@ export const saveSignup = createServerFn({ method: 'POST' })
     const synced = await syncCompanions(db, id, data.companions)
     data = { ...data, companions: synced.companions }
     await db.prepare('UPDATE signups SET payload = ? WHERE id = ?').bind(signupColumns(data).payload, id).run()
-    setCookie(SESSION_COOKIE, token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
+    setCookie(SESSION_COOKIE, token, { httpOnly: true, secure: sessionCookieSecure(requestHost()), sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
     const countRow = data.referralCode
       ? await db.prepare('SELECT COUNT(*) AS n FROM signups WHERE referred_by = ?').bind(data.referralCode).first<{ n: number }>()
       : null

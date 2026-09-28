@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyProfile, nextAssignment, profileView, signupGap, stepsFor, type Companion, type HomePlace } from './model'
+import { emptyProfile, nextAssignment, profileView, registrationSettled, signupGap, stepsFor, type Companion, type HomePlace } from './model'
 import { companionRows, signupColumns } from './record'
 import { validateCall, validateProtocol, validateViolation } from './reports-validate'
 import { isProtocolDay } from './election'
@@ -66,6 +66,10 @@ describe('signup flow', () => {
       consent: true,
     }
     expect(signupGap(ready)).toBeNull()
+    expect(registrationSettled(ready)).toBe(true)
+    expect(registrationSettled({ ...ready, submitted: true, consent: false })).toBe(true)
+    expect(registrationSettled({ ...ready, submitted: true, withdrawn: true })).toBe(false)
+    expect(registrationSettled({ ...ready, consent: false, submitted: false })).toBe(false)
     expect(nextAssignment(ready, new Date('2026-09-27T12:00:00Z'))?.label).toBe('5 октомври')
     expect(nextAssignment({ rounds: { first: false, runoff: true } }, new Date('2026-09-27T12:00:00Z'))?.label).toBe('26 октомври')
   })

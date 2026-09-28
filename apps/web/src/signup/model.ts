@@ -204,6 +204,11 @@ export function signupGap(profile: Profile): string | null {
   return null
 }
 
+/** Already in the register: submitted, or a complete form the autosave has not flagged yet. Withdrawn signups are not. */
+export function registrationSettled(profile: Profile) {
+  return !profile.withdrawn && (profile.submitted || signupGap(profile) === null)
+}
+
 function plainTown(name: string | undefined) {
   return name?.replace(/^(гр\.|с\.|к\.|ман\.)\s*/u, '')
 }

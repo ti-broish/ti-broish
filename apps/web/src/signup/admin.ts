@@ -1,6 +1,8 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
 import { campaignCsv, internalCsv, normalizeSection, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
+import { clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
+import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { travelLabelOf } from './admin-assign'
 import { NOTES_SQL, notesFromRow } from './admin-notes'
 import { PERSON_SQL_BASE } from './admin-person-sql'
@@ -130,14 +132,67 @@ function bound(db: Database, sql: string, binds: unknown[]) {
   return binds.length > 0 ? statement.bind(...binds) : statement
 }
 
-async function selectPeople(db: Database, clause: string, binds: string[], limit: number, offset: number, withEgn: boolean) {
+async function selectPeople(db: Database, clause: string, binds: string[], limit: number, offset: number, withEgn: boolean, order: string) {
   const egn = withEgn ? ", COALESCE(egn, '') AS egn" : ''
   const result = await bound(
     db,
-    `SELECT ${PERSON_SQL}${egn} FROM signups WHERE ${clause} ORDER BY updated_at DESC LIMIT ${limit} OFFSET ${offset}`,
+    `SELECT ${PERSON_SQL}${egn} FROM signups WHERE ${clause} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`,
     binds,
   ).all<RawPerson>()
   return result.results ?? []
+}
+
+export interface AdminSummary {
+  total: number
+  assigned: number
+  unassigned: number
+  calls: number
+  staff: number
+}
+
+async function summaryOf(db: Database): Promise<AdminSummary> {
+  const row = await db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN COALESCE(published_section, '') != '' THEN 1 ELSE 0 END), 0) AS assigned,
+         COALESCE(SUM(CASE WHEN COALESCE(published_section, '') = '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS unassigned,
+         COALESCE(SUM(CASE WHEN COALESCE(json_extract(payload, '$.callRequestedAt'), '') != '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS calls
+       FROM signups`,
+    )
+    .first<{ total: number; assigned: number; unassigned: number; calls: number }>()
+  const staff = await db.prepare('SELECT COUNT(*) AS n FROM staff').first<{ n: number }>()
+  return {
+    total: Number(row?.total ?? 0),
+    assigned: Number(row?.assigned ?? 0),
+    unassigned: Number(row?.unassigned ?? 0),
+    calls: Number(row?.calls ?? 0),
+    staff: Number(staff?.n ?? 0),
+  }
+}
+
+function filtered(view: string, mir: string, q: string, mode: 'fts' | 'like') {
+  const filter = rosterWhere(viewOf(view), mir)
+  if ('error' in filter) return filter
+  const search = searchClause(q, mode)
+  return { clause: `(${filter.clause}) AND (${search.clause})`, binds: [...filter.binds, ...search.binds] }
+}
+
+async function queryPeople(db: Database, view: string, mir: string, q: string, limit: number, offset: number, withEgn: boolean, sort: string, dir: string) {
+  const run = async (mode: 'fts' | 'like') => {
+    const filter = filtered(view, mir, q, mode)
+    if ('error' in filter) return filter
+    const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
+    const rows = await selectPeople(db, filter.clause, filter.binds, limit, offset, withEgn, rosterOrder(sort, dir))
+    return { total: Number(total?.n ?? 0), rows }
+  }
+  try {
+    return await run(currentSearchEngine())
+  } catch (error) {
+    if (currentSearchEngine() === 'like' || !isFtsError(error)) throw error
+    useLikeSearch()
+    return await run('like')
+  }
 }
 
 export const claimStaffSession = createServerFn({ method: 'POST' })
@@ -158,17 +213,39 @@ export const claimStaffSession = createServerFn({ method: 'POST' })
     return { ok: true as const }
   })
 
+export const adminSession = createServerFn({ method: 'POST' })
+  .validator(() => ({}))
+  .handler(async () => {
+    const access = await gate('view')
+    if (!access.ok) return access
+    return {
+      ok: true as const,
+      email: access.email,
+      role: access.role,
+      permissions: permissionsFor(access.role),
+      staff: await listStaff(access.db),
+      summary: await summaryOf(access.db),
+    }
+  })
+
 export const adminRoster = createServerFn({ method: 'POST' })
-  .validator((input: { view: string; mir: string }) => input)
+  .validator((input: { view?: string; mir?: string; q?: string; page?: number; limit?: number; sort?: string; dir?: string }) => ({
+    view: input.view ?? 'all',
+    mir: input.mir ?? '',
+    q: (input.q ?? '').slice(0, 120),
+    page: clampPage(input.page),
+    limit: clampLimit(input.limit),
+    sort: input.sort ?? 'updated',
+    dir: input.dir === 'asc' ? 'asc' : 'desc',
+  }))
   .handler(async ({ data }) => {
     const access = await gate('view')
     if (!access.ok) return access
     const db = access.db
-    const filter = rosterWhere(viewOf(data.view), data.mir)
-    if ('error' in filter) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: filter.error }
-    const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
-    const people = (await selectPeople(db, filter.clause, filter.binds, 300, 0, false)).map(fieldsOf)
-    const takenMir = viewOf(data.view) === 'mir' ? filter.binds[0] ?? '' : ''
+    const queried = await queryPeople(db, data.view, data.mir, data.q, data.limit, (data.page - 1) * data.limit, false, data.sort, data.dir)
+    if ('error' in queried) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: queried.error }
+    const people = queried.rows.map(fieldsOf)
+    const takenMir = viewOf(data.view) === 'mir' ? data.mir.trim().padStart(2, '0') : ''
     const taken = await db
       .prepare(
         `SELECT section_code, COALESCE(mir_code, '') AS mir_code, COALESCE(place, '') AS place, organisation, COALESCE(note, '') AS note
@@ -182,25 +259,32 @@ export const adminRoster = createServerFn({ method: 'POST' })
       role: access.role,
       permissions: permissionsFor(access.role),
       staff: await listStaff(db),
-      total: total?.n ?? people.length,
+      summary: await summaryOf(db),
+      total: queried.total,
+      page: data.page,
+      limit: data.limit,
       people,
       taken: taken.results ?? [],
     }
   })
 
 export const adminExport = createServerFn({ method: 'POST' })
-  .validator((input: { view: string; mir: string; kind: string }) => input)
+  .validator((input: { view: string; mir: string; kind: string; q?: string }) => ({
+    view: input.view,
+    mir: input.mir,
+    kind: input.kind,
+    q: (input.q ?? '').slice(0, 120),
+  }))
   .handler(async ({ data }) => {
     const access = await gate(data.kind === 'campaign' ? 'exportCampaign' : 'exportInternal')
     if (!access.ok) return access
     const db = access.db
-    const filter = rosterWhere(viewOf(data.view), data.mir)
-    if ('error' in filter) return { ok: false as const, message: filter.error }
     const people: RosterFields[] = []
     for (let offset = 0; people.length < 5000; offset += 400) {
-      const chunk = await selectPeople(db, filter.clause, filter.binds, 400, offset, data.kind !== 'campaign')
-      people.push(...chunk.map(fieldsOf))
-      if (chunk.length < 400) break
+      const chunk = await queryPeople(db, data.view, data.mir, data.q, 400, offset, data.kind !== 'campaign', 'updated', 'desc')
+      if ('error' in chunk) return { ok: false as const, message: chunk.error }
+      people.push(...chunk.rows.map(fieldsOf))
+      if (chunk.rows.length < 400) break
     }
     const campaign = data.kind === 'campaign'
     const exported = campaign ? people.map((person) => ({ ...person, egn: '', draftSection: '' })) : people

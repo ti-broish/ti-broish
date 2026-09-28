@@ -172,6 +172,27 @@ main h1 {
   }
 }
 
+.admin-nav a,
+.admin-drawer a {
+  text-decoration: none;
+}
+
+.admin-nav a {
+  color: #1a1020;
+}
+
+.admin-nav a[aria-current='page'] {
+  color: #fff;
+}
+
+.admin-drawer a {
+  color: #fff;
+}
+
+.admin-drawer a[aria-current='page'] {
+  color: #2b062f;
+}
+
 .brand-button {
   display: flex;
   width: 100%;

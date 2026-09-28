@@ -1,7 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
-import { PageIntro } from '../../components/SiteChrome'
-import { adminInvite, adminRoster, adminStaffRemove, adminStaffRole } from '../../signup/admin'
+import { useState } from 'react'
+import { useAdminAccess } from '../../components/AdminShell'
+import { AdminHeading, adminGhost, adminInput } from '../../components/admin-ui'
+import { adminInvite, adminStaffRemove, adminStaffRole } from '../../signup/admin'
 import { STAFF_ROLES, staffRoleLabel, type StaffRole } from '../../signup/staff'
 
 export const Route = createFileRoute('/admin/access')({
@@ -9,43 +10,31 @@ export const Route = createFileRoute('/admin/access')({
 })
 
 function AccessPage() {
-  const [staff, setStaff] = useState<Array<{ email: string; role: StaffRole }>>([])
-  const [canInvite, setCanInvite] = useState(false)
+  const access = useAdminAccess()
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<StaffRole>('editor')
   const [message, setMessage] = useState('')
-
-  function load() {
-    void adminRoster({ data: { view: 'all', mir: '' } }).then((result) => {
-      if (!result.ok) return
-      setStaff(result.staff)
-      setCanInvite(result.permissions.invite)
-    })
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
+  const canInvite = access.permissions.invite
 
   return (
-    <div className="grid gap-4">
-      <PageIntro title="Достъп" lede="Кой влиза в админа и с каква роля. Преглед само гледа. Редактор пише чернови. Админ публикува и кани." />
-      {message ? <p>{message}</p> : null}
+    <div className="grid max-w-3xl gap-5">
+      <AdminHeading title="Достъп" lede="Кой влиза в админа и с каква роля. Преглед само гледа. Редактор пише чернови. Админ публикува и кани." />
+      {message ? <p className="text-sm font-bold text-[#1a1020]">{message}</p> : null}
       <ul className="grid gap-2">
-        {staff.map((member) => (
-          <li key={member.email} className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="font-bold">{member.email}</span>
+        {access.staff.map((member) => (
+          <li key={member.email} className="flex flex-wrap items-center gap-2 rounded-2xl border-2 border-[#2b062f] bg-white px-3 py-2 text-sm text-[#1a1020]">
+            <span className="min-w-0 flex-1 break-all font-bold">{member.email}</span>
             {canInvite ? (
               <>
                 <select
-                  className="min-h-10 rounded-xl border border-[#ddd] bg-white px-2"
+                  className={`${adminInput} min-w-36`}
                   value={member.role}
                   aria-label={`Роля на ${member.email}`}
                   onChange={(event) => {
                     const next = event.target.value as StaffRole
                     void adminStaffRole({ data: { email: member.email, role: next } }).then((result) => {
                       setMessage(result.message)
-                      if (result.ok) load()
+                      if (result.ok) access.reload()
                     })
                   }}
                 >
@@ -57,11 +46,11 @@ function AccessPage() {
                 </select>
                 <button
                   type="button"
-                  className="font-bold"
+                  className={adminGhost}
                   onClick={() => {
                     void adminStaffRemove({ data: { email: member.email } }).then((result) => {
                       setMessage(result.message)
-                      if (result.ok) load()
+                      if (result.ok) access.reload()
                     })
                   }}
                 >
@@ -69,7 +58,7 @@ function AccessPage() {
                 </button>
               </>
             ) : (
-              <span>{staffRoleLabel(member.role)}</span>
+              <span className="font-bold">{staffRoleLabel(member.role)}</span>
             )}
           </li>
         ))}
@@ -83,18 +72,18 @@ function AccessPage() {
               setMessage(result.message)
               if (result.ok) {
                 setEmail('')
-                load()
+                access.reload()
               }
             })
           }}
         >
-          <label className="grid gap-1 text-sm font-semibold">
+          <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="invite-email">
             Имейл
-            <input className="min-h-11 w-64 rounded-xl border border-[#ddd] bg-white px-3" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input id="invite-email" className={`${adminInput} w-64 max-w-full`} type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
           </label>
-          <label className="grid gap-1 text-sm font-semibold">
+          <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="invite-role">
             Роля
-            <select className="min-h-11 rounded-xl border border-[#ddd] bg-white px-2" value={role} onChange={(event) => setRole(event.target.value as StaffRole)}>
+            <select id="invite-role" className={adminInput} value={role} onChange={(event) => setRole(event.target.value as StaffRole)}>
               {STAFF_ROLES.map((item) => (
                 <option key={item} value={item}>
                   {staffRoleLabel(item)}
@@ -102,11 +91,13 @@ function AccessPage() {
               ))}
             </select>
           </label>
-          <button className="brand-button" type="submit">
+          <button className="brand-button w-auto px-6" type="submit">
             Покани
           </button>
         </form>
-      ) : null}
+      ) : (
+        <p className="text-sm text-[#333]">Тази роля вижда екипа, без да кани.</p>
+      )}
     </div>
   )
 }

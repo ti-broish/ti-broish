@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { adminBrevoPrepareCampaign, adminBrevoStatus } from '../../signup/admin-brevo'
 
-const ghost = 'flex min-h-11 items-center justify-center rounded-[20px] border border-[#ddd] bg-white px-4 text-sm font-bold'
+const ghost = 'inline-flex min-h-11 items-center justify-center rounded-full border-2 border-[#2b062f] bg-white px-4 text-sm font-bold text-[#2b062f]'
 
 export function BrevoCampaignPanel(props: {
   enabled: boolean
@@ -28,8 +28,8 @@ export function BrevoCampaignPanel(props: {
   if (!enabled) return null
 
   return (
-    <section className="grid gap-3 border-t border-[#ddd] pt-6">
-      <h2 className="text-xl font-black text-[#444]">Brevo кампания</h2>
+    <section className="grid gap-3 border-t-2 border-[#2b062f] pt-4">
+      <h2 className="text-xl font-black text-[#1a1020]">Brevo кампания</h2>
       {configured === false ? (
         <p className="text-sm text-[#a33]">
           Липсва <code>BREVO_API_KEY</code>. Задай го с{' '}
@@ -38,10 +38,10 @@ export function BrevoCampaignPanel(props: {
         </p>
       ) : (
         <>
-          <p className="text-sm text-[#666]">{hint || 'Проверявам настройката…'}</p>
+          <p className="text-sm text-[#333]">{hint || 'Проверявам настройката…'}</p>
           <label className="grid gap-1 text-sm font-semibold">
             Тема
-            <input className="min-h-11 w-full max-w-xl rounded-xl border border-[#ddd] bg-white px-3" value={subject} onChange={(event) => setSubject(event.target.value)} />
+            <input className="min-h-11 w-full max-w-xl rounded-xl border-2 border-[#4a314f] bg-white px-3 text-[#1a1020]" value={subject} onChange={(event) => setSubject(event.target.value)} />
           </label>
           <div className="flex flex-wrap gap-2">
             <button
@@ -73,7 +73,7 @@ export function BrevoCampaignPanel(props: {
               Подготви и изпрати сега
             </button>
           </div>
-          <p className="text-xs text-[#666]">Синхронизира контактите от текущия изглед към BREVO_LIST_ID, създава кампания (template или HTML) и по желание вика sendNow. CSV експортът остава.</p>
+          <p className="text-sm text-[#333]">Синхронизира контактите от текущия изглед към BREVO_LIST_ID, създава кампания (template или HTML) и по желание вика sendNow. CSV експортът остава.</p>
         </>
       )}
     </section>

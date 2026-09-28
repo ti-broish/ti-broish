@@ -1,4 +1,8 @@
-import { expect, test } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+
+const STAFF_EMAIL = 'maria.admin-e2e@example.com'
+const SESSION = 'e2e-admin-session'
 
 test('the roster stays out of the menu and asks for a confirmed team email', async ({ page }) => {
   await page.goto('/')
@@ -9,5 +13,157 @@ test('the roster stays out of the menu and asks for a confirmed team email', asy
   await expect(page.getByRole('button', { name: 'Влез в списъка' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Достъп' })).toHaveCount(0)
   await page.goto('/admin/sections')
-  await expect(page.getByRole('button', { name: 'Публикувай черновите в този изглед' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Публикувай черновите в този изглед (без имейл)' })).toHaveCount(0)
 })
+
+test.describe('staff admin', () => {
+  test.beforeAll(async ({ browser }) => {
+    const page = await browser.newPage()
+    await page.goto('/admin')
+    await expect(page.getByRole('heading', { name: 'Админ' })).toBeVisible()
+    await page.close()
+    seedStaffRoster()
+  })
+
+  test('desktop sidebar shows the roster and keeps high-contrast labels', async ({ page }) => {
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin')
+    const nav = page.getByRole('navigation', { name: 'Админ' })
+    await expect(nav.getByRole('link', { name: 'Записвания' })).toBeVisible()
+    await expect(page.locator('aside span').filter({ hasText: /^Админ$/ })).toBeVisible()
+    await expect(page.locator('aside').getByText(STAFF_EMAIL, { exact: true })).toBeVisible()
+    await expect(page.getByText('Записани', { exact: true })).toBeVisible()
+    const active = nav.getByRole('link', { name: 'Начало' })
+    const idle = nav.getByRole('link', { name: 'Записвания' })
+    expect(await contrastOf(active)).toBeGreaterThanOrEqual(4.5)
+    expect(await contrastOf(idle)).toBeGreaterThanOrEqual(4.5)
+    await nav.getByRole('link', { name: 'Записвания', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Записвания' })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+  })
+
+  test('mobile drawer opens the same admin links', async ({ page }) => {
+    await signIn(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/admin/signups')
+    await expect(page.getByRole('navigation', { name: 'Админ' })).toBeHidden()
+    await page.getByRole('button', { name: 'Админ меню' }).click()
+    const drawer = page.getByRole('navigation', { name: 'Админ меню' })
+    await expect(drawer.getByRole('link', { name: 'Секции' })).toBeVisible()
+    expect(await contrastOf(drawer.getByRole('link', { name: 'Записвания' }))).toBeGreaterThanOrEqual(4.5)
+    await drawer.getByRole('link', { name: 'Начало' }).click()
+    await expect(page.getByRole('heading', { name: 'Начало' })).toBeVisible()
+  })
+
+  test('search by email, phone, and name updates the URL and can be empty', async ({ page }) => {
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/signups')
+    const search = page.getByLabel('Търсене')
+    await search.fill(STAFF_EMAIL)
+    await expect(page).toHaveURL(new RegExp(`q=${encodeURIComponent(STAFF_EMAIL).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), { timeout: 5000 })
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Иван Иванов Иванов' })).toHaveCount(0)
+
+    await search.fill('0888333444')
+    await expect(page).toHaveURL(/q=0888333444/, { timeout: 5000 })
+    await expect(page.getByRole('cell', { name: 'Иван Иванов Иванов' })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toHaveCount(0)
+
+    await search.fill('Мария')
+    await expect(page).toHaveURL(/q=/, { timeout: 5000 })
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Без секция' }).click()
+    await expect(page).toHaveURL(/view=unassigned/)
+    await page.goBack()
+    await expect(page).not.toHaveURL(/view=unassigned/)
+
+    await search.fill('няматакъвчовек')
+    await expect(page.getByText('Няма хора за това търсене.')).toBeVisible({ timeout: 5000 })
+  })
+})
+
+async function signIn(page: Page) {
+  await page.context().addCookies([
+    { name: 'tb_session', value: SESSION, url: 'http://127.0.0.1:3000', httpOnly: true, sameSite: 'Lax' },
+  ])
+}
+
+function seedStaffRoster() {
+  const sql = `
+INSERT INTO signups (
+  id, email, session_token, referral_code, payload, email_confirmed, withdrawn, egn, role,
+  mir_code, region_code, town_name, section_place, draft_section, published_section, notes, created_at, updated_at
+) VALUES
+(
+  'e2e-maria',
+  '${STAFF_EMAIL}',
+  '${SESSION}',
+  'e2emaria',
+  '{"firstName":"Мария","middleName":"Георгиева","lastName":"Петрова","phone":"0888111222","email":"${STAFF_EMAIL}"}',
+  1, 0, '0041010002', 'section',
+  '23', '23', 'гр. София', 'ул. Витоша 1', '', '234600101', '', datetime('now'), datetime('now')
+),
+(
+  'e2e-ivan',
+  'ivan.admin-e2e@example.com',
+  'e2e-ivan-session',
+  'e2eivan1',
+  '{"firstName":"Иван","middleName":"Иванов","lastName":"Иванов","phone":"0888333444","email":"ivan.admin-e2e@example.com"}',
+  1, 0, '', 'mobile',
+  '24', '24', 'гр. София', 'ул. Пример 2', '244600199', '', '', datetime('now'), datetime('now')
+)
+ON CONFLICT(email) DO UPDATE SET
+  session_token = excluded.session_token,
+  payload = excluded.payload,
+  email_confirmed = 1,
+  egn = excluded.egn,
+  role = excluded.role,
+  mir_code = excluded.mir_code,
+  town_name = excluded.town_name,
+  section_place = excluded.section_place,
+  draft_section = excluded.draft_section,
+  published_section = excluded.published_section;
+INSERT INTO staff (email, role, invited_by, created_at)
+VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
+ON CONFLICT(email) DO UPDATE SET role = 'admin';
+`
+  execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'ti-broish-signup-staging', '--local', '--command', sql], {
+    cwd: new URL('.', import.meta.url).pathname.replace(/e2e\/$/, ''),
+    stdio: 'pipe',
+  })
+}
+
+async function contrastOf(locator: Locator) {
+  return locator.evaluate((element) => {
+    function channel(color: string) {
+      const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+      if (!match) return null
+      return [Number(match[1]), Number(match[2]), Number(match[3])] as const
+    }
+    function paint(start: Element | null) {
+      let node = start as HTMLElement | null
+      while (node) {
+        const color = getComputedStyle(node).backgroundColor
+        const rgb = channel(color)
+        if (rgb && !color.endsWith(', 0)')) return rgb
+        node = node.parentElement
+      }
+      return [255, 255, 255] as const
+    }
+    function lum([r, g, b]: readonly number[]) {
+      const part = (value: number) => {
+        const scaled = value / 255
+        return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4
+      }
+      return 0.2126 * part(r) + 0.7152 * part(g) + 0.0722 * part(b)
+    }
+    const fg = channel(getComputedStyle(element).color) ?? [0, 0, 0]
+    const bg = paint(element)
+    const lighter = Math.max(lum(fg), lum(bg))
+    const darker = Math.min(lum(fg), lum(bg))
+    return (lighter + 0.05) / (darker + 0.05)
+  })
+}

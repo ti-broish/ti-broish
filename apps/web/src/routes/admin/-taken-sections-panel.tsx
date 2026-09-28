@@ -9,11 +9,11 @@ export function TakenSectionsPanel(props: {
   const { canEdit, taken, setMessage, load } = props
   if (!canEdit) return null
   return (
-    <section className="grid gap-3 border-t border-[#ddd] pt-6">
-      <h2 className="text-xl font-black text-[#444]">Заети секции</h2>
+    <section className="grid gap-3 border-t-2 border-[#2b062f] pt-6">
+      <h2 className="text-xl font-black text-[#1a1020]">Заети секции</h2>
       <p>Секции, взети от друга организация. Колони: секция, организация, място, мир, бележка.</p>
       <input
-        className="min-h-11 w-full rounded-xl border border-[#ddd] bg-white px-3"
+        className="min-h-11 w-full rounded-xl border-2 border-[#4a314f] bg-white px-3 text-[#1a1020]"
         type="file"
         accept=".csv,text/csv"
         aria-label="CSV със заети секции"

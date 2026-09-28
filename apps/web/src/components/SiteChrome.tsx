@@ -56,8 +56,9 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       ) : null}
-      <main className={path === '/signup' || path.startsWith('/admin') ? 'mx-auto w-full max-w-lg bg-white px-4 py-8 lg:max-w-6xl' : 'mx-auto w-full max-w-lg bg-white px-4 py-8'}>{children}</main>
-      <div className="h-10 bg-[#2b062f]" />
+      <main className={path.startsWith('/admin') ? 'w-full max-w-none bg-white px-0 py-0' : 'mx-auto w-full max-w-lg bg-white px-4 py-8'}>{children}</main>
+      {path.startsWith('/admin') ? null : <div className="h-10 bg-[#2b062f]" />}
+      {path.startsWith('/admin') ? null : (
       <footer className="bg-[#eee] text-[#333]">
         <nav className="mx-auto flex max-w-lg flex-wrap gap-x-4 gap-y-2 px-4 py-6">
           <Link to="/kontakt" className="font-bold text-[#333] no-underline">
@@ -89,6 +90,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
         </nav>
         <p className="bg-[#666] py-4 text-center font-bold text-white">Ти Броиш © {new Date().getFullYear()}</p>
       </footer>
+      )}
     </>
   )
 }

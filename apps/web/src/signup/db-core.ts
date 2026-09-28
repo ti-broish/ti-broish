@@ -1,4 +1,5 @@
 import { migrateCompanionColumns } from './db-core-migrate-companions'
+import { ensureSearchIndex } from './db-search'
 import { env } from 'cloudflare:workers'
 import { visibleSection } from './admin-csv'
 import { emptyProfile, type Profile } from './model'
@@ -144,6 +145,7 @@ export async function signupDatabase() {
   for (const email of parseAdminEmails((env as unknown as { ADMIN_EMAILS?: string }).ADMIN_EMAILS)) {
     await db.prepare(`INSERT INTO staff (email, role, invited_by, created_at) VALUES (?, 'admin', 'env', ?) ON CONFLICT(email) DO NOTHING`).bind(email, now).run()
   }
+  await ensureSearchIndex(db)
   return db
 }
 

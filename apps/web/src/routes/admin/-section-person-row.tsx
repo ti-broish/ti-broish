@@ -33,9 +33,9 @@ export function SectionPersonRow(props: {
                   <td className="py-3 pr-3">
                     <p className="font-bold">{person.firstName} {person.lastName}</p>
                     <p>{person.email}</p>
-                    <p className="text-[#666]">{person.mir || (person.region === '32' ? 'чужбина' : person.place)}</p>
+                    <p className="text-[#333]">{person.mir || (person.region === '32' ? 'чужбина' : person.place)}</p>
                     {person.radius || person.travelLabel ? (
-                      <p className="text-xs text-[#666]">
+                      <p className="text-xs text-[#333]">
                         {person.radius ? `радиус: ${person.radius}` : null}
                         {person.radius && person.travelLabel ? ' · ' : null}
                         {person.travelLabel ? `пътуване: ${person.travelLabel}` : null}
@@ -68,7 +68,7 @@ export function SectionPersonRow(props: {
                         >
                           <input
                             name="section"
-                            className="min-h-10 w-32 rounded-xl border border-[#ddd] px-2"
+                            className="min-h-11 w-32 rounded-xl border-2 border-[#4a314f] bg-white px-2 text-[#1a1020]"
                             value={draftValues[person.id] ?? person.draftSection}
                             onChange={(event) => setDraftValues((current) => ({ ...current, [person.id]: event.target.value }))}
                             aria-label={`Чернова за ${person.email}`}
@@ -121,7 +121,7 @@ export function SectionPersonRow(props: {
                                   }}
                                 >
                                   {tip.id}
-                                  <span className="font-normal text-[#666]"> — {tip.place || tip.reason}</span>
+                                  <span className="font-normal text-[#333]"> — {tip.place || tip.reason}</span>
                                 </button>
                               </li>
                             ))}

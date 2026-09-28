@@ -17,6 +17,7 @@ import {
   placeReady,
   radiusOptions,
   registrationSettled,
+  resumeSignupStep,
   signupGap,
   roleLabel,
   stepsFor,
@@ -251,6 +252,28 @@ function Confirm({
   const [retrying, setRetrying] = useState(false)
   const preview = profile.confirmCode
 
+  async function accept(value: string) {
+    onError('')
+    const result = await checkEmailCode({ data: { email: profile.email, code: value } })
+    if (!result.ok) {
+      onError('Кодът не съвпада.')
+      return
+    }
+    updateProfile({ emailConfirmed: true, confirmCode: '' })
+    onNext()
+  }
+
+  if (profile.emailConfirmed) {
+    return (
+      <div className="grid gap-4">
+        <p className="leading-7">Имейлът {profile.email} е потвърден.</p>
+        <button type="button" className={button} onClick={onNext}>
+          Напред
+        </button>
+      </div>
+    )
+  }
+
   function resend() {
     setRetrying(true)
     onError('')
@@ -277,7 +300,7 @@ function Confirm({
         <p className="text-sm text-[var(--ink-soft)]">От: Ти Броиш · До: {profile.email}</p>
         <h2 className="mt-2 text-xl font-extrabold">Потвърди имейла, преди да продължиш</h2>
         {preview ? (
-          <p className="mt-2 leading-7">Кодът за този прототип е {preview}. Щом писмото тръгне, кодът остава само в него.</p>
+          <p className="mt-2 leading-7">Писмото не се изпраща от този адрес. Кодът е {preview}.</p>
         ) : mailFailed ? (
           <p className="mt-2 leading-7">Писмото не тръгна до {profile.email}. Кодът не важи, докато не го изпратим отново.</p>
         ) : (
@@ -294,11 +317,10 @@ function Confirm({
             type="button"
             className={`${button} mt-3`}
             onClick={() => {
-              updateProfile({ emailConfirmed: true, confirmCode: preview })
-              onNext()
+              void accept(preview)
             }}
           >
-            Отвори линка от писмото
+            Продължи с този код
           </button>
         ) : null}
       </article>
@@ -306,26 +328,13 @@ function Confirm({
         className="grid gap-3"
         onSubmit={(event) => {
           event.preventDefault()
-          if (preview) {
-            if (code.trim() !== preview) {
-              onError('Кодът не съвпада.')
-              return
-            }
-            updateProfile({ emailConfirmed: true })
-            onNext()
-            return
-          }
-          void checkEmailCode({ data: { email: profile.email, code } }).then((result) => {
-            if (!result.ok) {
-              onError('Кодът не съвпада.')
-              return
-            }
-            updateProfile({ emailConfirmed: true })
-            onNext()
-          })
+          void accept(code)
         }}
       >
-        <input className={field} inputMode="numeric" placeholder="Шестцифрен код" value={code} onChange={(event) => setCode(event.target.value)} />
+        <label className="grid gap-1 text-sm font-semibold">
+          Код от писмото
+          <input className={field} inputMode="numeric" autoComplete="one-time-code" placeholder="Шестцифрен код" value={code} onChange={(event) => setCode(event.target.value)} />
+        </label>
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
         <button className={ghost} type="submit">
           Въведи кода
@@ -772,11 +781,20 @@ function People({
         {profile.coordinator ? 'Добавям към моята група' : 'Добавям хора извън групата, като координатор'}
       </button>
       <div className="grid gap-2">
-        <input className={field} autoComplete="given-name" placeholder="Име" value={companion.firstName} onChange={(event) => setCompanion({ ...companion, firstName: event.target.value })} />
-        <input className={field} autoComplete="additional-name" placeholder="Презиме" value={companion.middleName} onChange={(event) => setCompanion({ ...companion, middleName: event.target.value })} />
-        <input className={field} autoComplete="family-name" placeholder="Фамилия" value={companion.lastName} onChange={(event) => setCompanion({ ...companion, lastName: event.target.value })} />
-        <input className={field} autoComplete="email" placeholder="Имейл" value={companion.email} onChange={(event) => setCompanion({ ...companion, email: event.target.value })} />
-        <input className={field} autoComplete="tel" placeholder="Телефон" value={companion.phone} onChange={(event) => setCompanion({ ...companion, phone: event.target.value })} />
+        {(
+          [
+            ['firstName', 'Име', 'given-name'],
+            ['middleName', 'Презиме', 'additional-name'],
+            ['lastName', 'Фамилия', 'family-name'],
+            ['email', 'Имейл', 'email'],
+            ['phone', 'Телефон', 'tel'],
+          ] as const
+        ).map(([key, label, autoComplete]) => (
+          <label key={key} className="grid gap-1 text-sm font-semibold">
+            {label}
+            <input className={field} autoComplete={autoComplete} value={companion[key]} onChange={(event) => setCompanion({ ...companion, [key]: event.target.value })} />
+          </label>
+        ))}
         <label className="flex gap-2 text-sm leading-6">
           <input type="checkbox" checked={companion.samePlace} onChange={(event) => setCompanion({ ...companion, samePlace: event.target.checked })} />
           Същите място, дни и роля като мен
@@ -820,6 +838,7 @@ function People({
               <button
                 type="button"
                 className="font-bold text-[#2b062f]"
+                aria-label={`Махни ${person.firstName} ${person.lastName}`}
                 onClick={() => updateProfile({ companions: profile.companions.filter((item) => item.id !== person.id) })}
               >
                 Махни
@@ -843,13 +862,16 @@ function Review({ settled, error, onError }: { settled: boolean; error: string; 
   const { profile } = useProfile()
   const navigate = useNavigate()
   const experience = EXPERIENCE.find((item) => item.id === profile.experience)
+  const gap = signupGap(profile)
+  const missingStep = resumeSignupStep(profile)
   return (
     <form
       className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
-        if (!profile.consent) {
-          onError('Нужно е потвърждението в края.')
+        const gap = signupGap(profile)
+        if (gap) {
+          onError(gap)
           return
         }
         updateProfile({ submitted: true, withdrawn: false })
@@ -906,9 +928,15 @@ function Review({ settled, error, onError }: { settled: boolean; error: string; 
         </span>
       </label>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      <button className={button} type="submit">
-        {settled ? 'Запази' : 'Запиши ме'}
-      </button>
+      {gap && missingStep !== 'review' ? (
+        <Link to="/signup" search={{ step: missingStep }} className={button}>
+          Попълни липсващото
+        </Link>
+      ) : (
+        <button className={button} type="submit">
+          {settled ? 'Запази' : 'Запиши ме'}
+        </button>
+      )}
     </form>
   )
 }

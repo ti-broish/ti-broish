@@ -195,6 +195,7 @@ export function profileView(profile: Profile): 'incomplete' | 'waiting' | 'assig
 
 export function signupGap(profile: Profile): string | null {
   if (!profile.firstName || !profile.email || !profile.phone) return 'Остават имената, имейлът и телефонът.'
+  if (!profile.emailConfirmed) return 'Остава да потвърдиш имейла.'
   if (!profile.egn) return 'Остава ЕГН, за да те разпределим.'
   if (!profile.role || profile.role === 'video') return 'Остава да избереш секция или мобилен екип.'
   if (!profile.rounds.first && !profile.rounds.runoff) return 'Остава поне един от двата дни.'
@@ -202,6 +203,19 @@ export function signupGap(profile: Profile): string | null {
   if (!profile.radius) return 'Остава докъде можеш да стигнеш.'
   if (!profile.consent) return 'Остава потвърждението, че записването е доброволно.'
   return null
+}
+
+/** The signup step that fills the current gap. Consent stays on the review step. */
+export function resumeSignupStep(profile: Profile): StepId {
+  if (!profile.firstName || !profile.email || !profile.phone) return 'contact'
+  if (!profile.emailConfirmed) return 'confirm'
+  if (!profile.egn) return 'egn'
+  if (!profile.role || profile.role === 'video') return 'role'
+  if (!profile.rounds.first && !profile.rounds.runoff) return 'rounds'
+  if (!profile.experience) return 'experience'
+  if (!profile.place || !placeReady(profile.place)) return 'place'
+  if (!profile.radius) return 'travel'
+  return 'review'
 }
 
 /** Already in the register: submitted, or a complete form the autosave has not flagged yet. Withdrawn signups are not. */

@@ -28,7 +28,7 @@ function SentPage() {
         </Link>
       ) : null}
       {items === null ? <p>Зареждаме…</p> : null}
-      {items?.length === 0 ? <p>Още няма изпратени неща от този браузър.</p> : null}
+      {items?.length === 0 ? <p>Още няма изпратени от този браузър.</p> : null}
       <ul className="grid gap-3">
         {items?.map((item) => {
           const secret = readReports().find((known) => known.id === item.id)?.secret ?? ''

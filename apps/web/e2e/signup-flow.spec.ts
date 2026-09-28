@@ -183,7 +183,7 @@ test('an assigned profile leads with the section and the badge', async ({ page }
   await seedProfile(page, registered({ assignedSection: '234600101' }))
   await page.goto('/profil')
   await expect(page.getByRole('heading', { name: '234600101' })).toBeVisible()
-  await expect(page.getByText('25 октомври и 1 ноември. Секцията е публикувана от екипа.')).toBeVisible()
+  await expect(page.getByText('25 октомври и 1 ноември. Екипът вече е определил секцията.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Отпечатай значката' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '5 октомври' })).toHaveCount(0)
 })
@@ -258,7 +258,7 @@ test('someone without a profile can label the call request', async ({ page }) =>
   await expect(page.getByRole('heading', { name: 'Още нямаш профил' })).toBeVisible()
   await expect(page.getByLabel('Име', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Телефон')).toBeVisible()
-  await expect(page.getByLabel('По какъв въпрос')).toBeVisible()
+  await expect(page.getByLabel('За какво е обаждането')).toBeVisible()
 })
 
 test('a confirmed email can sign in from a fresh browser', async ({ page, browser }) => {

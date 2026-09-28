@@ -167,7 +167,7 @@ function SignupsPage() {
 
   return (
     <div className="grid gap-5">
-      <AdminHeading title="Записвания" lede="Търсене по име, имейл, телефон или ЕГН. Точният шаблон се проверява преди текстовия индекс." />
+      <AdminHeading title="Записвания" lede="Търсене по име, имейл, телефон или ЕГН." />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <label className="grid min-w-0 flex-1 gap-1 text-sm font-bold text-[#1a1020]" htmlFor="signup-search">
           Търсене

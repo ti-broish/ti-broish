@@ -32,7 +32,7 @@ export function StaffNote() {
       </label>
       {profile.callRequestedAt ? (
         <label className="grid gap-1 text-sm font-semibold">
-          По какъв въпрос
+          За какво е обаждането
           <input
             className={field}
             maxLength={300}
@@ -41,7 +41,7 @@ export function StaffNote() {
           />
         </label>
       ) : null}
-      {profile.callRequestedAt ? <p className="text-sm leading-6">Екипът вижда, че искаш обаждане.</p> : null}
+      {profile.callRequestedAt ? <p className="text-sm leading-6">Екипът ще ти звънне.</p> : null}
     </div>
   )
 }

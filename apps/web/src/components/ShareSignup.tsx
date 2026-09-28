@@ -28,7 +28,7 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
 
   return (
     <div className="grid gap-3">
-      <p>Ако искаш, прати линка. Който го отвори, се записва през теб. Това не ви слага в една група.</p>
+      <p>Прати линка, ако искаш да поканиш някого. Който го отвори, се записва през теб. Това не ви слага в една група.</p>
       <p className="break-all text-sm">{link}</p>
       <button
         type="button"
@@ -129,7 +129,7 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
           </svg>
         </a>
       </div>
-      {count > 0 ? <p className="text-sm">През твоя линк са минали {count} души.</p> : null}
+      {count > 0 ? <p className="text-sm">През твоя линк има {count} записвания.</p> : null}
     </div>
   )
 }

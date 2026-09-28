@@ -78,7 +78,7 @@ export function SectionsPage() {
 
   return (
     <div className="grid gap-5">
-      <AdminHeading title="Секции" lede="Черновата се вижда само тук. Масовото публикуване я показва в профила без имейл и пропуска заета, дублирана или чужда секция. За едноизвестяване ползвай „Публикувай и извести“ на реда." />
+      <AdminHeading title="Секции" lede="Черновата се вижда само тук. Публикуването я показва в профила, без писмо, и пропуска заета, дублирана или чужда секция. За един човек ползвай „Публикувай и извести“ на реда." />
       <label className="grid max-w-md gap-1 text-sm font-bold text-[#1a1020]" htmlFor="section-search">
         Търсене
         <input id="section-search" className={adminInput} type="search" value={draft} placeholder="Име, имейл, телефон или ЕГН" onChange={(event) => setDraft(event.target.value)} />

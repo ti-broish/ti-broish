@@ -22,7 +22,7 @@ function AnonymousCall() {
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
   const field = 'min-h-11 w-full rounded-xl border border-[#ddd] bg-white px-3'
-  if (done) return <p>Записахме, че искаш обаждане. Екипът ще ти звънне на {phone}.</p>
+  if (done) return <p>Приехме молбата. Екипът ще ти звънне на {phone}.</p>
   return (
     <form
       className="grid gap-3"
@@ -39,7 +39,7 @@ function AnonymousCall() {
         })
       }}
     >
-      <p className="leading-7">Ако искаш обаждане, без да се записваш, остави телефон.</p>
+      <p className="leading-7">Ако искаш обаждане, без да се записваш, остави име и телефон.</p>
       <label className="grid gap-1 text-sm font-semibold">
         Име
         <input className={field} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required />
@@ -49,7 +49,7 @@ function AnonymousCall() {
         <input className={field} type="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} required />
       </label>
       <label className="grid gap-1 text-sm font-semibold">
-        По какъв въпрос
+        За какво е обаждането
         <textarea className={`${field} min-h-24 py-2`} value={message} onChange={(event) => setMessage(event.target.value)} />
       </label>
       {error ? <p className="text-red-700">{error}</p> : null}
@@ -141,13 +141,13 @@ function ProfilePage() {
             Промени мястото{assigned && mirOf(profile.place) ? ` в МИР ${mirOf(profile.place)}` : ''}
           </Link>
         ) : (
-          <p className="leading-7">От 19 октомври до 5 ноември мястото не се сменя.</p>
+          <p className="leading-7">От 19 октомври до 5 ноември не можеш да смениш мястото.</p>
         )}
       </div>
 
       <section className="grid gap-3 border-t border-[var(--line)] pt-6">
         <h2 className="text-xl font-black text-[#444]">Материали</h2>
-        <p className="leading-7">Прочети ги преди изборния ден. Пълномощното идва след разпределението, в изборната седмица.</p>
+        <p className="leading-7">Прочети ги преди изборния ден. Дигиталното пълномощно идва след секцията, в изборната седмица.</p>
         <Link to="/instructions" className="font-bold">
           Инструкции за секцията
         </Link>
@@ -182,7 +182,7 @@ function ProfilePage() {
           </ul>
         ) : (
           <p className="leading-7">
-            {inviteLink ? 'Още няма поканени. Сподели линка, за да дойдат с теб.' : 'Още няма поканени. Поканата се отключва, след като потвърдиш имейла.'}
+            {inviteLink ? 'Още няма поканени. Сподели линка, за да дойдат с теб.' : 'Още няма поканени. Поканата се появява, след като потвърдиш имейла.'}
           </p>
         )}
       </section>
@@ -253,7 +253,7 @@ function NextStep({ profile }: { profile: Profile }) {
         </h2>
         {profile.place?.sectionPlace ? <p className="leading-7">{profile.place.sectionPlace}</p> : null}
         <p className="text-lg leading-7">
-          {assignedDays(profile)}. Секцията е публикувана от екипа. Отпечатай значката и я вземи в изборния ден.
+          {assignedDays(profile)}. Екипът вече е определил секцията. Отпечатай значката и я вземи в изборния ден.
         </p>
         {profile.assignedSection ? <AssignedSectionMap place={profile.place} section={profile.assignedSection} /> : null}
         <Link to="/znachka" className="brand-button">
@@ -269,7 +269,7 @@ function NextStep({ profile }: { profile: Profile }) {
       <h2 className="text-3xl font-black text-[#444]">
         {wave?.label}
       </h2>
-      <p className="text-lg leading-7">На тази дата виждаш секцията тук и получаваш имейл. Дотогава няма назначена секция.</p>
+      <p className="text-lg leading-7">На тази дата виждаш секцията тук и получаваш писмо. Дотогава секцията още не е определена.</p>
     </section>
   )
 }

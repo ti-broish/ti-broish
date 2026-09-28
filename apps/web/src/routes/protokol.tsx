@@ -98,7 +98,7 @@ function ProtocolPage() {
       />
       <PhotoField photos={photos} onChange={setPhotos} minimum={4} />
       <label className="grid gap-1 text-sm font-semibold">
-        Имейл, ако искаш вест при проблем със снимките
+        Имейл, ако искаш да ти пишем при проблем със снимките
         <input className={field} type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
       </label>
       <label className="grid gap-1 text-sm font-semibold">

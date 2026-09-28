@@ -372,7 +372,7 @@ export const adminImportPeople = createServerFn({ method: 'POST' })
         const result = await importPerson(db, person)
         if (!result) {
           skipped += 1
-          errors.push(`${person.email}: вече има запис.`)
+          errors.push(`${person.email}: вече има записване.`)
           continue
         }
         imported += 1

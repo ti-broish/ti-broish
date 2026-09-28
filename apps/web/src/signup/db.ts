@@ -30,7 +30,7 @@ export const saveSignup = createServerFn({ method: 'POST' })
   .handler(async ({ data: input }) => {
     let data = input
     const db = await signupDatabase()
-    if (!db || !data.email.trim()) return { ok: false as const, message: 'Няма запис.' }
+    if (!db || !data.email.trim()) return { ok: false as const, message: 'Липсва имейл.' }
     const problem = egnProblem(data.egn)
     if (problem) return { ok: false as const, message: problem }
     const now = new Date().toISOString()

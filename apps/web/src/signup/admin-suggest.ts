@@ -36,7 +36,7 @@ export const adminSuggest = createServerFn({ method: 'POST' })
         radius: string
         travel_municipalities: string
       }>()
-    if (!row) return { ok: false as const, message: 'Няма такъв запис.' }
+    if (!row) return { ok: false as const, message: 'Няма такова записване.' }
 
     const place = placeFromPayload(row.payload)
     const townId = place.townId
@@ -44,7 +44,7 @@ export const adminSuggest = createServerFn({ method: 'POST' })
       return {
         ok: true as const,
         suggestions: [],
-        message: 'Няма townId в записа — предложенията идват от избрания град в записването.',
+        message: 'Няма избран град в записването, затова няма предложения.',
       }
     }
 

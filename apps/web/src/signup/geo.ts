@@ -105,27 +105,17 @@ export interface GeocodeHit {
 }
 
 const geocodeCache = new Map<string, GeocodeHit | null>()
-const geocodeLanes: Record<'high' | 'low', Array<() => Promise<void>>> = { high: [], low: [] }
-let geocodePumping = false
 let geocodeNextAt = 0
+let geocodeHighAt = 0
 
-function scheduleGeocode(priority: 'high' | 'low', job: () => Promise<void>) {
-  geocodeLanes[priority].push(job)
-  if (geocodePumping) return
-  geocodePumping = true
-  void (async () => {
-    for (;;) {
-      const next = geocodeLanes.high.shift() ?? geocodeLanes.low.shift()
-      if (!next) {
-        geocodePumping = false
-        return
-      }
-      const wait = Math.max(0, geocodeNextAt - Date.now())
-      if (wait) await new Promise((resolve) => setTimeout(resolve, wait))
-      geocodeNextAt = Date.now() + 1100
-      await next()
-    }
-  })()
+/** Nominatim allows about one request a second. The wait stays on this request so a shared queue cannot leave it without a timer. */
+function reserveGeocodeSlot(priority: 'high' | 'low') {
+  const now = Date.now()
+  const start = priority === 'high' ? Math.max(now, geocodeHighAt) : Math.max(now, geocodeNextAt, geocodeHighAt)
+  const next = start + 1100
+  if (priority === 'high') geocodeHighAt = next
+  geocodeNextAt = Math.max(geocodeNextAt, next)
+  return start - now
 }
 
 type NominatimRow = {
@@ -179,53 +169,52 @@ function pickDistrict(rows: NominatimRow[], query: string) {
   return chosen?.row
 }
 
-function searchNominatim(query: string, abroad: boolean, polygon: boolean, scope: 'broad' | 'local' | null, priority: 'high' | 'low') {
+async function searchNominatim(query: string, abroad: boolean, polygon: boolean, scope: 'broad' | 'local' | null, priority: 'high' | 'low') {
   const q = nominatimSearchQuery(query)
   const district = Boolean(districtLabel(query))
   const key = `${polygon ? 'p' : 'q'}:${scope ?? '-'}:${abroad ? 'a' : 'bg'}:${q}`
-  if (geocodeCache.has(key)) return Promise.resolve(geocodeCache.get(key) ?? null)
-  return new Promise<GeocodeHit | null>((resolve) => {
-    scheduleGeocode(priority, async () => {
-      if (geocodeCache.has(key)) {
-        resolve(geocodeCache.get(key) ?? null)
-        return
-      }
-      const url = new URL('https://nominatim.openstreetmap.org/search')
-      url.searchParams.set('q', q)
-      url.searchParams.set('format', 'jsonv2')
-      url.searchParams.set('limit', polygon ? '5' : '1')
-      if (!abroad) url.searchParams.set('countrycodes', 'bg')
-      if (polygon) url.searchParams.set('polygon_geojson', '1')
-      const response = await fetch(url, {
-        headers: {
-          Accept: 'application/json',
-          'Accept-Language': 'bg',
-          'User-Agent': 'ti-broish-staging/1.0 (team@tibroish.bg)',
-        },
-      })
-      let hit: GeocodeHit | null = null
-      let cacheable = true
-      if (response.ok) {
-        const rows = (await response.json()) as NominatimRow[]
-        const row = district && polygon ? pickDistrict(rows, query) : pickRow(rows, polygon ? scope : null)
-        if (row?.lat && row.lon) {
-          const geometry = district ? keepDistrictGeometry(query, outlineOf(row)) : outlineOf(row)
-          hit = {
-            lat: Number(row.lat),
-            lng: Number(row.lon),
-            category: row.category ?? row.class ?? '',
-            type: row.type ?? '',
-            geojson: geometry,
-          }
-        }
-        if (district && polygon && !hit?.geojson) cacheable = false
-      } else if (district && polygon) {
-        cacheable = false
-      }
-      if (cacheable) geocodeCache.set(key, hit)
-      resolve(hit)
+  if (geocodeCache.has(key)) return geocodeCache.get(key) ?? null
+  const wait = reserveGeocodeSlot(priority)
+  if (wait) await new Promise((resolve) => setTimeout(resolve, wait))
+  if (geocodeCache.has(key)) return geocodeCache.get(key) ?? null
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/search')
+    url.searchParams.set('q', q)
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('limit', polygon ? '5' : '1')
+    if (!abroad) url.searchParams.set('countrycodes', 'bg')
+    if (polygon) url.searchParams.set('polygon_geojson', '1')
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'Accept-Language': 'bg',
+        'User-Agent': 'ti-broish-staging/1.0 (team@tibroish.bg)',
+      },
     })
-  })
+    let hit: GeocodeHit | null = null
+    let cacheable = true
+    if (response.ok) {
+      const rows = (await response.json()) as NominatimRow[]
+      const row = district && polygon ? pickDistrict(rows, query) : pickRow(rows, polygon ? scope : null)
+      if (row?.lat && row.lon) {
+        const geometry = district ? keepDistrictGeometry(query, outlineOf(row)) : outlineOf(row)
+        hit = {
+          lat: Number(row.lat),
+          lng: Number(row.lon),
+          category: row.category ?? row.class ?? '',
+          type: row.type ?? '',
+          geojson: geometry,
+        }
+      }
+      if (district && polygon && !hit?.geojson) cacheable = false
+    } else if (district && polygon) {
+      cacheable = false
+    }
+    if (cacheable) geocodeCache.set(key, hit)
+    return hit
+  } catch {
+    return null
+  }
 }
 
 export const geocodePlace = createServerFn({ method: 'POST' })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { placeOutline, travelOutline, type HomePlace } from './model'
+import { cityRegionOutlines, placeOutline, travelOutline, type HomePlace } from './model'
 import { campaignFromSearch, locationEditable, mirOf, needsWiderTravel, placeChangeAllowed, sofiaMir, validEgn } from './rules'
 
 const mladost: HomePlace = {
@@ -73,5 +73,43 @@ describe('travel', () => {
       expect.stringContaining('район Младост'),
       expect.stringContaining('район Лозенец'),
     ])
+  })
+
+  it('draws every city district and marks the chosen ones when the list is known', () => {
+    const districts = [
+      { code: '15', name: 'Младост' },
+      { code: '09', name: 'Лозенец' },
+      { code: '11', name: 'Люлин' },
+    ]
+    const onPlace = cityRegionOutlines(mladost, districts)
+    expect(onPlace.map((item) => [item.id, item.selected])).toEqual([
+      ['district:15', true],
+      ['district:09', false],
+      ['district:11', false],
+    ])
+    const nearby = travelOutline(
+      {
+        place: mladost,
+        radius: 'nearby',
+        extraCityRegions: [{ code: '09', name: 'Лозенец' }],
+        travelMunicipalities: [],
+      },
+      districts,
+    )
+    expect(nearby.map((item) => [item.id, item.selected])).toEqual([
+      ['district:15', true],
+      ['district:09', true],
+      ['district:11', false],
+    ])
+    const inside = travelOutline(
+      { place: mladost, radius: 'cityRegion', extraCityRegions: [], travelMunicipalities: [] },
+      districts,
+    )
+    expect(inside.filter((item) => item.selected).map((item) => item.id)).toEqual(['district:15'])
+    const municipality = travelOutline(
+      { place: mladost, radius: 'municipality', extraCityRegions: [], travelMunicipalities: [] },
+      districts,
+    )
+    expect(municipality.map((item) => item.id)).toEqual(['municipality'])
   })
 })

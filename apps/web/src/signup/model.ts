@@ -278,6 +278,7 @@ export interface OutlineRequest {
   query: string
   abroad: boolean
   scope: 'broad' | 'local'
+  selected?: boolean
 }
 
 export function placeOutline(place: HomePlace | null): OutlineRequest[] {
@@ -294,10 +295,38 @@ export function placeOutline(place: HomePlace | null): OutlineRequest[] {
   return []
 }
 
-export function travelOutline(profile: Pick<Profile, 'place' | 'radius' | 'extraCityRegions' | 'travelMunicipalities'>): OutlineRequest[] {
+function districtRequest(place: HomePlace, item: { code: string; name: string }, selected: boolean): OutlineRequest {
+  const town = plainTown(place.townName)
+  return {
+    id: `district:${item.code}`,
+    query: [`район ${item.name}`, town, place.regionName, 'България'].filter(Boolean).join(', '),
+    abroad: false,
+    scope: 'local',
+    selected,
+  }
+}
+
+export function cityRegionOutlines(place: HomePlace | null, districts: { code: string; name: string }[]): OutlineRequest[] {
+  if (!place || place.regionCode === '32' || districts.length === 0) return []
+  return districts.map((item) => districtRequest(place, item, item.code === place.cityRegionCode))
+}
+
+export function travelOutline(
+  profile: Pick<Profile, 'place' | 'radius' | 'extraCityRegions' | 'travelMunicipalities'>,
+  cityRegions: { code: string; name: string }[] = [],
+): OutlineRequest[] {
   const place = profile.place
   if (!place) return []
   if (place.regionCode === '32') return placeOutline(place)
+  const cityScale = profile.radius == null || profile.radius === 'cityRegion' || profile.radius === 'nearby' || profile.radius === 'settlement'
+  if (cityScale && cityRegions.length > 0) {
+    const chosen = new Set(
+      (profile.radius === 'nearby' ? [place.cityRegionCode, ...profile.extraCityRegions.map((item) => item.code)] : [place.cityRegionCode]).filter(
+        (code): code is string => Boolean(code),
+      ),
+    )
+    return cityRegions.map((item) => districtRequest(place, item, chosen.has(item.code)))
+  }
   if (profile.radius === 'nearby') {
     const town = plainTown(place.townName)
     const districts = [

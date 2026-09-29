@@ -4,13 +4,14 @@ import { BulgariaMap, type MapPoint } from '../components/BulgariaMap'
 import { PartnerBanner } from '../components/PartnerBanner'
 import { PlacesPicker } from '../components/PlacesPicker'
 import { StaffNote } from '../components/StaffNote'
-import { TravelChoice } from '../components/TravelChoice'
+import { TravelChoice, useTownDistricts } from '../components/TravelChoice'
 import { checkEmailCode, requestEmailCode } from '../signup/confirm-mail'
 import { loadSignup, saveSignup } from '../signup/db'
 import { geocodePlace } from '../signup/geo'
 import {
   EXPERIENCE,
   assignmentLocked,
+  cityRegionOutlines,
   highlightCodes,
   placeLabel,
   placeOutline,
@@ -22,6 +23,7 @@ import {
   roleLabel,
   stepsFor,
   travelOutline,
+  travelsOutside,
   validEmail,
   validName,
   validPhone,
@@ -102,8 +104,18 @@ function SignupPage() {
   const current = (steps as readonly string[]).includes(requested) ? (requested as StepId) : 'contact'
   const index = Math.max(0, steps.indexOf(current as (typeof steps)[number]))
   const settled = useReviewCopy(current, profile, ready)
+  const [entrance, setEntrance] = useState<{ id: StepId; dir: 'forward' | 'back' } | null>(null)
+  const seenStep = useRef(index)
+  useEffect(() => {
+    if (seenStep.current === index) return
+    const dir = index < seenStep.current ? 'back' : 'forward'
+    seenStep.current = index
+    setEntrance((value) => (value?.id === current ? value : { id: current, dir }))
+  }, [current, index])
 
   function go(next: StepId) {
+    const nextIndex = Math.max(0, steps.indexOf(next))
+    setEntrance({ id: next, dir: nextIndex < index ? 'back' : 'forward' })
     setError('')
     void navigate({ to: '/signup', search: { step: next } })
   }
@@ -122,15 +134,23 @@ function SignupPage() {
     experience: 'Колко си подготвен',
     place: 'Къде искаш да бъдеш',
     travel: 'Докъде можеш да стигнеш',
-    seats: profile.role === 'mobile' ? 'Кола и дрон' : 'Свободни места в колата',
+    seats:
+      profile.role === 'mobile' && !travelsOutside(profile.radius)
+        ? 'Дрон'
+        : profile.role === 'mobile'
+          ? 'Кола и дрон'
+          : 'Свободни места в колата',
     people: 'Хора с теб',
     review: settled ? 'Преглед на данните' : 'Преглед, преди да се запишеш',
   }
 
   if (!ready) return <p>Зареждаме данните…</p>
 
+  const motionClass = entrance?.id === current ? (entrance.dir === 'back' ? 'step-enter-back' : 'step-enter-forward') : ''
+
   return (
-    <div className="grid gap-4">
+    <div className="step-stage grid gap-6">
+      <div key={`${current}-${motionClass}`} className={`grid gap-4 ${motionClass}`}>
       <h1 className="text-3xl font-black text-[#444]">{titles[current]}</h1>
       <PartnerBanner source={profile.source} />
       {current === 'review' && settled ? <p className="text-lg leading-7">Провери промените и ги запази.</p> : null}
@@ -153,8 +173,9 @@ function SignupPage() {
       {current === 'seats' ? <Seats error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'people' ? <People companion={companion} setCompanion={setCompanion} error={error} onError={setError} onNext={nextStep} unsentLinks={unsentCompanionLinks} /> : null}
       {current === 'review' ? <Review settled={settled} error={error} onError={setError} /> : null}
+      </div>
       {index > 0 ? (
-        <button type="button" className={`${ghost} mt-6`} onClick={() => go(steps[index - 1] ?? 'contact')}>
+        <button type="button" className={ghost} onClick={() => go(steps[index - 1] ?? 'contact')}>
           Назад
         </button>
       ) : null}
@@ -164,11 +185,13 @@ function SignupPage() {
 
 function Contact({ error, onError, onMailFailed, onNext }: { error: string; onError: (value: string) => void; onMailFailed: (failed: boolean) => void; onNext: () => void }) {
   const { profile } = useProfile()
+  const [sending, setSending] = useState(false)
   return (
     <form
-      className="grid gap-3"
+      className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
+        if (sending) return
         if (!validName(profile.firstName) || !validName(profile.middleName) || !validName(profile.lastName)) {
           onError('Трите имена са на кирилица.')
           return
@@ -177,6 +200,7 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
           onError('Нужни са валидни имейл и телефон.')
           return
         }
+        setSending(true)
         void requestEmailCode({
           data: {
             email: profile.email,
@@ -194,7 +218,10 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
             updateProfile({ confirmCode: '' })
             onMailFailed(true)
           })
-          .finally(onNext)
+          .finally(() => {
+            setSending(false)
+            onNext()
+          })
       }}
     >
       <LegalNotice />
@@ -208,8 +235,8 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
         <input className={field} inputMode="tel" autoComplete="tel" placeholder="08xxxxxxxx" value={profile.phone} onChange={(event) => updateProfile({ phone: event.target.value })} />
       </label>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      <button className={button} type="submit">
-        Изпрати код за потвърждение
+      <button className={button} type="submit" disabled={sending}>
+        {sending ? 'Изпращаме кода…' : 'Изпрати код за потвърждение'}
       </button>
     </form>
   )
@@ -250,17 +277,26 @@ function Confirm({
   const { profile } = useProfile()
   const [code, setCode] = useState('')
   const [retrying, setRetrying] = useState(false)
+  const [checking, setChecking] = useState(false)
   const preview = profile.confirmCode
 
   async function accept(value: string) {
+    if (checking) return
+    setChecking(true)
     onError('')
-    const result = await checkEmailCode({ data: { email: profile.email, code: value } })
-    if (!result.ok) {
-      onError('Кодът не съвпада.')
-      return
+    try {
+      const result = await checkEmailCode({ data: { email: profile.email, code: value } })
+      if (!result.ok) {
+        onError('Кодът не съвпада.')
+        return
+      }
+      updateProfile({ emailConfirmed: true, confirmCode: '' })
+      onNext()
+    } catch {
+      onError('Кодът не мина. Опитай пак.')
+    } finally {
+      setChecking(false)
     }
-    updateProfile({ emailConfirmed: true, confirmCode: '' })
-    onNext()
   }
 
   if (profile.emailConfirmed) {
@@ -316,16 +352,17 @@ function Confirm({
           <button
             type="button"
             className={`${button} mt-3`}
+            disabled={checking}
             onClick={() => {
               void accept(preview)
             }}
           >
-            Продължи с този код
+            {checking ? 'Проверяваме кода…' : 'Продължи с този код'}
           </button>
         ) : null}
       </article>
       <form
-        className="grid gap-3"
+        className="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault()
           void accept(code)
@@ -336,8 +373,8 @@ function Confirm({
           <input className={field} inputMode="numeric" autoComplete="one-time-code" placeholder="Шестцифрен код" value={code} onChange={(event) => setCode(event.target.value)} />
         </label>
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
-        <button className={ghost} type="submit">
-          Въведи кода
+        <button className={`${ghost} disabled:opacity-40`} type="submit" disabled={checking}>
+          {checking ? 'Проверяваме кода…' : 'Въведи кода'}
         </button>
       </form>
     </div>
@@ -348,7 +385,7 @@ function EgnStep({ error, onError, onNext }: { error: string; onError: (value: s
   const { profile } = useProfile()
   return (
     <form
-      className="grid gap-3"
+      className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
         if (!validEgn(profile.egn)) {
@@ -375,7 +412,7 @@ function RoleStep({ error, onError, onNext }: { error: string; onError: (value: 
   const { profile } = useProfile()
   return (
     <form
-      className="grid gap-3"
+      className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
         if (profile.role !== 'section' && profile.role !== 'mobile') {
@@ -418,7 +455,7 @@ function Rounds({ error, onError, onNext }: { error: string; onError: (value: st
   const { profile } = useProfile()
   return (
     <form
-      className="grid gap-3"
+      className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
         if (!profile.rounds.first && !profile.rounds.runoff) {
@@ -454,7 +491,7 @@ function ExperienceStep({ error, onError, onNext }: { error: string; onError: (v
   const { profile } = useProfile()
   return (
     <form
-      className="grid gap-3"
+      className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
         if (!profile.experience) {
@@ -501,7 +538,9 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
   const { profile } = useProfile()
   const [points, setPoints] = useState<MapPoint[]>([])
   const [geography, setGeography] = useState<{ districts: CityRegion[]; sections: PollingSection[] }>({ districts: [], sections: [] })
-  const outlines = useOutlines(placeOutline(profile.place))
+  const outlines = useOutlines(
+    profile.place && geography.districts.length > 0 ? cityRegionOutlines(profile.place, geography.districts) : placeOutline(profile.place),
+  )
   const assigned = assignmentLocked(profile)
   const editable = locationEditable(assigned)
   const addressKey = geography.sections.map((section) => section.id).join(',')
@@ -614,7 +653,8 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
 
 function TravelStep({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
   const { profile, ready } = useProfile()
-  const outlines = useOutlines(ready ? travelOutline(profile) : [])
+  const districts = useTownDistricts(profile.place)
+  const outlines = useOutlines(ready ? travelOutline(profile, districts) : [])
   if (!ready) return <div className="h-[420px] bg-[#eee]" aria-hidden />
   const assigned = assignmentLocked(profile)
   if (assigned && !locationEditable(assigned)) {
@@ -645,7 +685,7 @@ function TravelStep({ error, onError, onNext }: { error: string; onError: (value
           return
         }
         if (needsWiderTravel(profile.place, profile.radius)) {
-          onError('На този адрес няма хартиена секция. Избери по-широк обхват.')
+          onError('Искаме да пътуваш до хартиена секция. Избери по-широк обхват.')
           return
         }
         onNext()
@@ -664,9 +704,12 @@ function TravelStep({ error, onError, onNext }: { error: string; onError: (value
             if (!id.startsWith('district:') || profile.radius !== 'nearby') return
             const code = id.slice('district:'.length)
             if (code === profile.place?.cityRegionCode) return
-            const district = profile.extraCityRegions.find((item) => item.code === code)
+            const district = districts.find((item) => item.code === code)
             if (!district) return
-            updateProfile({ extraCityRegions: profile.extraCityRegions.filter((item) => item.code !== code) })
+            const exists = profile.extraCityRegions.some((item) => item.code === code)
+            updateProfile({
+              extraCityRegions: exists ? profile.extraCityRegions.filter((item) => item.code !== code) : [...profile.extraCityRegions, district],
+            })
           }}
         />
       </div>
@@ -699,21 +742,25 @@ function YesNo({ label, value, onChange }: { label: string; value: boolean | nul
 function Seats({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
   const { profile } = useProfile()
   const mobile = profile.role === 'mobile'
-  const askSeats = !mobile || profile.hasCar === true
+  const travels = travelsOutside(profile.radius)
   return (
     <form
       className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
-        if (mobile && (profile.hasCar === null || profile.hasDrone === null)) {
-          onError('Отговори за колата и за дрона.')
+        if (travels && profile.hasCar === null) {
+          onError('Кажи имаш ли кола.')
+          return
+        }
+        if (mobile && profile.hasDrone === null) {
+          onError('Кажи за дрона.')
           return
         }
         onNext()
       }}
     >
-      {mobile ? <YesNo label="Имаш ли кола?" value={profile.hasCar} onChange={(hasCar) => updateProfile({ hasCar, carSeats: hasCar ? profile.carSeats : 0 })} /> : null}
-      {askSeats ? (
+      {travels ? <YesNo label="Имаш ли кола?" value={profile.hasCar} onChange={(hasCar) => updateProfile({ hasCar, carSeats: hasCar ? profile.carSeats : 0 })} /> : null}
+      {travels && profile.hasCar === true ? (
         <>
           <p>Колко души можеш да вземеш, освен себе си. 0 значи, че не возиш никого.</p>
           <div className="flex items-center justify-between gap-3">

@@ -41,6 +41,10 @@ a {
   font-weight: 700;
 }
 
+a.share-icon {
+  color: #fff;
+}
+
 button,
 input,
 select,
@@ -60,15 +64,18 @@ main h1 {
   height: 60px;
   width: 100%;
   background-color: var(--purple);
-  padding: 10px;
+  padding: 10px 0;
 }
 
 .site-header-inner {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  max-width: 1000px;
+  width: 100%;
+  max-width: 72rem;
   height: 40px;
   margin: 0 auto;
+  padding-inline: 1rem;
 }
 
 .site-header img {
@@ -222,6 +229,43 @@ main h1 {
 
 .brand-button:disabled {
   opacity: 0.45;
+}
+
+.step-stage {
+  overflow-x: clip;
+}
+
+.step-enter-forward {
+  animation: step-forward 0.32s ease;
+}
+
+.step-enter-back {
+  animation: step-back 0.32s ease;
+}
+
+@keyframes step-forward {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes step-back {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-enter-forward,
+  .step-enter-back {
+    animation: none;
+  }
 }
 
 @media print {

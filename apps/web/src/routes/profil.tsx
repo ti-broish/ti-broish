@@ -131,63 +131,65 @@ function ProfilePage() {
     <div className="grid gap-8">
       <PageIntro title={`${profile.firstName}, това е профилът ти`} />
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <NextStep profile={profile} />
-        <ProfileSummary profile={profile} />
+        <div className="grid gap-8">
+          <NextStep profile={profile} />
+          <div className="grid gap-2">
+            <Link to="/signup" search={{ step: 'contact' }} className="font-bold">
+              Промени данните
+            </Link>
+            {canEditPlace ? (
+              <Link to="/signup" search={{ step: 'place' }} className="font-bold">
+                Промени мястото{assigned && mirOf(profile.place) ? ` в МИР ${mirOf(profile.place)}` : ''}
+              </Link>
+            ) : (
+              <p className="leading-7">От 19 октомври до 5 ноември не можеш да смениш мястото.</p>
+            )}
+          </div>
+          <section className="grid gap-3 border-t border-[var(--line)] pt-6">
+            <h2 className="text-xl font-black text-[#444]">Материали</h2>
+            <p className="leading-7">Прочети ги преди изборния ден. Дигиталното пълномощно идва след секцията, в изборната седмица.</p>
+            <Link to="/instructions" className="font-bold">
+              Инструкции за секцията
+            </Link>
+            <a className="font-bold" href="https://tibroish.bg/files/Narachnik-Ti-broish.pdf">
+              Наръчник на пазителя
+            </a>
+            {view === 'assigned' ? null : (
+              <Link to="/znachka" className="font-bold">
+                Значка за печат, още сега
+              </Link>
+            )}
+          </section>
+          <section className="grid gap-4 border-t border-[var(--line)] pt-6">
+            <h2 className="text-xl font-black text-[#444]">Покани</h2>
+            {inviteLink ? <ShareSignup link={inviteLink} count={referralCount} /> : null}
+            {profile.companions.length > 0 ? (
+              <ul className="grid gap-2">
+                {profile.companions.map((person) => {
+                  const unsent = person.status === 'confirmed' ? undefined : unsentCompanionLinks.find((item) => item.email === person.email)
+                  return (
+                    <li key={person.id}>
+                      {person.firstName} {person.lastName} · {person.status === 'confirmed' ? 'потвърден имейл' : 'чака потвърждение'}
+                      {unsent ? (
+                        <span className="block text-sm text-[#666]">
+                          Писмото не тръгна. Прати им линка: <a href={unsent.link}>{unsent.link}</a>
+                        </span>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <p className="leading-7">
+                {inviteLink ? 'Още няма поканени. Сподели линка, за да дойдат с теб.' : 'Още няма поканени. Поканата се появява, след като потвърдиш имейла.'}
+              </p>
+            )}
+          </section>
+        </div>
+        <div className="lg:sticky lg:top-20">
+          <ProfileSummary profile={profile} />
+        </div>
       </div>
-      <div className="grid gap-2">
-        <Link to="/signup" search={{ step: 'contact' }} className="font-bold">
-          Промени данните
-        </Link>
-        {canEditPlace ? (
-          <Link to="/signup" search={{ step: 'place' }} className="font-bold">
-            Промени мястото{assigned && mirOf(profile.place) ? ` в МИР ${mirOf(profile.place)}` : ''}
-          </Link>
-        ) : (
-          <p className="leading-7">От 19 октомври до 5 ноември не можеш да смениш мястото.</p>
-        )}
-      </div>
-
-      <section className="grid gap-3 border-t border-[var(--line)] pt-6">
-        <h2 className="text-xl font-black text-[#444]">Материали</h2>
-        <p className="leading-7">Прочети ги преди изборния ден. Дигиталното пълномощно идва след секцията, в изборната седмица.</p>
-        <Link to="/instructions" className="font-bold">
-          Инструкции за секцията
-        </Link>
-        <a className="font-bold" href="https://tibroish.bg/files/Narachnik-Ti-broish.pdf">
-          Наръчник на пазителя
-        </a>
-        {view === 'assigned' ? null : (
-          <Link to="/znachka" className="font-bold">
-            Значка за печат, още сега
-          </Link>
-        )}
-      </section>
-
-      <section className="grid gap-4 border-t border-[var(--line)] pt-6">
-        <h2 className="text-xl font-black text-[#444]">Покани</h2>
-        {inviteLink ? <ShareSignup link={inviteLink} count={referralCount} /> : null}
-        {profile.companions.length > 0 ? (
-          <ul className="grid gap-2">
-            {profile.companions.map((person) => {
-              const unsent = person.status === 'confirmed' ? undefined : unsentCompanionLinks.find((item) => item.email === person.email)
-              return (
-                <li key={person.id}>
-                  {person.firstName} {person.lastName} · {person.status === 'confirmed' ? 'потвърден имейл' : 'чака потвърждение'}
-                  {unsent ? (
-                    <span className="block text-sm text-[#666]">
-                      Писмото не тръгна. Прати им линка: <a href={unsent.link}>{unsent.link}</a>
-                    </span>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
-        ) : (
-          <p className="leading-7">
-            {inviteLink ? 'Още няма поканени. Сподели линка, за да дойдат с теб.' : 'Още няма поканени. Поканата се появява, след като потвърдиш имейла.'}
-          </p>
-        )}
-      </section>
 
       <section className="grid gap-4 border-t border-[var(--line)] pt-6">
         <StaffNote />

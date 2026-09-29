@@ -40,7 +40,7 @@ function person(patch: Partial<Companion>): Companion {
 }
 
 describe('signup flow', () => {
-  it('asks for car seats only for a mobile team or travel outside the city', () => {
+  it('keeps the seats step for a mobile team or travel outside the city', () => {
     expect(stepsFor({ role: 'section', radius: 'cityRegion' })).not.toContain('seats')
     expect(stepsFor({ role: 'section', radius: 'municipality' })).toContain('seats')
     expect(stepsFor({ role: 'mobile', radius: 'cityRegion' })).toContain('seats')

@@ -1,34 +1,48 @@
 import { useEffect, useState } from 'react'
 import { fetchRegions, fetchTowns, type ElectionRegion } from '../signup/geo'
 import { radiusOptions, type NamedPlace, type Profile, type TravelStop } from '../signup/model'
-import { needsWiderTravel } from '../signup/rules'
+import { machineOnlyPlace, needsWiderTravel } from '../signup/rules'
 import { updateProfile } from '../signup/store'
 import { OblastPicker } from './OblastPicker'
+
+export function useTownDistricts(place: Profile['place']) {
+  const [districts, setDistricts] = useState<NamedPlace[]>([])
+  const townId = place?.townId
+  const municipalityCode = place?.municipalityCode
+  const regionCode = place?.regionCode
+  useEffect(() => {
+    if (!townId || !municipalityCode || regionCode === '32') {
+      setDistricts([])
+      return
+    }
+    const regionCodes = regionCode === 'sofia-merged' ? ['23', '24', '25'] : regionCode ? [regionCode] : []
+    let cancelled = false
+    void fetchTowns({ data: { regionCodes, municipalityCode } })
+      .then((towns) => {
+        if (cancelled) return
+        const town = towns.find((item) => item.id === townId)
+        setDistricts((town?.cityRegions ?? []).map((item) => ({ code: item.code, name: item.name })))
+      })
+      .catch(() => {
+        if (!cancelled) setDistricts([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [municipalityCode, regionCode, townId])
+  return districts
+}
 
 export function TravelChoice({ profile }: { profile: Profile }) {
   const options = radiusOptions(profile.place)
   const [regions, setRegions] = useState<ElectionRegion[]>([])
-  const [districts, setDistricts] = useState<NamedPlace[]>([])
   const [districtQuery, setDistrictQuery] = useState('')
+  const districts = useTownDistricts(profile.place)
   useEffect(() => {
     void fetchRegions()
       .then(setRegions)
       .catch(() => undefined)
   }, [])
-  useEffect(() => {
-    const place = profile.place
-    if (!place?.townId || !place.municipalityCode || place.regionCode === '32') {
-      setDistricts([])
-      return
-    }
-    const regionCodes = place.regionCode === 'sofia-merged' ? ['23', '24', '25'] : [place.regionCode]
-    void fetchTowns({ data: { regionCodes, municipalityCode: place.municipalityCode } })
-      .then((towns) => {
-        const town = towns.find((item) => item.id === place.townId)
-        setDistricts((town?.cityRegions ?? []).map((item) => ({ code: item.code, name: item.name })))
-      })
-      .catch(() => setDistricts([]))
-  }, [profile.place])
   const homeCodes = profile.place?.regionCode === 'sofia-merged' ? ['23', '24', '25'] : profile.place?.regionCode ? [profile.place.regionCode] : []
   const oblastCodes = profile.radius === 'distant' ? profile.distantRegionCodes : profile.radius === 'region' ? homeCodes : []
   const stops = regions
@@ -57,16 +71,27 @@ export function TravelChoice({ profile }: { profile: Profile }) {
 
   return (
     <div className="grid gap-4">
-      {needsWiderTravel(profile.place, profile.radius) ? (
+      {machineOnlyPlace(profile.place) ? (
         <p className="rounded-2xl bg-[#fff4d6] px-4 py-3 leading-7">
-          На избрания адрес няма хартиена секция. Избери по-широк обхват, за да те разпределим към хартиена.
+          На избраното място има само машинни секции. Искаме да пътуваш до хартиена секция.
+          {needsWiderTravel(profile.place, profile.radius) ? ' Избери по-широк обхват, за да те разпределим към хартиена.' : ''}
         </p>
       ) : null}
       <fieldset className="grid gap-2">
         <legend className="mb-1 text-sm font-semibold">Докъде можеш да стигнеш</legend>
         {options.map((option) => (
           <label key={option.id} className="flex min-h-14 items-center gap-3 rounded-2xl bg-white px-4 py-3 text-lg">
-            <input type="radio" name="radius" checked={profile.radius === option.id} onChange={() => updateProfile({ radius: option.id })} />
+            <input
+              type="radio"
+              name="radius"
+              checked={profile.radius === option.id}
+              onChange={() =>
+                updateProfile({
+                  radius: option.id,
+                  extraCityRegions: option.id === 'nearby' ? profile.extraCityRegions : [],
+                })
+              }
+            />
             {option.label}
           </label>
         ))}

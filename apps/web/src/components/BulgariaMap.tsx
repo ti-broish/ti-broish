@@ -15,6 +15,7 @@ export interface MapPoint {
 export interface MapArea {
   id: string
   geometry: Geometry
+  selected?: boolean
 }
 
 type MapProps = {

@@ -123,8 +123,12 @@ export function placeChangeAllowed(current: HomePlace | null, next: HomePlace | 
   return Boolean(from && to && from === to)
 }
 
-export function needsWiderTravel(place: HomePlace | null, radius: Radius | null) {
+export function machineOnlyPlace(place: HomePlace | null) {
   if (!place || place.paperCount == null || place.paperCount > 0) return false
-  if (!place.machineCount) return false
+  return Boolean(place.machineCount && place.machineCount > 0)
+}
+
+export function needsWiderTravel(place: HomePlace | null, radius: Radius | null) {
+  if (!machineOnlyPlace(place)) return false
   return radius === 'cityRegion' || radius === 'nearby' || radius === 'settlement'
 }

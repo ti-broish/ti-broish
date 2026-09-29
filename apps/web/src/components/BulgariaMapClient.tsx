@@ -192,7 +192,12 @@ export function BulgariaMapClient({
           <GeoJSON
             key={shape.id + areaKey(shape.geometry)}
             data={shape.geometry}
-            style={{ color: '#2b062f', weight: 3, fillColor: '#53c0a4', fillOpacity: 0.45 }}
+            style={{
+              color: '#2b062f',
+              weight: shape.selected === false ? 2 : 3,
+              fillColor: '#53c0a4',
+              fillOpacity: shape.selected === false ? 0.22 : 0.45,
+            }}
             eventHandlers={{ click: () => onArea?.(shape.id) }}
           />
         ))}

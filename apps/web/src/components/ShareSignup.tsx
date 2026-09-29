@@ -13,7 +13,7 @@ function copyText(value: string) {
   return Promise.resolve()
 }
 
-const iconClass = 'inline-flex h-10 w-10 items-center justify-center rounded-full text-white no-underline transition hover:scale-110'
+const iconClass = 'share-icon inline-flex h-10 w-10 items-center justify-center rounded-full text-white no-underline transition hover:scale-110'
 
 export function ShareSignup({ link, count }: { link: string; count: number }) {
   const [copied, setCopied] = useState(false)
@@ -71,7 +71,7 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
           </svg>
         </a>
         <a
-          className={`${iconClass} bg-[linear-gradient(45deg,#f09433_0%,#e6683c_25%,#dc2743_50%,#cc2366_75%,#bc1888_100%)]`}
+          className={`${iconClass} bg-[linear-gradient(45deg,#d62976_0%,#962fbf_55%,#4f5bd5_100%)]`}
           href="https://www.instagram.com/"
           target="_blank"
           rel="noopener noreferrer"
@@ -107,7 +107,7 @@ export function ShareSignup({ link, count }: { link: string; count: number }) {
           </svg>
         </a>
         <a
-          className={`${iconClass} bg-[#25d366] hover:bg-[#20ba5a]`}
+          className={`${iconClass} bg-[#075e54] hover:bg-[#128c7e]`}
           href={`https://wa.me/?text=${encodeURIComponent(message)}`}
           target="_blank"
           rel="noopener noreferrer"

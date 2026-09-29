@@ -7,7 +7,7 @@ import { StaffNote } from '../components/StaffNote'
 import { TravelChoice, useTownDistricts } from '../components/TravelChoice'
 import { checkEmailCode, requestEmailCode } from '../signup/confirm-mail'
 import { assignmentTiming, groupAsCoordinator, groupWithYou, mobileTeamText, paperSectionText, votingLogistics } from '../signup/copy'
-import { loadSignup, saveSignup } from '../signup/db'
+import { saveSignup } from '../signup/db'
 import { geocodePlace } from '../signup/geo'
 import {
   EXPERIENCE,
@@ -38,6 +38,7 @@ import { campaignFromSearch, locationEditable, mirOf, needsWiderTravel, placeCha
 import { placeSummaries } from '../signup/sections'
 import { useOutlines } from '../signup/use-outlines'
 import { updateProfile, useProfile } from '../signup/store'
+import { useRegistration } from '../signup/use-registration'
 import type { CityRegion, PollingSection } from '../signup/geo'
 
 export const Route = createFileRoute('/signup')({
@@ -55,6 +56,7 @@ function SignupPage() {
   const { step } = Route.useSearch()
   const navigate = useNavigate()
   const { profile, ready } = useProfile()
+  const { pending } = useRegistration()
   const [error, setError] = useState('')
   const [mailFailed, setMailFailed] = useState(false)
   useEffect(() => {
@@ -65,22 +67,6 @@ function SignupPage() {
       source: current.source || found.source,
       referredBy: current.referredBy || found.referredBy,
     }))
-  }, [])
-  useEffect(() => {
-    let cancelled = false
-    void loadSignup().then((remote) => {
-      if (cancelled || !remote) return
-      const found = campaignFromSearch(new URLSearchParams(window.location.search))
-      updateProfile({
-        ...remote.profile,
-        source: remote.profile.source || found.source,
-        referredBy: remote.profile.referredBy || found.referredBy,
-        referrerName: remote.referrerName,
-      })
-    })
-    return () => {
-      cancelled = true
-    }
   }, [])
   useEffect(() => {
     if (!ready || !profile.email.includes('@')) return
@@ -127,31 +113,37 @@ function SignupPage() {
   }
 
   const titles: Record<StepId, string> = {
-    contact: 'Как да се свържем с теб',
-    confirm: 'Потвърди имейла си',
-    egn: 'ЕГН за разпределението',
-    role: 'Как ще пазиш вота',
-    rounds: 'Кога можеш да участваш',
-    experience: 'Колко си подготвен',
-    place: 'Къде искаш да бъдеш',
-    travel: 'Докъде можеш да стигнеш',
-    seats:
-      profile.role === 'mobile' && !travelsOutside(profile.radius)
+    contact: settled ? 'Променяш как да се свържем с теб' : 'Как да се свържем с теб',
+    confirm: settled ? 'Потвърди имейла за записването' : 'Потвърди имейла си',
+    egn: settled ? 'ЕГН в записването' : 'ЕГН за разпределението',
+    role: settled ? 'Променяш как ще пазиш вота' : 'Как ще пазиш вота',
+    rounds: settled ? 'Променяш дните' : 'Кога можеш да участваш',
+    experience: settled ? 'Променяш опита' : 'Колко си подготвен',
+    place: settled ? 'Променяш мястото' : 'Къде искаш да бъдеш',
+    travel: settled ? 'Променяш докъде можеш да стигнеш' : 'Докъде можеш да стигнеш',
+    seats: settled
+      ? profile.role === 'mobile' && !travelsOutside(profile.radius)
+        ? 'Променяш дрона'
+        : profile.role === 'mobile'
+          ? 'Променяш колата и дрона'
+          : 'Променяш местата в колата'
+      : profile.role === 'mobile' && !travelsOutside(profile.radius)
         ? 'Дрон'
         : profile.role === 'mobile'
           ? 'Кола и дрон'
           : 'Свободни места в колата',
-    people: 'Хора с теб',
+    people: settled ? 'Променяш хората с теб' : 'Хора с теб',
     review: settled ? 'Преглед на данните' : 'Преглед, преди да се запишеш',
   }
 
-  if (!ready) return <p>Зареждаме данните…</p>
+  if (pending) return <p>Зареждаме данните…</p>
 
   const motionClass = entrance?.id === current ? (entrance.dir === 'back' ? 'step-enter-back' : 'step-enter-forward') : ''
 
   return (
     <div className="step-stage grid gap-6">
       <div key={`${current}-${motionClass}`} className={`grid gap-4 ${motionClass}`}>
+      {settled ? <p className="text-lg leading-7">Вече си записан. Тук променяш записването.</p> : null}
       <h1 className="text-3xl font-black text-[#444]">{titles[current]}</h1>
       <PartnerBanner source={profile.source} />
       {current === 'review' && settled ? <p className="text-lg leading-7">Провери промените и ги запази.</p> : null}
@@ -168,7 +160,14 @@ function SignupPage() {
         )
       ) : null}
       {profile.referredBy ? <p>Покана от {profile.referrerName || 'човек, който вече се е записал'}.</p> : null}
-      {current === 'contact' ? <Contact error={error} onError={setError} onMailFailed={setMailFailed} onNext={() => go(profile.emailConfirmed ? (profile.egn ? 'role' : 'egn') : 'confirm')} /> : null}
+      {current === 'contact' ? (
+        <Contact
+          error={error}
+          onError={setError}
+          onMailFailed={setMailFailed}
+          onNext={(forceConfirm) => go(!profile.emailConfirmed || forceConfirm ? 'confirm' : profile.egn ? 'role' : 'egn')}
+        />
+      ) : null}
       {current === 'confirm' ? <Confirm error={error} onError={setError} mailFailed={mailFailed} onMailFailed={setMailFailed} onNext={() => go('egn')} /> : null}
       {current === 'egn' ? <EgnStep error={error} onError={setError} onNext={nextStep} /> : null}
       {current === 'role' ? <RoleStep error={error} onError={setError} onNext={nextStep} /> : null}
@@ -189,9 +188,12 @@ function SignupPage() {
   )
 }
 
-function Contact({ error, onError, onMailFailed, onNext }: { error: string; onError: (value: string) => void; onMailFailed: (failed: boolean) => void; onNext: () => void }) {
+function Contact({ error, onError, onMailFailed, onNext }: { error: string; onError: (value: string) => void; onMailFailed: (failed: boolean) => void; onNext: (forceConfirm?: boolean) => void }) {
   const { profile } = useProfile()
   const [sending, setSending] = useState(false)
+  const confirmedEmail = useRef(profile.emailConfirmed ? profile.email.trim().toLowerCase() : '')
+  const typed = profile.email.trim().toLowerCase()
+  const changing = Boolean(confirmedEmail.current) && typed !== confirmedEmail.current
   return (
     <form
       className="grid gap-4"
@@ -206,6 +208,10 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
           onError('Нужни са валидни имейл и телефон.')
           return
         }
+        if (confirmedEmail.current && !changing) {
+          onNext()
+          return
+        }
         setSending(true)
         void requestEmailCode({
           data: {
@@ -217,16 +223,30 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
           },
         })
           .then((result) => {
-            updateProfile({ confirmCode: result.previewCode })
+            if ('conflict' in result && result.conflict) {
+              onError('Този имейл вече е на друго записване.')
+              return
+            }
+            if (changing && !result.sent && !result.previewCode) {
+              onError('Кодът не тръгна. Имейлът си остава старият.')
+              return
+            }
+            if (changing) updateProfile({ emailConfirmed: false, confirmCode: result.previewCode })
+            else updateProfile({ confirmCode: result.previewCode })
             onMailFailed(!result.sent && !result.previewCode)
+            onNext(changing)
           })
           .catch(() => {
+            if (changing) {
+              onError('Кодът не тръгна. Имейлът си остава старият.')
+              return
+            }
             updateProfile({ confirmCode: '' })
             onMailFailed(true)
+            onNext()
           })
           .finally(() => {
             setSending(false)
-            onNext()
           })
       }}
     >
@@ -234,7 +254,13 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
       <NameFields />
       <label className="grid gap-1 text-sm font-semibold">
         Имейл
-        <input className={field} inputMode="email" autoComplete="email" value={profile.email} onChange={(event) => updateProfile({ email: event.target.value, emailConfirmed: false })} />
+        <input
+          className={field}
+          inputMode="email"
+          autoComplete="email"
+          value={profile.email}
+          onChange={(event) => updateProfile({ email: event.target.value })}
+        />
       </label>
       <label className="grid gap-1 text-sm font-semibold">
         Телефон
@@ -242,7 +268,7 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
       </label>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button className={button} type="submit" disabled={sending}>
-        {sending ? 'Изпращаме кода…' : 'Изпрати код за потвърждение'}
+        {changing || !confirmedEmail.current ? (sending ? 'Изпращаме кода…' : 'Изпрати код за потвърждение') : 'Напред'}
       </button>
     </form>
   )
@@ -329,6 +355,10 @@ function Confirm({
       },
     })
       .then((result) => {
+        if ('conflict' in result && result.conflict) {
+          onError('Този имейл вече е на друго записване.')
+          return
+        }
         updateProfile({ confirmCode: result.previewCode })
         onMailFailed(!result.sent && !result.previewCode)
       })

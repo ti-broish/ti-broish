@@ -52,20 +52,20 @@ test('a city district does not ask for car seats, and travel outside the city do
   await page.goto('/signup?step=travel')
   await expect(page.getByText(/Запазено място:.*Младост/)).toBeVisible()
   await page.getByRole('button', { name: 'Напред' }).click()
-  await expect(page.getByRole('heading', { name: 'Хора с теб' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Променяш хората с теб' })).toBeVisible()
 
   await seedProfile(page, registered({ radius: 'municipality' }))
   await page.goto('/signup?step=travel')
   await expect(page.getByRole('radio', { name: 'В община Столична' })).toBeChecked()
   await page.getByRole('button', { name: 'Напред' }).click()
-  await expect(page.getByRole('heading', { name: 'Свободни места в колата' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Променяш местата в колата' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Имаш ли кола?' })).toBeVisible()
 })
 
 test('a mobile team inside the city only answers about a drone', async ({ page }) => {
   await seedProfile(page, registered({ role: 'mobile', radius: 'cityRegion', hasCar: null, hasDrone: null }))
   await page.goto('/signup?step=seats')
-  await expect(page.getByRole('heading', { name: 'Дрон' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Променяш дрона' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Имаш ли кола?' })).toHaveCount(0)
   await expect(page.getByText('Имаш дрон или можеш да го оперираш?')).toBeVisible()
 })
@@ -73,7 +73,7 @@ test('a mobile team inside the city only answers about a drone', async ({ page }
 test('car seats appear only when traveling, and a drone stays with the mobile team', async ({ page }) => {
   await seedProfile(page, registered({ role: 'mobile', radius: 'municipality', hasCar: null, hasDrone: null }))
   await page.goto('/signup?step=seats')
-  await expect(page.getByRole('heading', { name: 'Кола и дрон' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Променяш колата и дрона' })).toBeVisible()
   await expect(page.getByText('Колко души можеш да вземеш')).toHaveCount(0)
   await page.getByRole('group', { name: 'Имаш ли кола?' }).getByRole('radio', { name: 'Да' }).check()
   const form = page.locator('form')

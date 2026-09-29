@@ -5,7 +5,8 @@ import { ProfileSummary } from '../components/ProfileSummary'
 import { PageIntro } from '../components/SiteChrome'
 import { ShareSignup } from '../components/ShareSignup'
 import { StaffNote } from '../components/StaffNote'
-import { loadSignup, saveSignup } from '../signup/db'
+import { saveSignup } from '../signup/db'
+import { applyLoadedSession, beginSessionLoad } from '../signup/use-registration'
 import { isProtocolDay } from '../signup/election'
 import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signupGap, type Profile } from '../signup/model'
 import { locationEditable, mirOf } from '../signup/rules'
@@ -73,11 +74,13 @@ function ProfilePage() {
     setInviteLink(`${window.location.origin}/signup?ref=${code}`)
   }, [profile])
   useEffect(() => {
+    if (!ready) return
     let cancelled = false
-    void loadSignup().then((remote) => {
+    const current = beginSessionLoad(profile)
+    void current.pending.then((remote) => {
       if (cancelled) return
       if (remote) {
-        updateProfile({ ...remote.profile, referrerName: remote.referrerName })
+        updateProfile((latest) => applyLoadedSession(latest, remote, current.at))
         setReferralCount(remote.referralCount)
       }
       setSynced(true)
@@ -85,7 +88,7 @@ function ProfilePage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [ready])
   useEffect(() => {
     if (!synced) return
     if (skipSave.current) {

@@ -1,6 +1,7 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { isProtocolDay } from '../signup/election'
+import { useRegistration } from '../signup/use-registration'
 
 const links = [
   { to: '/about', label: 'Кампанията' },
@@ -30,6 +31,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const path = useRouterState({ select: (state) => state.location.pathname })
   const search = useRouterState({ select: (state) => searchFromHref(state.location.href) })
+  const { settled, pending } = useRegistration()
   useEffect(() => {
     setOpen(false)
   }, [path])
@@ -81,9 +83,15 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
           <Link to="/kontakt" className="font-bold text-[#333] no-underline">
             Контакт
           </Link>
-          <Link to="/signup" search={{ step: 'contact' }} className="font-bold text-[#333] no-underline">
-            Запиши се
-          </Link>
+          {settled ? (
+            <Link to="/profil" className="font-bold text-[#333] no-underline">
+              Профилът ти
+            </Link>
+          ) : pending ? null : (
+            <Link to="/signup" search={{ step: 'contact' }} className="font-bold text-[#333] no-underline">
+              Запиши се
+            </Link>
+          )}
           <Link to="/signal" className="font-bold text-[#333] no-underline">
             Подай сигнал
           </Link>

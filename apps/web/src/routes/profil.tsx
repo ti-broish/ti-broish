@@ -130,8 +130,10 @@ function ProfilePage() {
   return (
     <div className="grid gap-8">
       <PageIntro title={`${profile.firstName}, това е профилът ти`} />
-      <NextStep profile={profile} />
-      <ProfileSummary profile={profile} />
+      <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <NextStep profile={profile} />
+        <ProfileSummary profile={profile} />
+      </div>
       <div className="grid gap-2">
         <Link to="/signup" search={{ step: 'contact' }} className="font-bold">
           Промени данните
@@ -264,12 +266,11 @@ function NextStep({ profile }: { profile: Profile }) {
   }
   const wave = nextAssignment(profile)
   return (
-    <section className="grid gap-3" aria-label="Следващо за теб">
-      <p className="text-sm font-bold text-[#666]">Следващо за теб</p>
-      <h2 className="text-3xl font-black text-[#444]">
-        {wave?.label}
-      </h2>
-      <p className="text-lg leading-7">На тази дата виждаш секцията тук и получаваш писмо. Дотогава секцията още не е определена.</p>
+    <section className="grid content-start gap-3" aria-label="Записан си">
+      <h2 className="text-3xl font-black text-[#444]">Записан си</h2>
+      <p className="text-lg leading-7">Секцията още не е потвърдена.</p>
+      <h3 className="text-2xl font-black text-[#444]">{wave?.label}</h3>
+      <p className="text-lg leading-7">На тази дата я виждаш тук и получаваш писмо.</p>
     </section>
   )
 }

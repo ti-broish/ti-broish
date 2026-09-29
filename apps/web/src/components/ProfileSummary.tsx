@@ -17,9 +17,9 @@ export function profileFacts(profile: Profile): { label: string; value: string }
 
 export function ProfileSummary({ profile }: { profile: Profile }) {
   return (
-    <section className="grid gap-3" aria-label="Твоите данни">
-      <h2 className="text-xl font-black text-[#444]">Твоите данни</h2>
-      <dl className="rounded-2xl border border-[var(--line)] bg-white px-4">
+    <section className="grid content-start gap-2" aria-label="Твоите данни">
+      <h2 className="text-sm font-bold text-[#666]">Твоите данни</h2>
+      <dl className="rounded-2xl border border-[var(--line)] bg-[#f7f7f7] px-4">
         {profileFacts(profile).map((fact) => (
           <div key={fact.label} className="grid gap-0.5 border-b border-[var(--line)] py-3 last:border-b-0 sm:grid-cols-[8.5rem_1fr] sm:items-baseline sm:gap-3">
             <dt className="text-sm font-bold text-[#666]">{fact.label}</dt>

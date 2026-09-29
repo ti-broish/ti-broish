@@ -126,15 +126,22 @@ test('the first review still asks the person to sign up', async ({ page }) => {
 
 test('a registered profile leads with the date, then the answers, without the national number', async ({ page }) => {
   await seedProfile(page, registered())
+  await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/profil')
+  const registeredHeading = page.getByRole('heading', { name: 'Записан си' })
+  await expect(registeredHeading).toBeVisible()
   await expect(page.getByRole('heading', { name: '5 октомври' })).toBeVisible()
   const text = await page.locator('main').innerText()
+  expect(text.indexOf('Записан си')).toBeLessThan(text.indexOf('5 октомври'))
   expect(text.indexOf('5 октомври')).toBeLessThan(text.indexOf('Твоите данни'))
   expect(text.indexOf('Твоите данни')).toBeLessThan(text.indexOf('Материали'))
   expect(text.indexOf('Материали')).toBeLessThan(text.indexOf('Покани'))
   expect(text.indexOf('Покани')).toBeLessThan(text.indexOf('Оттегли записването'))
 
   const facts = page.getByRole('region', { name: 'Твоите данни' })
+  const phoneHeading = await registeredHeading.boundingBox()
+  const phoneSummary = await facts.boundingBox()
+  expect(phoneSummary!.y).toBeGreaterThan(phoneHeading!.y + phoneHeading!.height)
   await expect(facts.getByRole('definition').filter({ hasText: 'Иван Иванов Иванов' })).toBeVisible()
   await expect(facts.getByRole('definition').filter({ hasText: 'ivan@example.com' })).toBeVisible()
   await expect(facts.getByRole('definition').filter({ hasText: '0888123456' })).toBeVisible()
@@ -146,6 +153,15 @@ test('a registered profile leads with the date, then the answers, without the na
   await expect(facts.getByText('Без група', { exact: true })).toBeVisible()
   await expect(facts.getByRole('definition').filter({ hasText: 'Въведено' })).toBeVisible()
   await expect(facts).not.toContainText('0041010002')
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const status = page.getByRole('region', { name: 'Записан си' })
+  const wideStatus = await status.boundingBox()
+  const wideSummary = await facts.boundingBox()
+  expect(wideSummary!.y).toBeLessThan(wideStatus!.y + wideStatus!.height)
+  expect(wideStatus!.y).toBeLessThan(wideSummary!.y + wideSummary!.height)
+  expect(wideSummary!.x).toBeGreaterThan(wideStatus!.x)
+  expect((await page.locator('main').boundingBox())!.width).toBeGreaterThan(700)
 })
 
 test('the profile summary stacks on a phone and pairs labels on a wide screen', async ({ page }) => {

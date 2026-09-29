@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import type { Geometry } from 'geojson'
+import { chooseDistrictOutline, districtLabel, keepDistrictGeometry, nominatimSearchQuery } from './outlines'
 
 const API = 'https://api.tibroish.bg'
 
@@ -130,9 +131,12 @@ function scheduleGeocode(priority: 'high' | 'low', job: () => Promise<void>) {
 type NominatimRow = {
   lat?: string
   lon?: string
+  name?: string
   class?: string
   category?: string
   type?: string
+  addresstype?: string
+  place_rank?: number
   boundingbox?: string[]
   geojson?: Geometry
 }
@@ -159,8 +163,26 @@ function pickRow(rows: NominatimRow[], scope: 'broad' | 'local' | null) {
   return scope === 'broad' ? areas[areas.length - 1] : areas[0]
 }
 
+function pickDistrict(rows: NominatimRow[], query: string) {
+  const chosen = chooseDistrictOutline(
+    query,
+    rows.map((row) => ({
+      row,
+      name: row.name ?? null,
+      category: row.category ?? row.class ?? null,
+      type: row.type ?? null,
+      addressType: row.addresstype ?? null,
+      rank: typeof row.place_rank === 'number' ? row.place_rank : null,
+      geometry: outlineOf(row),
+    })),
+  )
+  return chosen?.row
+}
+
 function searchNominatim(query: string, abroad: boolean, polygon: boolean, scope: 'broad' | 'local' | null, priority: 'high' | 'low') {
-  const key = `${polygon ? 'p' : 'q'}:${scope ?? '-'}:${abroad ? 'a' : 'bg'}:${query}`
+  const q = nominatimSearchQuery(query)
+  const district = Boolean(districtLabel(query))
+  const key = `${polygon ? 'p' : 'q'}:${scope ?? '-'}:${abroad ? 'a' : 'bg'}:${q}`
   if (geocodeCache.has(key)) return Promise.resolve(geocodeCache.get(key) ?? null)
   return new Promise<GeocodeHit | null>((resolve) => {
     scheduleGeocode(priority, async () => {
@@ -169,7 +191,7 @@ function searchNominatim(query: string, abroad: boolean, polygon: boolean, scope
         return
       }
       const url = new URL('https://nominatim.openstreetmap.org/search')
-      url.searchParams.set('q', query)
+      url.searchParams.set('q', q)
       url.searchParams.set('format', 'jsonv2')
       url.searchParams.set('limit', polygon ? '5' : '1')
       if (!abroad) url.searchParams.set('countrycodes', 'bg')
@@ -182,20 +204,25 @@ function searchNominatim(query: string, abroad: boolean, polygon: boolean, scope
         },
       })
       let hit: GeocodeHit | null = null
+      let cacheable = true
       if (response.ok) {
         const rows = (await response.json()) as NominatimRow[]
-        const row = pickRow(rows, polygon ? scope : null)
+        const row = district && polygon ? pickDistrict(rows, query) : pickRow(rows, polygon ? scope : null)
         if (row?.lat && row.lon) {
+          const geometry = district ? keepDistrictGeometry(query, outlineOf(row)) : outlineOf(row)
           hit = {
             lat: Number(row.lat),
             lng: Number(row.lon),
             category: row.category ?? row.class ?? '',
             type: row.type ?? '',
-            geojson: outlineOf(row),
+            geojson: geometry,
           }
         }
+        if (district && polygon && !hit?.geojson) cacheable = false
+      } else if (district && polygon) {
+        cacheable = false
       }
-      geocodeCache.set(key, hit)
+      if (cacheable) geocodeCache.set(key, hit)
       resolve(hit)
     })
   })

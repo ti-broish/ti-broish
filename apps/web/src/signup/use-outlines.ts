@@ -2,59 +2,22 @@ import { useEffect, useRef, useState } from 'react'
 import type { Geometry } from 'geojson'
 import { geocodePlace } from './geo'
 import type { OutlineRequest } from './model'
+import { cachedOutlineAreas, keepDistrictGeometry, storeOutline } from './outlines'
 
 export interface MapArea {
   id: string
   geometry: Geometry
 }
 
-function usableOutline(query: string, geometry: Geometry | null) {
-  if (!geometry || !query.startsWith('район ')) return geometry
-  const bounds = LBounds(geometry)
-  if (!bounds) return geometry
-  const [south, north, west, east] = bounds
-  if (north - south > 0.2 || east - west > 0.25) return null
-  return geometry
-}
-
-function LBounds(geometry: Geometry): [number, number, number, number] | null {
-  const points: number[][] = []
-  const walk = (value: unknown) => {
-    if (!Array.isArray(value)) return
-    if (typeof value[0] === 'number' && typeof value[1] === 'number') {
-      points.push(value as number[])
-      return
-    }
-    for (const item of value) walk(item)
-  }
-  if ('coordinates' in geometry) walk(geometry.coordinates)
-  if (points.length === 0) return null
-  let south = 90
-  let north = -90
-  let west = 180
-  let east = -180
-  for (const pair of points) {
-    const lng = pair[0] ?? 0
-    const lat = pair[1] ?? 0
-    south = Math.min(south, lat)
-    north = Math.max(north, lat)
-    west = Math.min(west, lng)
-    east = Math.max(east, lng)
-  }
-  return [south, north, west, east]
-}
-
 const geometryCache = new Map<string, Geometry | null>()
 const pointCache = new Map<string, { lat: number; lng: number }>()
 
 function remembered(queries: OutlineRequest[]) {
-  const areas: MapArea[] = []
+  const areas = cachedOutlineAreas(geometryCache, queries)
+  if (!areas) return null
   let focus: { lat: number; lng: number; zoom: number } | null = null
   for (const item of queries) {
-    if (!geometryCache.has(`${item.scope}:${item.query}`)) return null
-    const geometry = geometryCache.get(`${item.scope}:${item.query}`)
     const point = pointCache.get(`${item.scope}:${item.query}`)
-    if (geometry) areas.push({ id: item.id, geometry })
     if (point && !focus) focus = { ...point, zoom: item.abroad ? 11 : 14 }
   }
   return { areas, focus }
@@ -93,18 +56,21 @@ export function useOutlines(queries: OutlineRequest[]) {
           const quick = await geocodePlace({
             data: { query: item.query, abroad: item.abroad, polygon: false, scope: item.scope, priority: 'high' },
           })
-          if (cancelled) return
           if (quick) {
-            pointCache.set(cacheKey, { lat: quick.lat, lng: quick.lng })
-            point ??= { lat: quick.lat, lng: quick.lng }
-            setFocus({ ...point, zoom: item.abroad ? 11 : 14 })
+            const focusPoint = { lat: quick.lat, lng: quick.lng }
+            pointCache.set(cacheKey, focusPoint)
+            point ??= focusPoint
+            if (!cancelled) setFocus({ ...point, zoom: item.abroad ? 11 : 14 })
           }
           const hit = await geocodePlace({
             data: { query: item.query, abroad: item.abroad, polygon: true, scope: item.scope, priority: 'high' },
           })
+          const geometry = keepDistrictGeometry(item.query, hit?.geojson ?? null)
+          if (geometry) {
+            storeOutline(geometryCache, cacheKey, geometry)
+            if (hit) pointCache.set(cacheKey, { lat: hit.lat, lng: hit.lng })
+          }
           if (cancelled) return
-          const geometry = usableOutline(item.query, hit?.geojson ?? null)
-          geometryCache.set(cacheKey, geometry)
           if (hit && !point) {
             point = { lat: hit.lat, lng: hit.lng }
             pointCache.set(cacheKey, point)

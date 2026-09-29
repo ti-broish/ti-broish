@@ -31,7 +31,25 @@
 	"env": {
 		"production": {
 			"name": "ti-broish-web",
-			"workers_dev": false
+			"workers_dev": false,
+			"routes": [
+				{
+					"pattern": "next.tibroish.bg",
+					"custom_domain": true
+				}
+			],
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "ti-broish-signup",
+					"database_id": "5b90fdfb-3a28-4b3d-bbcf-e82cc786f8f5"
+				}
+			],
+			"send_email": [
+				{
+					"name": "EMAIL"
+				}
+			]
 		}
 	}
 	/**

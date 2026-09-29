@@ -33,5 +33,40 @@
 	],
 	"triggers": {
 		"crons": ["* * * * *"]
+	},
+	// Astro does not flatten this file. A production deploy is
+	// `wrangler deploy --env production` with CLOUDFLARE_ENV=production.
+	// Environments replace bindings instead of inheriting them.
+	"env": {
+		"production": {
+			"name": "ti-broish-cms",
+			"workers_dev": false,
+			"preview_urls": false,
+			"routes": [
+				{ "pattern": "next.tibroish.bg/_emdash*", "zone_name": "tibroish.bg" },
+				{ "pattern": "next.tibroish.bg/_astro*", "zone_name": "tibroish.bg" }
+			],
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "ti-broish-cms",
+					"database_id": "cd640c59-8cb4-4e34-b664-b51a12c80d18"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "MEDIA",
+					"bucket_name": "ti-broish-cms-media-production"
+				}
+			],
+			"send_email": [{ "name": "EMAIL" }],
+			"kv_namespaces": [
+				{
+					"binding": "SESSION",
+					"id": "2a4b2e89fd7c4c2d9ff0e94740c3e813"
+				}
+			],
+			"triggers": { "crons": ["* * * * *"] }
+		}
 	}
 }

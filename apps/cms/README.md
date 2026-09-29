@@ -1,8 +1,10 @@
 # Ти Броиш CMS
 
-EmDash admin for staging. Public pages stay on the signup app. This worker serves only `/_emdash/*`.
+EmDash admin. Public pages stay on the signup app. This worker serves `/_emdash/*` and `/_astro/*`.
 
-After deploy, the editor is [https://d1t.tibroish.bg/_emdash/admin](https://d1t.tibroish.bg/_emdash/admin).
+Staging editor: [https://d1t.tibroish.bg/_emdash/admin](https://d1t.tibroish.bg/_emdash/admin).
+
+Production editor: [https://next.tibroish.bg/_emdash/admin](https://next.tibroish.bg/_emdash/admin). `wrangler deploy` without `--env` stays on staging. Production is `wrangler deploy --env production`.
 
 ```bash
 pnpm install

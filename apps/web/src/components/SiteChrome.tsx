@@ -10,9 +10,26 @@ const links = [
   { to: '/profil', label: 'Профил' },
 ] as const
 
+function searchFromHref(href: string) {
+  const queryAt = href.indexOf('?')
+  if (queryAt === -1) return ''
+  const hashAt = href.indexOf('#', queryAt)
+  return href.slice(queryAt, hashAt === -1 ? undefined : hashAt)
+}
+
+function pageFrameClass(path: string, search: string) {
+  if (path.startsWith('/admin')) return 'w-full max-w-none bg-white px-0 py-0'
+  const step = new URLSearchParams(search).get('step')
+  const wideMap = path === '/signup' && (step === 'place' || step === 'travel' || step === 'radius')
+  const wideProfile = path === '/profil'
+  if (wideMap || wideProfile) return 'mx-auto w-full max-w-6xl bg-white px-4 py-8'
+  return 'mx-auto w-full max-w-lg bg-white px-4 py-8'
+}
+
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const path = useRouterState({ select: (state) => state.location.pathname })
+  const search = useRouterState({ select: (state) => searchFromHref(state.location.href) })
   useEffect(() => {
     setOpen(false)
   }, [path])
@@ -56,7 +73,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       ) : null}
-      <main className={path.startsWith('/admin') ? 'w-full max-w-none bg-white px-0 py-0' : 'mx-auto w-full max-w-lg bg-white px-4 py-8'}>{children}</main>
+      <main className={pageFrameClass(path, search)}>{children}</main>
       {path.startsWith('/admin') ? null : <div className="h-10 bg-[#2b062f]" />}
       {path.startsWith('/admin') ? null : (
       <footer className="bg-[#eee] text-[#333]">

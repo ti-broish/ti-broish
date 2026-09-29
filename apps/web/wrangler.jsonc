@@ -29,9 +29,12 @@
 		}
 	],
 	"env": {
+		// Workers Builds must set CLOUDFLARE_ENV=production before `pnpm build`.
+		// The Vite plugin flattens this file, so a later `--env production` still deploys the top-level database.
 		"production": {
 			"name": "ti-broish-web",
 			"workers_dev": false,
+			"preview_urls": false,
 			"routes": [
 				{
 					"pattern": "next.tibroish.bg",

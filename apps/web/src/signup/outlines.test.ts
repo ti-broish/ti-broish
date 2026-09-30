@@ -3,6 +3,7 @@ import type { Geometry } from 'geojson'
 import {
   cachedOutlineAreas,
   chooseDistrictOutline,
+  frameAreas,
   nominatimSearchQuery,
   outlineSpan,
   storeOutline,
@@ -73,5 +74,18 @@ describe('city region outlines', () => {
     expect(cachedOutlineAreas(cache, [query])).toEqual([{ id: query.id, geometry: mladost.geometry }])
     storeOutline(cache, key, null)
     expect(cachedOutlineAreas(cache, [query])).toEqual([{ id: query.id, geometry: mladost.geometry }])
+  })
+
+  it('frames the chosen district and keeps the whole city when nothing is chosen', () => {
+    const areas = [
+      { id: 'district:11', selected: false },
+      { id: 'district:15', selected: true },
+      { id: 'district:09', selected: false },
+    ]
+    expect(frameAreas(areas).map((item) => item.id)).toEqual(['district:15'])
+    expect(frameAreas(areas.map((item) => ({ ...item, selected: false }))).map((item) => item.id)).toEqual(['district:11', 'district:15', 'district:09'])
+    expect(frameAreas(areas.map((item) => ({ ...item, selected: false })), true)).toEqual([])
+    const town: Array<{ id: string; selected?: boolean }> = [{ id: 'town' }]
+    expect(frameAreas(town).map((item) => item.id)).toEqual(['town'])
   })
 })

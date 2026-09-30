@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CircleMarker, GeoJSON, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet'
 import type { MapArea, MapPoint } from './BulgariaMap'
 import type { FeatureCollection, GeoJsonObject, Geometry } from 'geojson'
+import { frameAreas } from '../signup/outlines'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -92,19 +93,20 @@ function FitTo({
   focus,
   areas,
   waitForArea,
+  fitSelected = false,
 }: {
   data: FeatureCollection
   regionCodes: string[]
   focus?: { lat: number; lng: number; zoom: number } | null
   areas: MapArea[]
   waitForArea?: boolean
+  fitSelected?: boolean
 }) {
   const map = useMap()
-  const shape = areas.map((item) => areaKey(item.geometry)).join(';')
-  const selection = `${regionCodes.join(',')}|${focus?.lat ?? ''}|${focus?.lng ?? ''}|${focus?.zoom ?? ''}|${shape}|${waitForArea ? 'w' : ''}`
   useEffect(() => {
-    if (areas.length > 0) {
-      const bounds = L.geoJSON({ type: 'GeometryCollection', geometries: areas.map((item) => item.geometry) } as GeoJsonObject).getBounds()
+    const frame = frameAreas(areas, fitSelected)
+    if (frame.length > 0) {
+      const bounds = L.geoJSON({ type: 'GeometryCollection', geometries: frame.map((item) => item.geometry) } as GeoJsonObject).getBounds()
       if (bounds.isValid()) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15, animate: false })
       return
     }
@@ -117,7 +119,7 @@ function FitTo({
     const features = chosen.features.length > 0 ? chosen : data
     const bounds = L.geoJSON(features as GeoJsonObject).getBounds()
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 8 })
-  }, [areas, data, focus, map, regionCodes, selection])
+  }, [areas, data, fitSelected, focus, map, regionCodes, waitForArea])
   return null
 }
 
@@ -133,6 +135,7 @@ export function BulgariaMapClient({
   onArea,
   quietCity = false,
   waitForArea = false,
+  fitSelected = false,
 }: {
   regionCodes: string[]
   focus?: { lat: number; lng: number; zoom: number } | null
@@ -145,6 +148,7 @@ export function BulgariaMapClient({
   onArea?: (id: string) => void
   quietCity?: boolean
   waitForArea?: boolean
+  fitSelected?: boolean
 }) {
   const [data, setData] = useState<FeatureCollection | null>(null)
   const shapes = areas.length > 0 ? areas : area ? [{ id: 'area', geometry: area }] : []
@@ -163,7 +167,9 @@ export function BulgariaMapClient({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {data ? <FitTo data={data} regionCodes={regionCodes} focus={focus} areas={shapes} waitForArea={waitForArea} /> : null}
+        {data ? (
+          <FitTo data={data} regionCodes={regionCodes} focus={focus} areas={shapes} waitForArea={waitForArea} fitSelected={fitSelected} />
+        ) : null}
         {data ? (
           <GeoJSON
             key={`${regionCodes.join(',')}:${interactive ? '1' : '0'}:${quietCity ? 'q' : 'f'}`}
@@ -190,13 +196,13 @@ export function BulgariaMapClient({
         ) : null}
         {shapes.map((shape) => (
           <GeoJSON
-            key={shape.id + areaKey(shape.geometry)}
+            key={`${shape.id}:${shape.selected === true ? '1' : '0'}:${areaKey(shape.geometry)}`}
             data={shape.geometry}
             style={{
               color: '#2b062f',
-              weight: shape.selected === false ? 2 : 3,
+              weight: shape.selected === true ? 4 : shape.selected === false ? 2 : 3,
               fillColor: '#53c0a4',
-              fillOpacity: shape.selected === false ? 0.22 : 0.45,
+              fillOpacity: shape.selected === true ? 0.62 : shape.selected === false ? 0.14 : 0.45,
             }}
             eventHandlers={{ click: () => onArea?.(shape.id) }}
           />

@@ -106,6 +106,12 @@ describe('travel', () => {
       districts,
     )
     expect(inside.filter((item) => item.selected).map((item) => item.id)).toEqual(['district:15'])
+    const reversed = cityRegionOutlines(mladost, [...districts].reverse())
+    expect(reversed.map((item) => [item.id, item.selected])).toEqual([
+      ['district:15', true],
+      ['district:11', false],
+      ['district:09', false],
+    ])
     const municipality = travelOutline(
       { place: mladost, radius: 'municipality', extraCityRegions: [], travelMunicipalities: [] },
       districts,

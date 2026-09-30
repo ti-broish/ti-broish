@@ -306,9 +306,13 @@ function districtRequest(place: HomePlace, item: { code: string; name: string },
   }
 }
 
+function chosenFirst<T extends { selected?: boolean }>(items: T[]) {
+  return [...items.filter((item) => item.selected), ...items.filter((item) => !item.selected)]
+}
+
 export function cityRegionOutlines(place: HomePlace | null, districts: { code: string; name: string }[]): OutlineRequest[] {
   if (!place || place.regionCode === '32' || districts.length === 0) return []
-  return districts.map((item) => districtRequest(place, item, item.code === place.cityRegionCode))
+  return chosenFirst(districts.map((item) => districtRequest(place, item, item.code === place.cityRegionCode)))
 }
 
 export function travelOutline(
@@ -325,7 +329,7 @@ export function travelOutline(
         (code): code is string => Boolean(code),
       ),
     )
-    return cityRegions.map((item) => districtRequest(place, item, chosen.has(item.code)))
+    return chosenFirst(cityRegions.map((item) => districtRequest(place, item, chosen.has(item.code))))
   }
   if (profile.radius === 'nearby') {
     const town = plainTown(place.townName)

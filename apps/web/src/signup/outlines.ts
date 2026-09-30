@@ -111,6 +111,16 @@ export function keepDistrictGeometry(query: string, geometry: Geometry | null) {
   return geometry
 }
 
+/** Chosen districts frame the map. While a choice is still loading, other districts stay out of the frame. */
+export function frameAreas<T extends { selected?: boolean }>(areas: readonly T[], fitSelected = false): T[] {
+  const chosen: T[] = []
+  for (const item of areas) {
+    if (item.selected === true) chosen.push(item)
+  }
+  if (chosen.length > 0 || fitSelected) return chosen
+  return [...areas]
+}
+
 /** A missing entry and a stored rejection both mean "fetch again", not an empty highlight. */
 export function cachedOutlineAreas(
   cache: ReadonlyMap<string, Geometry | null>,

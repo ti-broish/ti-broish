@@ -37,6 +37,14 @@
 			"preview_urls": false,
 			"routes": [
 				{
+					"pattern": "tibroish.bg",
+					"custom_domain": true
+				},
+				{
+					"pattern": "www.tibroish.bg",
+					"custom_domain": true
+				},
+				{
 					"pattern": "next.tibroish.bg",
 					"custom_domain": true
 				}

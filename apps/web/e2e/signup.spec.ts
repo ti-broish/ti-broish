@@ -5,7 +5,12 @@ import type { HomePlace, Profile } from '../src/signup/model'
 test('the home page names the election and the group', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('Президентски избори 2026 г.')).toBeVisible()
+  await expect(page.getByText('Можеш да се включиш по два начина')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'В секция' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Мобилен екип' })).toBeVisible()
   await expect(page.getByText('заедно като група')).toBeVisible()
+  await expect(page.getByText('Важно!')).toBeVisible()
+  await expect(page.getByText('логистика и време за пътуване')).toBeVisible()
 })
 
 test('a partner link is shown and stored as a source', async ({ page }) => {
@@ -80,6 +85,8 @@ test('a valid personal number reaches how you guard the vote', async ({ page }) 
   await page.getByLabel('ЕГН').fill('0041010002')
   await page.getByRole('button', { name: 'Напред' }).click()
   await expect(page.getByRole('heading', { name: 'Как ще пазиш вота' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Секция с гласуване на хартия/ })).toBeVisible()
+  await expect(page.getByText('Важно!')).toBeVisible()
 })
 
 test('place and travel steps ask different questions', async ({ page }) => {
@@ -198,7 +205,9 @@ test('a submitted profile shows the next assignment', async ({ page }) => {
 
 test('the people step can record guardians outside the group', async ({ page }) => {
   await page.goto('/signup?step=people')
-  await expect(page.getByRole('button', { name: 'Добавям хора извън групата, като координатор' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'В група с мен' })).toBeVisible()
+  await expect(page.getByText('потвърди електронната си поща')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Извън групата, като координатор' })).toBeVisible()
 })
 
 test('the badge names the committee and not the person', async ({ page }) => {

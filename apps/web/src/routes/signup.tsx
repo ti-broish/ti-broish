@@ -6,6 +6,7 @@ import { PlacesPicker } from '../components/PlacesPicker'
 import { StaffNote } from '../components/StaffNote'
 import { TravelChoice, useTownDistricts } from '../components/TravelChoice'
 import { checkEmailCode, requestEmailCode } from '../signup/confirm-mail'
+import { assignmentTiming, groupAsCoordinator, groupWithYou, mobileTeamText, paperSectionText, votingLogistics } from '../signup/copy'
 import { loadSignup, saveSignup } from '../signup/db'
 import { geocodePlace } from '../signup/geo'
 import {
@@ -155,11 +156,16 @@ function SignupPage() {
       <PartnerBanner source={profile.source} />
       {current === 'review' && settled ? <p className="text-lg leading-7">Провери промените и ги запази.</p> : null}
       {current === 'contact' ? (
-        <p className="text-lg leading-7">
-          {settled
-            ? 'Президентските избори 2026 г. са на 25 октомври и 1 ноември. Тук променяш как да се свържем с теб.'
-            : 'Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. Можеш да добавиш и други хора и да отидете заедно като група.'}
-        </p>
+        settled ? (
+          <p className="text-lg leading-7">Президентските избори 2026 г. са на 25 октомври и 1 ноември. Тук променяш как да се свържем с теб.</p>
+        ) : (
+          <div className="grid gap-3 text-lg leading-7">
+            <p>
+              Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. След потвърждение на данните е необходимо да въведеш детайлна информация, за да можем да направим разпределение на секции.
+            </p>
+            <p>Можеш да добавиш и други хора и да отидете заедно като група.</p>
+          </div>
+        )
       ) : null}
       {profile.referredBy ? <p>Покана от {profile.referrerName || 'човек, който вече се е записал'}.</p> : null}
       {current === 'contact' ? <Contact error={error} onError={setError} onMailFailed={setMailFailed} onNext={() => go(profile.emailConfirmed ? (profile.egn ? 'role' : 'egn') : 'confirm')} /> : null}
@@ -424,16 +430,19 @@ function RoleStep({ error, onError, onNext }: { error: string; onError: (value: 
     >
       <Choice
         selected={profile.role === 'section'}
-        title="В секция"
-        text="Това е за предпочитане. В избраното място първо те пращаме в хартиена секция. Машинна идва само ако там вече има твърде много хора. Ти не избираш кое от двете."
+        title="Секция с гласуване на хартия"
+        text={paperSectionText}
         onClick={() => updateProfile({ role: 'section', mobileTeam: false })}
       />
       <Choice
         selected={profile.role === 'mobile'}
         title="Мобилен екип"
-        text="Не си вързан за една секция и пак избираш къде можеш да бъдеш."
+        text={mobileTeamText}
         onClick={() => updateProfile({ role: 'mobile', mobileTeam: true })}
       />
+      <p className="rounded-[20px] border border-[#53c0a4] bg-[#e4f5f0] px-4 py-4 leading-7">
+        <strong>Важно!</strong> {votingLogistics}
+      </p>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button className={button} type="submit">
         Напред
@@ -442,11 +451,11 @@ function RoleStep({ error, onError, onNext }: { error: string; onError: (value: 
   )
 }
 
-function Choice({ selected, title, text, onClick }: { selected: boolean; title: string; text: string; onClick: () => void }) {
+function Choice({ selected, title, text, onClick }: { selected: boolean; title: string; text?: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} className={`rounded-[20px] border px-4 py-4 text-left ${selected ? 'border-[#53c0a4] bg-[#e4f5f0]' : 'border-[#ddd] bg-white'}`}>
       <span className="block text-lg font-extrabold">{title}</span>
-      <span className="mt-1 block text-sm leading-6 text-[var(--ink-soft)]">{text}</span>
+      {text ? <span className="mt-1 block text-sm leading-6 text-[var(--ink-soft)]">{text}</span> : null}
     </button>
   )
 }
@@ -467,8 +476,8 @@ function Rounds({ error, onError, onNext }: { error: string; onError: (value: st
     >
       <p>
         {registrationSettled(profile)
-          ? 'Дните са 25 октомври и 1 ноември. По-добре е да си и на двата.'
-          : 'Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. По-добре е да си и на двата дни.'}
+          ? 'Дните са 25 октомври и 1 ноември. По-добре е да си и на двата дни, посочи удобните за теб дати.'
+          : 'Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. По-добре е да си и на двата дни, посочи удобните за теб дати.'}
       </p>
       <label className="flex gap-3 rounded-2xl bg-white px-4 py-3">
         <input type="checkbox" checked={profile.rounds.first} onChange={(event) => updateProfile({ rounds: { ...profile.rounds, first: event.target.checked } })} />
@@ -821,14 +830,8 @@ function People({
 
   return (
     <div className="grid gap-4">
-      <p className="leading-7">
-        {profile.coordinator
-          ? 'Тези хора не са в твоята група. Записваш ги като координатор и всеки потвърждава своя имейл.'
-          : 'Ако идвате заедно, добави пазителите в групата. Можеш няколко. Всеки потвърждава своя имейл.'}
-      </p>
-      <button type="button" className="text-left font-bold text-[#2b062f]" onClick={() => updateProfile({ coordinator: !profile.coordinator })}>
-        {profile.coordinator ? 'Добавям към моята група' : 'Добавям хора извън групата, като координатор'}
-      </button>
+      <Choice selected={!profile.coordinator} title="В група с мен" text={groupWithYou} onClick={() => updateProfile({ coordinator: false })} />
+      <Choice selected={profile.coordinator} title="Извън групата, като координатор" text={groupAsCoordinator} onClick={() => updateProfile({ coordinator: true })} />
       <div className="grid gap-2">
         {(
           [
@@ -968,7 +971,7 @@ function Review({ settled, error, onError }: { settled: boolean; error: string; 
         ) : null}
       </ul>
       <StaffNote />
-      <p className="leading-7">В избраното място първо те пращаме в хартиена секция. Машинна идва само ако там вече има твърде много хора.</p>
+      {settled ? null : <p className="leading-7">{assignmentTiming}</p>}
       <label className="flex items-start gap-3 rounded-2xl bg-white px-4 py-4 leading-7">
         <input type="checkbox" className="mt-1" checked={profile.consent} onChange={(event) => updateProfile({ consent: event.target.checked })} />
         <span>

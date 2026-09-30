@@ -94,7 +94,7 @@ test('people in the group and people added as a coordinator both show on the rev
   await page.getByRole('button', { name: 'Добави пазител' }).click()
   await expect(page.getByText('В групата · maria@example.com')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Добавям хора извън групата, като координатор' }).click()
+  await page.getByRole('button', { name: 'Извън групата, като координатор' }).click()
   await page.getByLabel('Име', { exact: true }).fill('Петър')
   await page.getByLabel('Фамилия').fill('Георгиев')
   await page.getByLabel('Имейл', { exact: true }).fill('peter@example.com')
@@ -114,6 +114,7 @@ test('a finished signup reviews changes instead of signing up again', async ({ p
   await page.goto('/signup?step=review')
   await expect(page.getByRole('heading', { name: 'Преглед на данните' })).toBeVisible()
   await expect(page.getByText('Провери промените и ги запази.')).toBeVisible()
+  await expect(page.getByText('ще разпределяме секциите')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Запази' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Запиши ме' })).toHaveCount(0)
 
@@ -129,6 +130,8 @@ test('the first review still asks the person to sign up', async ({ page }) => {
   await seedProfile(page, registered({ submitted: false, consent: false }))
   await page.goto('/signup?step=review')
   await expect(page.getByRole('heading', { name: 'Преглед, преди да се запишеш' })).toBeVisible()
+  await expect(page.getByText('ще разпределяме секциите')).toBeVisible()
+  await expect(page.getByText(/Инициативния комитет/)).toBeVisible()
   await page.getByRole('checkbox', { name: /доброволна дейност/ }).check()
   await expect(page.getByRole('heading', { name: 'Преглед, преди да се запишеш' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Запиши ме' })).toBeVisible()

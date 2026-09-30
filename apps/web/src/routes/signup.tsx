@@ -609,6 +609,7 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
           areas={outlines.areas}
           quietCity={Boolean(profile.place?.cityRegionName) && profile.place?.regionCode !== '32'}
           waitForArea={Boolean(profile.place?.cityRegionName)}
+          fitSelected={outlines.selecting}
           points={points.map((point) => ({ ...point, selected: point.id === `address:${profile.place?.sectionPlace ?? ''}` }))}
           onPoint={(id) => selectAddress(profile, id, geography.sections)}
         />
@@ -698,6 +699,7 @@ function TravelStep({ error, onError, onNext }: { error: string; onError: (value
           areas={outlines.areas}
           quietCity={profile.place?.regionCode !== '32' && profile.radius !== 'region' && profile.radius !== 'distant'}
           waitForArea={profile.radius == null || profile.radius === 'cityRegion' || profile.radius === 'nearby' || profile.radius === 'settlement' || profile.radius === 'municipality'}
+          fitSelected={outlines.selecting}
           interactive={profile.radius === 'distant' && profile.place?.regionCode !== '32'}
           onToggle={(code) => toggleDistant(profile, code)}
           onArea={(id) => {

@@ -11,6 +11,10 @@ jobs:
   deploy:
     if: github.event.release.prerelease == false
     runs-on: ubuntu-latest
+    env:
+      # The Vite plugin reads this while building. A later `--env production`
+      # does not switch the database if the build already flattened the top-level config.
+      CLOUDFLARE_ENV: production
     steps:
       - name: Keep production off until it is enabled
         id: gate

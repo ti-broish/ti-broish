@@ -59,6 +59,7 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN imported INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE signups ADD COLUMN confirm_token TEXT',
   'ALTER TABLE signups ADD COLUMN email_code TEXT',
+  'ALTER TABLE signups ADD COLUMN signup_mail_at TEXT',
 ]
 
 const COMPANIONS = `
@@ -128,13 +129,19 @@ export async function signupDatabase() {
   if (!db) return null
   await db.prepare(SIGNUPS).run()
   for (const sql of BASE_INDEXES) await db.prepare(sql).run()
+  let addedReceiptColumn = false
   for (const sql of ADD_COLUMNS) {
     try {
       await db.prepare(sql).run()
+      if (sql.includes('signup_mail_at')) addedReceiptColumn = true
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (!/duplicate column/i.test(message)) throw error
     }
+  }
+  // Rows already submitted before this column existed must not get a late letter.
+  if (addedReceiptColumn) {
+    await db.prepare(`UPDATE signups SET signup_mail_at = 'skipped' WHERE COALESCE(submitted, 0) = 1 AND signup_mail_at IS NULL`).run()
   }
   await db.prepare(COMPANIONS).run()
   await migrateCompanionColumns(db)

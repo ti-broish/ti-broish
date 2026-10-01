@@ -74,19 +74,31 @@ export const saveSignup = createServerFn({ method: 'POST' })
     const problem = egnProblem(data.egn)
     if (problem) return { ok: false as const, message: problem }
     const now = new Date().toISOString()
+    const cookie = getCookie(SESSION_COOKIE)
+    const bySession = cookie
+      ? await db
+          .prepare('SELECT id, email, session_token, imported, email_confirmed FROM signups WHERE session_token = ?')
+          .bind(cookie)
+          .first<{ id: string; email: string; session_token: string | null; imported: number | null; email_confirmed: number | null }>()
+      : null
+    if (bySession && bySession.email.trim().toLowerCase() !== data.email.trim().toLowerCase()) {
+      data = { ...data, email: bySession.email, emailConfirmed: bySession.email_confirmed === 1 }
+    }
     const columns = signupColumns(data)
-    const existing = await db
+    const byEmail = await db
       .prepare('SELECT id, session_token, imported, email_confirmed FROM signups WHERE email = ?')
       .bind(columns.email)
-      .first<{
-        id: string
-        session_token: string | null
-        imported: number | null
-        email_confirmed: number | null
-      }>()
-    if (existing?.imported && !existing.email_confirmed && getCookie(SESSION_COOKIE) !== existing.session_token) {
+      .first<{ id: string; session_token: string | null; imported: number | null; email_confirmed: number | null }>()
+    if (bySession && byEmail && byEmail.id !== bySession.id) {
+      if (byEmail.imported && !byEmail.email_confirmed) {
+        return { ok: false as const, message: 'Този имейл чака потвърждение от писмото.' }
+      }
+      return { ok: false as const, message: 'Този имейл вече е на друго записване.' }
+    }
+    if (byEmail?.imported && !byEmail.email_confirmed && cookie !== byEmail.session_token) {
       return { ok: false as const, message: 'Този имейл чака потвърждение от писмото.' }
     }
+    const existing = bySession ?? byEmail
     const id = existing?.id ?? crypto.randomUUID()
     const token = existing?.session_token ?? crypto.randomUUID()
     await db

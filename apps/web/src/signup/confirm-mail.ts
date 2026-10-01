@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { setCookie } from '@tanstack/react-start/server'
+import { getCookie, setCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase } from './db-core'
 import { confirmCodeMail, deliverMail, isDevMailHost } from './mail'
 import { emptyProfile, validEmail } from './model'
@@ -20,6 +20,18 @@ function sessionCookie(token: string) {
   setCookie(SESSION_COOKIE, token, { httpOnly: true, secure: !isDevMailHost(), sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
 }
 
+function payloadConfirmed(payload: string, email: string) {
+  try {
+    const parsed = JSON.parse(payload) as { email?: string; emailConfirmed?: boolean }
+    if (!parsed || typeof parsed !== 'object') return payload
+    parsed.email = email
+    parsed.emailConfirmed = true
+    return JSON.stringify(parsed)
+  } catch {
+    return payload
+  }
+}
+
 export const requestEmailCode = createServerFn({ method: 'POST' })
   .validator((input: { email: string; firstName: string; middleName: string; lastName: string; phone: string }) => input)
   .handler(async ({ data }) => {
@@ -29,6 +41,31 @@ export const requestEmailCode = createServerFn({ method: 'POST' })
     if (!db) return { sent: false, previewCode: isDevMailHost() ? '000000' : '' }
     const code = sixDigit()
     const now = new Date().toISOString()
+    const cookie = getCookie(SESSION_COOKIE)
+    const session = cookie
+      ? await db
+          .prepare('SELECT id, email, payload FROM signups WHERE session_token = ?')
+          .bind(cookie)
+          .first<{ id: string; email: string; payload: string }>()
+      : null
+    if (session) {
+      const same = session.email.trim().toLowerCase() === email
+      if (!same) {
+        const other = await db.prepare('SELECT id FROM signups WHERE email = ? AND id != ?').bind(email, session.id).first<{ id: string }>()
+        if (other) return { sent: false, previewCode: '', conflict: true as const }
+        await db.prepare('UPDATE signups SET pending_email = ?, email_code = ?, updated_at = ? WHERE id = ?').bind(email, code, now, session.id).run()
+      } else {
+        await db.prepare('UPDATE signups SET pending_email = NULL, email_code = ?, updated_at = ? WHERE id = ?').bind(code, now, session.id).run()
+      }
+      const sent = await deliverMail(confirmCodeMail(email, code))
+      if (!sent) {
+        if (!isDevMailHost()) {
+          await db.prepare('UPDATE signups SET email_code = NULL, pending_email = NULL WHERE id = ?').bind(session.id).run()
+        }
+        return { sent: false, previewCode: isDevMailHost() ? code : '' }
+      }
+      return { sent: true, previewCode: '' }
+    }
     const referral = referralCode()
     const columns = signupColumns({
       ...emptyProfile(),
@@ -97,13 +134,32 @@ export const checkEmailCode = createServerFn({ method: 'POST' })
     const code = data.code.trim()
     const db = await signupDatabase()
     if (!db) return { ok: false }
+    const pending = await db
+      .prepare('SELECT id, payload, email_code, session_token FROM signups WHERE pending_email = ?')
+      .bind(email)
+      .first<{ id: string; payload: string; email_code: string | null; session_token: string | null }>()
+    if (pending) {
+      if (!code || pending.email_code !== code) return { ok: false }
+      const taken = await db.prepare('SELECT id FROM signups WHERE email = ? AND id != ?').bind(email, pending.id).first<{ id: string }>()
+      if (taken) return { ok: false }
+      const now = new Date().toISOString()
+      await db
+        .prepare('UPDATE signups SET email = ?, email_confirmed = 1, email_code = NULL, pending_email = NULL, payload = ?, updated_at = ? WHERE id = ?')
+        .bind(email, payloadConfirmed(pending.payload, email), now, pending.id)
+        .run()
+      if (pending.session_token) sessionCookie(pending.session_token)
+      return { ok: true }
+    }
     const row = await db
       .prepare('SELECT email_code, session_token FROM signups WHERE email = ?')
       .bind(email)
       .first<{ email_code: string | null; session_token: string | null }>()
     const expected = row?.email_code
     if (!code || !expected || code !== expected) return { ok: false }
-    await db.prepare('UPDATE signups SET email_confirmed = 1, email_code = NULL, updated_at = ? WHERE email = ?').bind(new Date().toISOString(), email).run()
+    await db
+      .prepare('UPDATE signups SET email_confirmed = 1, email_code = NULL, pending_email = NULL, updated_at = ? WHERE email = ?')
+      .bind(new Date().toISOString(), email)
+      .run()
     if (row?.session_token) sessionCookie(row.session_token)
     return { ok: true }
   })

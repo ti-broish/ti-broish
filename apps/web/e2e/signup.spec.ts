@@ -126,10 +126,10 @@ test('the next step slides in from the right and back from the left', async ({ p
   await page.goto('/signup?step=place')
   await page.getByRole('button', { name: 'Напред' }).click()
   await expect(page.locator('.step-enter-forward')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Докъде можеш да стигнеш' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Променяш докъде можеш да стигнеш', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Назад' }).click()
   await expect(page.locator('.step-enter-back')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Къде искаш да бъдеш' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Променяш мястото', exact: true })).toBeVisible()
 })
 
 test('leaving neighbouring districts clears them, and the home oblast stays', async ({ page }) => {

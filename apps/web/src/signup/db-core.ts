@@ -59,6 +59,7 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN imported INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE signups ADD COLUMN confirm_token TEXT',
   'ALTER TABLE signups ADD COLUMN email_code TEXT',
+  'ALTER TABLE signups ADD COLUMN pending_email TEXT',
   'ALTER TABLE signups ADD COLUMN signup_mail_at TEXT',
 ]
 

@@ -2,6 +2,7 @@ import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
 import { checkEmailCode, requestSignInCode } from '../signup/confirm-mail'
+import { invalidateSessionLoad } from '../signup/use-registration'
 import { validEmail } from '../signup/model'
 import { useProfile } from '../signup/store'
 
@@ -45,6 +46,7 @@ function LoginPage() {
                 setError('Кодът не съвпада.')
                 return
               }
+              invalidateSessionLoad()
               await navigate({ to: '/profil' })
             })
           }}

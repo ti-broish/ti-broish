@@ -1,9 +1,11 @@
 import { createServerFn } from '@tanstack/react-start'
-import { getCookie, getRequestHost, setCookie } from '@tanstack/react-start/server'
-import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupRow } from './db-core'
-import { type Profile } from './model'
+import { getCookie, getRequestHost, getRequestUrl, setCookie } from '@tanstack/react-start/server'
+import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupD1, type SignupRow } from './db-core'
+import { signupGap, type Profile } from './model'
 import { companionsForSignup, syncCompanions } from './companion-lifecycle'
+import { deliverMail, isDevMailHost } from './mail'
 import { egnProblem, signupColumns } from './record'
+import { signupReceiptMail } from './receipt'
 import { sessionCookieSecure } from './session-cookie'
 
 function requestHost() {
@@ -11,6 +13,38 @@ function requestHost() {
     return getRequestHost()
   } catch {
     return ''
+  }
+}
+
+function profileUrl() {
+  try {
+    const url = getRequestUrl()
+    return `${url.protocol}//${url.host}/profil`
+  } catch {
+    return 'https://tibroish.bg/profil'
+  }
+}
+
+function oneChange(result: unknown) {
+  if (!result || typeof result !== 'object') return false
+  return (result as { meta?: { changes?: number } }).meta?.changes === 1
+}
+
+async function sendSignupReceipt(db: SignupD1, id: string, profile: Profile) {
+  const stamp = new Date().toISOString()
+  const claimed = await db
+    .prepare(
+      `UPDATE signups
+       SET signup_mail_at = ?
+       WHERE id = ? AND (signup_mail_at IS NULL OR signup_mail_at = 'failed')
+         AND submitted = 1 AND COALESCE(withdrawn, 0) = 0 AND email_confirmed = 1`,
+    )
+    .bind(stamp, id)
+    .run()
+  if (!oneChange(claimed)) return
+  const sent = await deliverMail(signupReceiptMail(profile, profileUrl()))
+  if (!sent) {
+    await db.prepare(`UPDATE signups SET signup_mail_at = 'failed' WHERE id = ? AND signup_mail_at = ?`).bind(id, stamp).run()
   }
 }
 
@@ -36,9 +70,16 @@ export const saveSignup = createServerFn({ method: 'POST' })
     const now = new Date().toISOString()
     const columns = signupColumns(data)
     const existing = await db
-      .prepare('SELECT id, session_token, imported, email_confirmed FROM signups WHERE email = ?')
+      .prepare('SELECT id, session_token, imported, email_confirmed, submitted, signup_mail_at FROM signups WHERE email = ?')
       .bind(columns.email)
-      .first<{ id: string; session_token: string | null; imported: number | null; email_confirmed: number | null }>()
+      .first<{
+        id: string
+        session_token: string | null
+        imported: number | null
+        email_confirmed: number | null
+        submitted: number | null
+        signup_mail_at: string | null
+      }>()
     if (existing?.imported && !existing.email_confirmed && getCookie(SESSION_COOKIE) !== existing.session_token) {
       return { ok: false as const, message: 'Този имейл чака потвърждение от писмото.' }
     }
@@ -135,6 +176,11 @@ export const saveSignup = createServerFn({ method: 'POST' })
     const synced = await syncCompanions(db, id, data.companions)
     data = { ...data, companions: synced.companions }
     await db.prepare('UPDATE signups SET payload = ? WHERE id = ?').bind(signupColumns(data).payload, id).run()
+    const firstAcceptance = !existing || existing.submitted !== 1
+    const retryReceipt = existing?.signup_mail_at === 'failed'
+    if ((firstAcceptance || retryReceipt) && columns.submitted === 1 && !data.withdrawn && signupGap(data) === null && !isDevMailHost()) {
+      await sendSignupReceipt(db, id, data)
+    }
     setCookie(SESSION_COOKIE, token, { httpOnly: true, secure: sessionCookieSecure(requestHost()), sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 180 })
     const countRow = data.referralCode
       ? await db.prepare('SELECT COUNT(*) AS n FROM signups WHERE referred_by = ?').bind(data.referralCode).first<{ n: number }>()

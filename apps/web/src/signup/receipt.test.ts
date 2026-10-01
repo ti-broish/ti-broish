@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptyProfile, type HomePlace } from './model'
-import { signupReceiptMail } from './receipt'
+import { receiptClaimed, signupReceiptMail } from './receipt'
 
 const home: HomePlace = {
   regionCode: 'sofia-merged',
@@ -74,5 +74,12 @@ describe('signup receipt', () => {
     expect(mail.html).toContain('&lt;Мария&gt;')
     expect(mail.html).not.toContain('<Мария>')
     expect(mail.html).toContain('href="https://tibroish.bg/profil?x=1&amp;y=2"')
+  })
+
+  it('treats a search-trigger write as a claimed receipt', () => {
+    expect(receiptClaimed(1)).toBe(true)
+    expect(receiptClaimed(11)).toBe(true)
+    expect(receiptClaimed(0)).toBe(false)
+    expect(receiptClaimed(null)).toBe(false)
   })
 })

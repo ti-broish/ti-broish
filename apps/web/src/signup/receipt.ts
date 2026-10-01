@@ -1,5 +1,10 @@
 import { EXPERIENCE, placeLabel, radiusOptions, roleLabel, type Profile } from './model'
 
+/** D1's meta.changes includes the signup search trigger, so a claimed row is any positive count. */
+export function receiptClaimed(changes: number | null) {
+  return changes !== null && changes > 0
+}
+
 export function signupReceiptMail(profile: Profile, profileUrl: string) {
   const name = [profile.firstName, profile.middleName, profile.lastName].map((part) => part.trim()).filter(Boolean).join(' ')
   const days = [profile.rounds.first ? '25 октомври' : '', profile.rounds.runoff ? '1 ноември' : ''].filter(Boolean)

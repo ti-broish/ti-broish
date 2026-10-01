@@ -21,6 +21,11 @@
 			"binding": "DB",
 			"database_name": "ti-broish-signup-staging",
 			"database_id": "9625b7ab-b6a0-474a-9fa7-2d9bfd1ca6e7"
+		},
+		{
+			"binding": "CMS",
+			"database_name": "ti-broish-cms-staging",
+			"database_id": "a2871feb-080e-46d7-baa8-d989a70babc0"
 		}
 	],
 	"send_email": [
@@ -54,6 +59,11 @@
 					"binding": "DB",
 					"database_name": "ti-broish-signup",
 					"database_id": "5b90fdfb-3a28-4b3d-bbcf-e82cc786f8f5"
+				},
+				{
+					"binding": "CMS",
+					"database_name": "ti-broish-cms",
+					"database_id": "cd640c59-8cb4-4e34-b664-b51a12c80d18"
 				}
 			],
 			"send_email": [

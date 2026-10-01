@@ -4,7 +4,7 @@ import { isProtocolDay } from '../signup/election'
 
 const links = [
   { to: '/about', label: 'Кампанията' },
-  { to: '/news', label: 'Актуално' },
+  { to: '/posts', label: 'Актуално' },
   { to: '/instructions', label: 'Инструкции' },
   { to: '/signal', label: 'Подай сигнал' },
   { to: '/profil', label: 'Профил' },

@@ -1,26 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { PageIntro } from '../components/SiteChrome'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
-export const Route = createFileRoute('/news')({ component: NewsPage })
-
-function NewsPage() {
-  return (
-    <article className="max-w-3xl space-y-4 text-base leading-7">
-      <PageIntro title="Какво прави пазителят на вота" />
-      <p>
-        На тези избори си представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев. В изборния ден агитацията е забранена.
-      </p>
-      <p>
-        Можеш да гласуваш само там, където обичайно гласуваш. Ако те пратим в друга секция, това не ти дава право да гласуваш там. Гласуваш на своето място и после отиваш в секцията за броенето.
-      </p>
-      <p>В секцията можеш:</p>
-      <ul className="list-disc space-y-2 pl-5 text-lg leading-7">
-        <li>да присъстваш при откриване и закриване, по време на гласуването и при броенето</li>
-        <li>да виждаш пряко тези действия</li>
-        <li>да получиш копие от протокола</li>
-        <li>да подаваш жалби и сигнали за нарушения</li>
-      </ul>
-      <p>Членовете на СИК гласуват в секцията, в която са. Застъпниците гласуват там, където обичайно гласуват.</p>
-    </article>
-  )
-}
+export const Route = createFileRoute('/news')({
+  beforeLoad: () => {
+    throw redirect({ to: '/posts' })
+  },
+})

@@ -18,6 +18,7 @@ import { Route as IzprateniRouteImport } from './routes/izprateni'
 import { Route as IzvanBulgariaRouteImport } from './routes/izvan-bulgaria'
 import { Route as KontaktRouteImport } from './routes/kontakt'
 import { Route as NewsRouteImport } from './routes/news'
+import { Route as PostsRouteImport } from './routes/posts'
 import { Route as PotvardiRouteImport } from './routes/potvardi'
 import { Route as PrivacyNoticeRouteImport } from './routes/privacy-notice'
 import { Route as ProfilRouteImport } from './routes/profil'
@@ -32,6 +33,8 @@ import { Route as AdminSectionsRouteImport } from './routes/admin/sections'
 import { Route as AdminSignupsRouteImport } from './routes/admin/signups'
 import { Route as IzprateniIdRouteImport } from './routes/izprateni.$id'
 import { Route as PokanaCodeRouteImport } from './routes/pokana.$code'
+import { Route as PostsIndexRouteImport } from './routes/posts.index'
+import { Route as PostsSlugRouteImport } from './routes/posts.$slug'
 import { Route as RCodeRouteImport } from './routes/r.$code'
 
 const IndexRoute = IndexRouteImport.update({
@@ -77,6 +80,11 @@ const KontaktRoute = KontaktRouteImport.update({
 const NewsRoute = NewsRouteImport.update({
   id: '/news',
   path: '/news',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PostsRoute = PostsRouteImport.update({
+  id: '/posts',
+  path: '/posts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PotvardiRoute = PotvardiRouteImport.update({
@@ -149,6 +157,16 @@ const PokanaCodeRoute = PokanaCodeRouteImport.update({
   path: '/pokana/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PostsIndexRoute = PostsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PostsRoute,
+} as any)
+const PostsSlugRoute = PostsSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => PostsRoute,
+} as any)
 const RCodeRoute = RCodeRouteImport.update({
   id: '/r/$code',
   path: '/r/$code',
@@ -165,6 +183,7 @@ export interface FileRoutesByFullPath {
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
   '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
+  '/posts': typeof PostsRouteWithChildren
   '/potvardi': typeof PotvardiRoute
   '/privacy-notice': typeof PrivacyNoticeRoute
   '/profil': typeof ProfilRoute
@@ -178,8 +197,10 @@ export interface FileRoutesByFullPath {
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
   '/pokana/$code': typeof PokanaCodeRoute
+  '/posts/$slug': typeof PostsSlugRoute
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
+  '/posts/': typeof PostsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -203,8 +224,10 @@ export interface FileRoutesByTo {
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
   '/pokana/$code': typeof PokanaCodeRoute
+  '/posts/$slug': typeof PostsSlugRoute
   '/r/$code': typeof RCodeRoute
   '/admin': typeof AdminIndexRoute
+  '/posts': typeof PostsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -217,6 +240,7 @@ export interface FileRoutesById {
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
   '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
+  '/posts': typeof PostsRouteWithChildren
   '/potvardi': typeof PotvardiRoute
   '/privacy-notice': typeof PrivacyNoticeRoute
   '/profil': typeof ProfilRoute
@@ -230,8 +254,10 @@ export interface FileRoutesById {
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
   '/pokana/$code': typeof PokanaCodeRoute
+  '/posts/$slug': typeof PostsSlugRoute
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
+  '/posts/': typeof PostsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -245,6 +271,7 @@ export interface FileRouteTypes {
     | '/izvan-bulgaria'
     | '/kontakt'
     | '/news'
+    | '/posts'
     | '/potvardi'
     | '/privacy-notice'
     | '/profil'
@@ -258,8 +285,10 @@ export interface FileRouteTypes {
     | '/admin/signups'
     | '/izprateni/$id'
     | '/pokana/$code'
+    | '/posts/$slug'
     | '/r/$code'
     | '/admin/'
+    | '/posts/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -283,8 +312,10 @@ export interface FileRouteTypes {
     | '/admin/signups'
     | '/izprateni/$id'
     | '/pokana/$code'
+    | '/posts/$slug'
     | '/r/$code'
     | '/admin'
+    | '/posts'
   id:
     | '__root__'
     | '/'
@@ -296,6 +327,7 @@ export interface FileRouteTypes {
     | '/izvan-bulgaria'
     | '/kontakt'
     | '/news'
+    | '/posts'
     | '/potvardi'
     | '/privacy-notice'
     | '/profil'
@@ -309,8 +341,10 @@ export interface FileRouteTypes {
     | '/admin/signups'
     | '/izprateni/$id'
     | '/pokana/$code'
+    | '/posts/$slug'
     | '/r/$code'
     | '/admin/'
+    | '/posts/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -323,6 +357,7 @@ export interface RootRouteChildren {
   IzvanBulgariaRoute: typeof IzvanBulgariaRoute
   KontaktRoute: typeof KontaktRoute
   NewsRoute: typeof NewsRoute
+  PostsRoute: typeof PostsRouteWithChildren
   PotvardiRoute: typeof PotvardiRoute
   PrivacyNoticeRoute: typeof PrivacyNoticeRoute
   ProfilRoute: typeof ProfilRoute
@@ -398,6 +433,13 @@ declare module '@tanstack/react-router' {
       path: '/news'
       fullPath: '/news'
       preLoaderRoute: typeof NewsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/posts': {
+      id: '/posts'
+      path: '/posts'
+      fullPath: '/posts'
+      preLoaderRoute: typeof PostsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/potvardi': {
@@ -498,6 +540,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PokanaCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/posts/': {
+      id: '/posts/'
+      path: '/'
+      fullPath: '/posts/'
+      preLoaderRoute: typeof PostsIndexRouteImport
+      parentRoute: typeof PostsRoute
+    }
+    '/posts/$slug': {
+      id: '/posts/$slug'
+      path: '/$slug'
+      fullPath: '/posts/$slug'
+      preLoaderRoute: typeof PostsSlugRouteImport
+      parentRoute: typeof PostsRoute
+    }
     '/r/$code': {
       id: '/r/$code'
       path: '/r/$code'
@@ -538,6 +594,18 @@ const IzprateniRouteWithChildren = IzprateniRoute._addFileChildren(
   IzprateniRouteChildren,
 )
 
+interface PostsRouteChildren {
+  PostsSlugRoute: typeof PostsSlugRoute
+  PostsIndexRoute: typeof PostsIndexRoute
+}
+
+const PostsRouteChildren: PostsRouteChildren = {
+  PostsSlugRoute: PostsSlugRoute,
+  PostsIndexRoute: PostsIndexRoute,
+}
+
+const PostsRouteWithChildren = PostsRoute._addFileChildren(PostsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRouteRoute: AdminRouteRouteWithChildren,
@@ -548,6 +616,7 @@ const rootRouteChildren: RootRouteChildren = {
   IzvanBulgariaRoute: IzvanBulgariaRoute,
   KontaktRoute: KontaktRoute,
   NewsRoute: NewsRoute,
+  PostsRoute: PostsRouteWithChildren,
   PotvardiRoute: PotvardiRoute,
   PrivacyNoticeRoute: PrivacyNoticeRoute,
   ProfilRoute: ProfilRoute,

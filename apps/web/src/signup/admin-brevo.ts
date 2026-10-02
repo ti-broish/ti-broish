@@ -13,7 +13,7 @@ import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './
 type Database = SignupD1
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
 
-const VIEWS: RosterView[] = ['all', 'assigned', 'unassigned', 'draft', 'abroad', 'mir', 'calls']
+const VIEWS: RosterView[] = ['all', 'finished', 'started', 'assigned', 'unassigned', 'draft', 'abroad', 'mir', 'calls']
 
 export const adminBrevoStatus = createServerFn({ method: 'POST' })
   .handler(async () => {

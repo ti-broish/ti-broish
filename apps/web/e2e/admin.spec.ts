@@ -83,6 +83,47 @@ test.describe('staff admin', () => {
     await search.fill('няматакъвчовек')
     await expect(page.getByText('Няма хора за това търсене.')).toBeVisible({ timeout: 5000 })
   })
+
+  test('a finished signup opens for a callback, and a started one stays in its own list', async ({ page }) => {
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin')
+    await expect(page.getByText('Завършили', { exact: true })).toBeVisible()
+    await expect(page.getByText('Започнали', { exact: true })).toBeVisible()
+    await page.goto('/admin/signups')
+    await page.getByRole('row', { name: STAFF_EMAIL }).getByRole('link', { name: 'Мария Георгиева Петрова' }).click()
+    await expect(page.getByRole('heading', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    await expect(page.getByText('Завършил записването.')).toBeVisible()
+    await expect(page.getByText('ЕГН е въведено')).toBeVisible()
+    await page.getByLabel('Бележка от екипа').fill('Обадихме се, ще дойде и на двата дни.')
+    await page.getByLabel('Отбележи, че сме се обадили').check()
+    await page.getByLabel('Телефон').fill('0888999000')
+    await page.getByRole('button', { name: 'Запази' }).click()
+    await expect(page.getByText('Записахме промените.')).toBeVisible()
+    await expect(page.getByText('Обадени сме', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('Телефон')).toHaveValue('0888999000')
+    await page.getByRole('link', { name: 'Към записванията' }).click()
+    await page.getByRole('button', { name: 'Започнали' }).click()
+    await expect(page).toHaveURL(/view=started/)
+    await expect(page.getByRole('cell', { name: 'ivan.admin-e2e@example.com' })).toBeVisible()
+    await expect(page.getByRole('cell', { name: STAFF_EMAIL })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Завършили' }).click()
+    await expect(page).toHaveURL(/view=finished/)
+    await expect(page.getByRole('cell', { name: STAFF_EMAIL })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'ivan.admin-e2e@example.com' })).toHaveCount(0)
+  })
+
+  test('a started signup opens from the phone list', async ({ page }) => {
+    await signIn(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/admin/signups')
+    await page.getByRole('listitem').filter({ hasText: 'ivan.admin-e2e@example.com' }).getByRole('link', { name: 'Иван Иванов Иванов' }).click()
+    await expect(page.getByRole('heading', { name: 'Иван Иванов Иванов' })).toBeVisible()
+    await expect(page.getByText(/Започнал е, но не е завършил/)).toBeVisible()
+    await expect(page.getByText('Няма ЕГН', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('Бележка от екипа')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Запази' })).toBeVisible()
+  })
 })
 
 async function signIn(page: Page) {
@@ -94,7 +135,7 @@ async function signIn(page: Page) {
 function seedStaffRoster() {
   const sql = `
 INSERT INTO signups (
-  id, email, session_token, referral_code, payload, email_confirmed, withdrawn, egn, role,
+  id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, role,
   mir_code, region_code, town_name, section_place, draft_section, published_section, notes, created_at, updated_at
 ) VALUES
 (
@@ -103,7 +144,7 @@ INSERT INTO signups (
   '${SESSION}',
   'e2emaria',
   '{"firstName":"Мария","middleName":"Георгиева","lastName":"Петрова","phone":"0888111222","email":"${STAFF_EMAIL}"}',
-  1, 0, '0041010002', 'section',
+  1, 0, 1, '0041010002', 'section',
   '23', '23', 'гр. София', 'ул. Витоша 1', '', '234600101', '', datetime('now'), datetime('now')
 ),
 (
@@ -112,13 +153,14 @@ INSERT INTO signups (
   'e2e-ivan-session',
   'e2eivan1',
   '{"firstName":"Иван","middleName":"Иванов","lastName":"Иванов","phone":"0888333444","email":"ivan.admin-e2e@example.com"}',
-  1, 0, '', 'mobile',
+  1, 0, 0, '', 'mobile',
   '24', '24', 'гр. София', 'ул. Пример 2', '244600199', '', '', datetime('now'), datetime('now')
 )
 ON CONFLICT(email) DO UPDATE SET
   session_token = excluded.session_token,
   payload = excluded.payload,
   email_confirmed = 1,
+  submitted = excluded.submitted,
   egn = excluded.egn,
   role = excluded.role,
   mir_code = excluded.mir_code,

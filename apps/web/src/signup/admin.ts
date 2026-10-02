@@ -1,12 +1,23 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
 import { campaignCsv, internalCsv, normalizeSection, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
-import { clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
+import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { travelLabelOf } from './admin-assign'
 import { NOTES_SQL, notesFromRow } from './admin-notes'
 import { PERSON_SQL_BASE } from './admin-person-sql'
-import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
+import {
+  applyStaffEdit,
+  buildAdminPerson,
+  clipStaffText,
+  nextStaffCall,
+  parseExperienceChoice,
+  parseRoleChoice,
+  sealStaffProfile,
+  staffWrite,
+  type AdminPerson,
+} from './admin-progress'
+import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { deliverMail, importConfirmMail, staffInviteMail } from './mail'
 import { emptyProfile, validEmail, type Profile } from './model'
 import { signupColumns } from './record'
@@ -16,7 +27,7 @@ import { keepsAnAdmin, parseStaffRole, permissionsFor, roleAllows, staffRoleLabe
 // Server helpers stay in this file, next to createServerFn. A barrel re-export
 // or a shared module that calls getCookie is loaded by the client and breaks /admin.
 
-const VIEWS: RosterView[] = ['all', 'assigned', 'unassigned', 'draft', 'abroad', 'mir', 'calls']
+const VIEWS: RosterView[] = [...SIGNUP_VIEWS]
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
 type Database = SignupD1
@@ -145,6 +156,8 @@ async function selectPeople(db: Database, clause: string, binds: string[], limit
 
 export interface AdminSummary {
   total: number
+  finished: number
+  started: number
   assigned: number
   unassigned: number
   calls: number
@@ -156,15 +169,19 @@ async function summaryOf(db: Database): Promise<AdminSummary> {
     .prepare(
       `SELECT
          COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS finished,
+         COALESCE(SUM(CASE WHEN COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS started,
          COALESCE(SUM(CASE WHEN COALESCE(published_section, '') != '' THEN 1 ELSE 0 END), 0) AS assigned,
          COALESCE(SUM(CASE WHEN COALESCE(published_section, '') = '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS unassigned,
          COALESCE(SUM(CASE WHEN COALESCE(json_extract(payload, '$.callRequestedAt'), '') != '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS calls
        FROM signups`,
     )
-    .first<{ total: number; assigned: number; unassigned: number; calls: number }>()
+    .first<{ total: number; finished: number; started: number; assigned: number; unassigned: number; calls: number }>()
   const staff = await db.prepare('SELECT COUNT(*) AS n FROM staff').first<{ n: number }>()
   return {
     total: Number(row?.total ?? 0),
+    finished: Number(row?.finished ?? 0),
+    started: Number(row?.started ?? 0),
     assigned: Number(row?.assigned ?? 0),
     unassigned: Number(row?.unassigned ?? 0),
     calls: Number(row?.calls ?? 0),
@@ -550,4 +567,220 @@ export const adminStaffRemove = createServerFn({ method: 'POST' })
     if (!keepsAnAdmin(await adminCount(access.db), currentRole, null)) return { ok: false as const, message: 'Трябва да остане поне един админ.' }
     await access.db.prepare('DELETE FROM staff WHERE email = ?').bind(email).run()
     return { ok: true as const, message: `${email} вече не е в екипа.` }
+  })
+
+interface StoredPersonRow {
+  id: string
+  email: string
+  payload: string
+  referral_code: string | null
+  referred_by: string | null
+  source: string | null
+  egn: string | null
+  published_section: string | null
+  submitted: number
+  withdrawn: number
+  email_confirmed: number
+  imported: number
+  draft_section: string
+  notes: string
+  staff_note: string
+  staff_called_at: string
+  staff_called_by: string
+  rounds_first: number | null
+  rounds_runoff: number | null
+  role: string
+  experience: string
+  town_name: string
+  section_place: string
+  radius: string
+}
+
+const PERSON_DETAIL_SQL = `SELECT id, email, payload,
+  referral_code, referred_by, source, egn, published_section,
+  COALESCE(submitted, 0) AS submitted,
+  COALESCE(withdrawn, 0) AS withdrawn,
+  COALESCE(email_confirmed, 0) AS email_confirmed,
+  COALESCE(imported, 0) AS imported,
+  COALESCE(draft_section, '') AS draft_section,
+  COALESCE(notes, '') AS notes,
+  COALESCE(staff_note, '') AS staff_note,
+  COALESCE(staff_called_at, '') AS staff_called_at,
+  COALESCE(staff_called_by, '') AS staff_called_by,
+  rounds_first,
+  rounds_runoff,
+  COALESCE(role, '') AS role,
+  COALESCE(experience, '') AS experience,
+  COALESCE(town_name, '') AS town_name,
+  COALESCE(section_place, '') AS section_place,
+  COALESCE(radius, '') AS radius
+FROM signups WHERE id = ?`
+
+function personIdOk(id: string) {
+  return /^[\w-]{1,80}$/.test(id)
+}
+
+function openedPerson(row: StoredPersonRow): AdminPerson {
+  const profile = profileFrom({
+    id: row.id,
+    payload: row.payload,
+    referral_code: row.referral_code,
+    referred_by: row.referred_by,
+    source: row.source,
+    egn: row.egn,
+    published_section: row.published_section,
+  })
+  const sealed = sealStaffProfile(profile, row.payload, {
+    email: row.email,
+    submitted: row.submitted === 1,
+    withdrawn: row.withdrawn === 1,
+    emailConfirmed: row.email_confirmed === 1,
+    notes: row.notes,
+    role: row.role,
+    experience: row.experience,
+    roundsFirst: row.rounds_first,
+    roundsRunoff: row.rounds_runoff,
+  })
+  return buildAdminPerson(sealed, {
+    id: row.id,
+    town: row.town_name,
+    place: row.section_place,
+    radius: row.radius,
+    imported: row.imported === 1,
+    draftSection: row.draft_section,
+    publishedSection: row.published_section ?? '',
+    hasEgn: Boolean(row.egn?.replace(/\D/g, '')),
+    staffNote: row.staff_note,
+    staffCalledAt: row.staff_called_at,
+    staffCalledBy: row.staff_called_by,
+  })
+}
+
+async function loadStoredPerson(db: Database, id: string) {
+  if (!personIdOk(id)) return null
+  return db.prepare(PERSON_DETAIL_SQL).bind(id).first<StoredPersonRow>()
+}
+
+export const adminPerson = createServerFn({ method: 'POST' })
+  .validator((input: { id?: string }) => ({ id: clipStaffText(input.id ?? '', 80) }))
+  .handler(async ({ data }) => {
+    const access = await gate('view')
+    if (!access.ok) return access
+    const row = await loadStoredPerson(access.db, data.id)
+    if (!row) return { ok: false as const, message: 'Няма такъв човек.' }
+    try {
+      return { ok: true as const, person: openedPerson(row) }
+    } catch {
+      return { ok: false as const, message: 'Този запис не се чете.' }
+    }
+  })
+
+export const adminUpdatePerson = createServerFn({ method: 'POST' })
+  .validator((input: {
+    id?: string
+    firstName?: string
+    middleName?: string
+    lastName?: string
+    phone?: string
+    role?: string
+    roundsFirst?: boolean
+    roundsRunoff?: boolean
+    experience?: string
+    called?: boolean
+    staffNote?: string
+  }) => ({
+    id: clipStaffText(input.id ?? '', 80),
+    firstName: clipStaffText(input.firstName ?? '', 80),
+    middleName: clipStaffText(input.middleName ?? '', 80),
+    lastName: clipStaffText(input.lastName ?? '', 80),
+    phone: clipStaffText(input.phone ?? '', 40),
+    role: clipStaffText(input.role ?? '', 20),
+    roundsFirst: input.roundsFirst === true,
+    roundsRunoff: input.roundsRunoff === true,
+    experience: clipStaffText(input.experience ?? '', 20),
+    called: input.called === true,
+    staffNote: clipStaffText(input.staffNote ?? '', 4000),
+  }))
+  .handler(async ({ data }) => {
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const row = await loadStoredPerson(access.db, data.id)
+    if (!row) return { ok: false as const, message: 'Няма такъв човек.' }
+    let edited
+    try {
+      const profile = profileFrom({
+        id: row.id,
+        payload: row.payload,
+        referral_code: row.referral_code,
+        referred_by: row.referred_by,
+        source: row.source,
+        egn: row.egn,
+        published_section: row.published_section,
+      })
+      edited = applyStaffEdit(
+        sealStaffProfile(profile, row.payload, {
+          email: row.email,
+          submitted: row.submitted === 1,
+          withdrawn: row.withdrawn === 1,
+          emailConfirmed: row.email_confirmed === 1,
+          notes: row.notes,
+          role: row.role,
+          experience: row.experience,
+          roundsFirst: row.rounds_first,
+          roundsRunoff: row.rounds_runoff,
+        }),
+        {
+          firstName: data.firstName,
+          middleName: data.middleName,
+          lastName: data.lastName,
+          phone: data.phone,
+          role: parseRoleChoice(data.role),
+          roundsFirst: data.roundsFirst,
+          roundsRunoff: data.roundsRunoff,
+          experience: parseExperienceChoice(data.experience),
+        },
+      )
+    } catch {
+      return { ok: false as const, message: 'Този запис не се чете.' }
+    }
+    const now = new Date().toISOString()
+    const call = nextStaffCall({ at: row.staff_called_at, by: row.staff_called_by }, data.called, access.email, now)
+    const write = staffWrite(edited, call, data.staffNote)
+    await access.db
+      .prepare(
+        `UPDATE signups SET
+           role = ?, rounds_first = ?, rounds_runoff = ?, experience = ?,
+           payload = ?, notes = ?, staff_note = ?, staff_called_at = ?, staff_called_by = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        write.role,
+        write.roundsFirst,
+        write.roundsRunoff,
+        write.experience,
+        write.payload,
+        write.notes,
+        write.staffNote,
+        write.staffCalledAt,
+        write.staffCalledBy,
+        now,
+        row.id,
+      )
+      .run()
+    return {
+      ok: true as const,
+      person: buildAdminPerson(edited, {
+        id: row.id,
+        town: row.town_name,
+        place: row.section_place,
+        radius: row.radius,
+        imported: row.imported === 1,
+        draftSection: row.draft_section,
+        publishedSection: row.published_section ?? '',
+        hasEgn: Boolean(row.egn?.replace(/\D/g, '')),
+        staffNote: write.staffNote,
+        staffCalledAt: write.staffCalledAt,
+        staffCalledBy: write.staffCalledBy,
+      }),
+    }
   })

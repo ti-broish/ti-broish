@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   createColumnHelper,
   flexRender,
@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminChipOn, adminGhost, adminInput } from '../../components/admin-ui'
 import { adminExport, adminImportPeople, adminResendImports, adminRoster } from '../../signup/admin'
+import { progressLabel, signupProgress } from '../../signup/admin-progress'
 import { parseSignupSearch, type SignupSearch } from '../../signup/admin-search'
 import type { RosterFields } from '../../signup/admin-csv'
 import { BrevoCampaignPanel } from './-brevo-campaign-panel'
@@ -22,6 +23,8 @@ export const Route = createFileRoute('/admin/signups')({
 
 const views = [
   ['all', 'Всички'],
+  ['finished', 'Завършили'],
+  ['started', 'Започнали'],
   ['assigned', 'Със секция'],
   ['unassigned', 'Без секция'],
   ['abroad', 'Чужбина'],
@@ -34,7 +37,11 @@ const columns = [
   columnHelper.accessor((row) => personName(row), {
     id: 'name',
     header: 'Човек',
-    cell: (info) => <span className="font-bold">{info.getValue() || '—'}</span>,
+    cell: (info) => (
+      <Link to="/admin/signups/$personId" params={{ personId: info.row.original.id }} className="font-bold text-[#2b062f] underline">
+        {info.getValue() || '—'}
+      </Link>
+    ),
   }),
   columnHelper.accessor('email', {
     id: 'email',
@@ -167,7 +174,10 @@ function SignupsPage() {
 
   return (
     <div className="grid gap-5">
-      <AdminHeading title="Записвания" lede="Търсене по име, имейл, телефон или ЕГН." />
+      <AdminHeading
+        title="Записвания"
+        lede="Завършилите са изпратили записването. Започналите са отворили формата, но не са стигнали до края. Отвори човек, за да отбележиш обаждане, да оставиш бележка или да поправиш данните."
+      />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <label className="grid min-w-0 flex-1 gap-1 text-sm font-bold text-[#1a1020]" htmlFor="signup-search">
           Търсене
@@ -359,7 +369,9 @@ function PeopleCards({ people }: { people: RosterFields[] }) {
     <ul className="grid gap-3 md:hidden">
       {people.map((person) => (
         <li key={person.id} className="grid gap-1 rounded-2xl border-2 border-[#2b062f] p-4 text-sm text-[#1a1020]">
-          <p className="text-base font-black">{personName(person) || '—'}</p>
+          <Link to="/admin/signups/$personId" params={{ personId: person.id }} className="text-base font-black text-[#2b062f] underline">
+            {personName(person) || '—'}
+          </Link>
           <p>{person.email}</p>
           <p>{person.phone || '—'}</p>
           <p>
@@ -387,22 +399,36 @@ function SectionCell({ person }: { person: RosterFields }) {
 }
 
 function NotesCell({ person }: { person: RosterFields }) {
-  if (!person.callRequestedAt && !person.notes) return <p>—</p>
+  if (!person.callRequestedAt && !person.notes && !person.staffNote) return <p>—</p>
   return (
     <div>
       {person.callRequestedAt ? <p className="font-bold">Иска обаждане{person.callMessage ? `: ${person.callMessage}` : ''}</p> : null}
+      {person.staffNote ? <p className="line-clamp-3 whitespace-pre-wrap">Екип: {person.staffNote}</p> : null}
       {person.notes ? <p className="whitespace-pre-wrap">{person.notes}</p> : null}
     </div>
   )
 }
 
 function StatusChips({ person }: { person: RosterFields }) {
-  const chips: Array<{ label: string; className: string }> = []
-  if (person.withdrawn) chips.push({ label: 'Оттеглен', className: 'bg-[#3a3140] text-white' })
-  else if (person.publishedSection) chips.push({ label: 'Публикувана', className: 'bg-[#145744] text-white' })
-  else if (person.draftSection) chips.push({ label: 'Чернова', className: 'bg-[#2b062f] text-white' })
-  else chips.push({ label: 'Без секция', className: 'bg-[#efe8f2] text-[#1a1020]' })
-  if (person.callRequestedAt) chips.push({ label: 'Обаждане', className: 'bg-[#7a1f4b] text-white' })
+  const progress = signupProgress(person)
+  const chips: Array<{ label: string; className: string }> = [
+    {
+      label: progressLabel(progress),
+      className:
+        progress === 'finished'
+          ? 'bg-[#145744] text-white'
+          : progress === 'withdrawn'
+            ? 'bg-[#3a3140] text-white'
+            : 'border border-[#2b062f] bg-[#f4e4b3] text-[#1a1020]',
+    },
+  ]
+  if (!person.withdrawn) {
+    if (person.publishedSection) chips.push({ label: 'Публикувана', className: 'bg-[#145744] text-white' })
+    else if (person.draftSection) chips.push({ label: 'Чернова', className: 'bg-[#2b062f] text-white' })
+    else chips.push({ label: 'Без секция', className: 'bg-[#efe8f2] text-[#1a1020]' })
+  }
+  if (person.callRequestedAt) chips.push({ label: 'Иска обаждане', className: 'bg-[#7a1f4b] text-white' })
+  if (person.staffCalledAt) chips.push({ label: 'Обадени сме', className: 'bg-[#1f4d7a] text-white' })
   if (person.imported && !person.emailConfirmed) chips.push({ label: 'Чака имейл', className: 'bg-[#efe8f2] text-[#1a1020]' })
   return (
     <div className="flex flex-wrap gap-1">

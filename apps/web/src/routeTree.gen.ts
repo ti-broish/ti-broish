@@ -36,6 +36,7 @@ import { Route as PokanaCodeRouteImport } from './routes/pokana.$code'
 import { Route as PostsIndexRouteImport } from './routes/posts.index'
 import { Route as PostsSlugRouteImport } from './routes/posts.$slug'
 import { Route as RCodeRouteImport } from './routes/r.$code'
+import { Route as AdminSignupsPersonIdRouteImport } from './routes/admin/signups_.$personId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -172,6 +173,11 @@ const RCodeRoute = RCodeRouteImport.update({
   path: '/r/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminSignupsPersonIdRoute = AdminSignupsPersonIdRouteImport.update({
+  id: '/signups_/$personId',
+  path: '/signups/$personId',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -201,6 +207,7 @@ export interface FileRoutesByFullPath {
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/posts/': typeof PostsIndexRoute
+  '/admin/signups/$personId': typeof AdminSignupsPersonIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -228,6 +235,7 @@ export interface FileRoutesByTo {
   '/r/$code': typeof RCodeRoute
   '/admin': typeof AdminIndexRoute
   '/posts': typeof PostsIndexRoute
+  '/admin/signups/$personId': typeof AdminSignupsPersonIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -258,6 +266,7 @@ export interface FileRoutesById {
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/posts/': typeof PostsIndexRoute
+  '/admin/signups_/$personId': typeof AdminSignupsPersonIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -289,6 +298,7 @@ export interface FileRouteTypes {
     | '/r/$code'
     | '/admin/'
     | '/posts/'
+    | '/admin/signups/$personId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -316,6 +326,7 @@ export interface FileRouteTypes {
     | '/r/$code'
     | '/admin'
     | '/posts'
+    | '/admin/signups/$personId'
   id:
     | '__root__'
     | '/'
@@ -345,6 +356,7 @@ export interface FileRouteTypes {
     | '/r/$code'
     | '/admin/'
     | '/posts/'
+    | '/admin/signups_/$personId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -561,6 +573,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/signups_/$personId': {
+      id: '/admin/signups_/$personId'
+      path: '/signups/$personId'
+      fullPath: '/admin/signups/$personId'
+      preLoaderRoute: typeof AdminSignupsPersonIdRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
   }
 }
 
@@ -569,6 +588,7 @@ interface AdminRouteRouteChildren {
   AdminSectionsRoute: typeof AdminSectionsRoute
   AdminSignupsRoute: typeof AdminSignupsRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminSignupsPersonIdRoute: typeof AdminSignupsPersonIdRoute
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
@@ -576,6 +596,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminSectionsRoute: AdminSectionsRoute,
   AdminSignupsRoute: AdminSignupsRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminSignupsPersonIdRoute: AdminSignupsPersonIdRoute,
 }
 
 const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(

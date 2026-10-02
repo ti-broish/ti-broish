@@ -1,4 +1,4 @@
-export type RosterView = 'all' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls'
+export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls'
 
 export interface RosterFields {
   id: string
@@ -22,6 +22,9 @@ export interface RosterFields {
   notes: string
   callRequestedAt: string
   callMessage: string
+  staffNote: string
+  staffCalledAt: string
+  staffCalledBy: string
   radius?: string
   travelLabel?: string
 }
@@ -68,6 +71,8 @@ const INTERNAL_HEADERS = [
   'notes',
   'call_requested',
   'call_message',
+  'staff_called',
+  'staff_note',
 ]
 
 const TAKEN_SECTION = ['секция', 'section', 'code', 'номер', 'section_code']
@@ -96,6 +101,8 @@ export function mirFromSection(code: string) {
 }
 
 export function rosterWhere(view: RosterView, mir: string): { clause: string; binds: string[] } | { error: string } {
+  if (view === 'finished') return { clause: 'COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0', binds: [] }
+  if (view === 'started') return { clause: 'COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0', binds: [] }
   if (view === 'assigned') return { clause: "COALESCE(published_section, '') != ''", binds: [] }
   if (view === 'unassigned') return { clause: "COALESCE(published_section, '') = '' AND COALESCE(withdrawn, 0) = 0", binds: [] }
   if (view === 'draft') return { clause: "COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')", binds: [] }
@@ -214,6 +221,8 @@ function internalCells(person: RosterFields) {
     person.notes,
     person.callRequestedAt ? '1' : '0',
     person.callMessage,
+    person.staffCalledAt ? '1' : '0',
+    person.staffNote,
   ]
 }
 

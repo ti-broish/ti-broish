@@ -111,6 +111,7 @@ export const saveSignup = createServerFn({ method: 'POST' })
            coordinator, payload, email_confirmed, consent, submitted, withdrawn, notes, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(email) DO UPDATE SET
+           -- staff_note, staff_called_at and staff_called_by are left untouched: a later volunteer save must not wipe the team's callback.
            session_token = excluded.session_token,
            referral_code = excluded.referral_code,
            referred_by = COALESCE(signups.referred_by, excluded.referred_by),

@@ -13,8 +13,10 @@ function AdminHome() {
   return (
     <div className="grid gap-6">
       <AdminHeading title="Начало" lede={`${access.email} · екипът и записаните хора на едно място.`} />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'all' }} label="Записани" value={summary.total} detail="Всички редове в базата." />
+        <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'finished' }} label="Завършили" value={summary.finished} detail="Изпратили са записването." />
+        <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'started' }} label="Започнали" value={summary.started} detail="Отворили са формата, без да я изпратят." />
         <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'assigned' }} label="Със секция" value={summary.assigned} detail="Имат публикувана секция." />
         <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'unassigned' }} label="Без секция" value={summary.unassigned} detail="Още без публикувана секция." />
         <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'calls' }} label="Обаждания" value={summary.calls} detail="Поискали са разговор." />

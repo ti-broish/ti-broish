@@ -23,6 +23,9 @@ const person: RosterFields = {
   notes: 'Имам кола',
   callRequestedAt: '2026-09-20T10:00:00.000Z',
   callMessage: 'За секцията',
+  staffNote: 'Ще дойде и на двата дни.',
+  staffCalledAt: '2026-09-21T10:00:00.000Z',
+  staffCalledBy: 'ada@example.com',
 }
 
 describe('assignment visibility', () => {
@@ -46,6 +49,8 @@ describe('assignment visibility', () => {
     expect(campaign).toContain('Имам кола')
     expect(campaign).toContain('За секцията')
     expect(internal).toContain('Имам кола')
+    expect(internal).toContain('Ще дойде и на двата дни.')
+    expect(campaign).not.toContain('Ще дойде и на двата дни.')
     expect(internal).toContain(',1,')
   })
 })
@@ -57,6 +62,8 @@ describe('roster filters', () => {
     const draft = rosterWhere('draft', '')
     expect('clause' in unassigned && unassigned.clause).toContain("published_section, '') = ''")
     expect('clause' in draft && draft.clause).toContain('draft_section')
+    expect(rosterWhere('finished', '')).toEqual({ clause: 'COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0', binds: [] })
+    expect(rosterWhere('started', '')).toEqual({ clause: 'COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0', binds: [] })
     expect(rosterWhere('abroad', '')).toEqual({ clause: "region_code = '32'", binds: [] })
     const calls = rosterWhere('calls', '')
     expect('clause' in calls && calls.clause).toContain('callRequestedAt')

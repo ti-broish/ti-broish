@@ -61,6 +61,9 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN email_code TEXT',
   'ALTER TABLE signups ADD COLUMN pending_email TEXT',
   'ALTER TABLE signups ADD COLUMN signup_mail_at TEXT',
+  'ALTER TABLE signups ADD COLUMN staff_note TEXT',
+  'ALTER TABLE signups ADD COLUMN staff_called_at TEXT',
+  'ALTER TABLE signups ADD COLUMN staff_called_by TEXT',
 ]
 
 const COMPANIONS = `

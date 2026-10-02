@@ -7,7 +7,6 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { name: 'robots', content: 'noindex, nofollow' },
       { title: 'Ти Броиш' },
       { name: 'description', content: 'Запиши се като пазител на вота. Доброволно и без заплащане.' },
       { name: 'theme-color', content: '#2b062f' },

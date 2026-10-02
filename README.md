@@ -12,7 +12,7 @@ Staging signups are stored in D1. `/admin` lists them for the team: export all, 
 
 A pull request into `main` runs the web checks. A green check is squash-merged when the author is in the `ti-broish` organization and the branch is in this repository, unless the pull request is a draft, labelled `hold`, or has an open review thread. Pull requests from outside the organization stay open. The merge updates staging at `d1t.tibroish.bg` and refreshes the draft release.
 
-On a phone, open the draft under Releases, read what changed since the last release, and publish it when that set should be the next production deploy. Publishing does nothing until `PRODUCTION_ENABLED` is set. The production worker `ti-broish-web` is deployed from `main` to `tibroish.bg`, `www.tibroish.bg`, and `next.tibroish.bg`, with its own D1 database `ti-broish-signup`. The build sets `CLOUDFLARE_ENV=production` before Vite runs, so the flattened config is that production environment. Staging stays on `d1t.tibroish.bg`.
+On a phone, open the draft under Releases, read what changed since the last release, and publish it when that set should be the next production deploy. Publishing does nothing until `PRODUCTION_ENABLED` is set. The production worker `ti-broish-web` is deployed from `main` to `tibroish.bg` and `www.tibroish.bg`, with its own D1 database `ti-broish-signup`. `next.tibroish.bg` redirects there. The build sets `CLOUDFLARE_ENV=production` before Vite runs, so the flattened config is that production environment. Staging stays on `d1t.tibroish.bg`.
 
 ```bash
 cd apps/web

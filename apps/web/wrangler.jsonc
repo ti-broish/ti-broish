@@ -41,18 +41,8 @@
 			"workers_dev": false,
 			"preview_urls": false,
 			"routes": [
-				{
-					"pattern": "tibroish.bg",
-					"custom_domain": true
-				},
-				{
-					"pattern": "www.tibroish.bg",
-					"custom_domain": true
-				},
-				{
-					"pattern": "next.tibroish.bg",
-					"custom_domain": true
-				}
+				{ "pattern": "tibroish.bg/*", "zone_name": "tibroish.bg" },
+				{ "pattern": "www.tibroish.bg/*", "zone_name": "tibroish.bg" }
 			],
 			"d1_databases": [
 				{

@@ -43,8 +43,10 @@
 			"workers_dev": false,
 			"preview_urls": false,
 			"routes": [
-				{ "pattern": "next.tibroish.bg/_emdash*", "zone_name": "tibroish.bg" },
-				{ "pattern": "next.tibroish.bg/_astro*", "zone_name": "tibroish.bg" }
+				{ "pattern": "tibroish.bg/_emdash*", "zone_name": "tibroish.bg" },
+				{ "pattern": "tibroish.bg/_astro*", "zone_name": "tibroish.bg" },
+				{ "pattern": "www.tibroish.bg/_emdash*", "zone_name": "tibroish.bg" },
+				{ "pattern": "www.tibroish.bg/_astro*", "zone_name": "tibroish.bg" }
 			],
 			"d1_databases": [
 				{

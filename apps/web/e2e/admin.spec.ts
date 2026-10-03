@@ -95,11 +95,17 @@ test.describe('staff admin', () => {
     await expect(page.getByRole('heading', { name: 'Мария Георгиева Петрова' })).toBeVisible()
     await expect(page.getByText('Завършил записването.')).toBeVisible()
     await expect(page.getByText('ЕГН е въведено')).toBeVisible()
+    await page.getByRole('radio', { name: 'Мобилен екип' }).check()
+    await page.getByRole('checkbox', { name: '1 ноември, балотаж' }).uncheck()
     await page.getByLabel('Бележка от екипа').fill('Обадихме се, ще дойде и на двата дни.')
     await page.getByLabel('Отбележи, че сме се обадили').check()
     await page.getByLabel('Телефон').fill('0888999000')
     await page.getByRole('button', { name: 'Запази' }).click()
     await expect(page.getByText('Записахме промените.')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'История' })).toBeVisible()
+    await expect(page.getByText('Роля: Секция → Мобилен екип')).toBeVisible()
+    await expect(page.getByText('Дни: 25 октомври и 1 ноември → 25 октомври')).toBeVisible()
+    await expect(page.getByText('Бележка от екипа: Празна бележка → Обадихме се, ще дойде и на двата дни.')).toBeVisible()
     await expect(page.getByText('Обадени сме', { exact: true })).toBeVisible()
     await expect(page.getByLabel('Телефон')).toHaveValue('0888999000')
     await page.getByRole('link', { name: 'Към записванията' }).click()
@@ -167,7 +173,10 @@ ON CONFLICT(email) DO UPDATE SET
   town_name = excluded.town_name,
   section_place = excluded.section_place,
   draft_section = excluded.draft_section,
-  published_section = excluded.published_section;
+  published_section = excluded.published_section,
+  rounds_first = 1,
+  rounds_runoff = 1,
+  staff_note = '';
 INSERT INTO staff (email, role, invited_by, created_at)
 VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
 ON CONFLICT(email) DO UPDATE SET role = 'admin';

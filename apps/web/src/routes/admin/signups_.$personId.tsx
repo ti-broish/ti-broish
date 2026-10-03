@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminInput } from '../../components/admin-ui'
 import { adminPerson, adminUpdatePerson } from '../../signup/admin'
+import { describeAudit, formatAuditWhen, type AuditLine } from '../../signup/admin-audit'
 import { progressLabel, roleLabel, signupProgress, type AdminPerson } from '../../signup/admin-progress'
 import { defaultSignupSearch } from '../../signup/admin-search'
 import { EXPERIENCE, type Experience, type Role } from '../../signup/model'
@@ -30,6 +31,7 @@ function PersonPage() {
   const { personId } = Route.useParams()
   const access = useAdminAccess()
   const [person, setPerson] = useState<AdminPerson | null>(null)
+  const [changes, setChanges] = useState<AuditLine[]>([])
   const [form, setForm] = useState<PersonForm | null>(null)
   const [phase, setPhase] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading')
   const [message, setMessage] = useState('')
@@ -41,6 +43,7 @@ function PersonPage() {
     let cancelled = false
     setPhase('loading')
     setPerson(null)
+    setChanges([])
     setForm(null)
     setSaved(false)
     setMessage('')
@@ -52,6 +55,7 @@ function PersonPage() {
         return
       }
       setPerson(result.person)
+      setChanges(result.changes)
       setForm(formFrom(result.person))
       setPhase('ready')
     }).catch(() => {
@@ -118,6 +122,7 @@ function PersonPage() {
                     return
                   }
                   setPerson(result.person)
+                  setChanges(result.changes)
                   setForm(formFrom(result.person))
                   setSaved(true)
                 })
@@ -223,6 +228,23 @@ function PersonPage() {
               </p>
             ) : null}
           </form>
+          <section className="grid gap-2" aria-labelledby="person-history">
+            <h2 id="person-history" className="text-lg font-black text-[#1a1020]">
+              История
+            </h2>
+            {changes.length === 0 ? (
+              <p className="text-sm text-[#333]">Няма записани промени по ролята, дните или бележката.</p>
+            ) : (
+              <ul className="grid gap-2 text-sm text-[#1a1020]">
+                {changes.map((change) => (
+                  <li key={change.id}>
+                    <span className="font-bold">{formatAuditWhen(change.at)}</span>
+                    {` · ${change.actor} · ${describeAudit(change.field, change.before, change.after)}`}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </>
       ) : null}
     </div>

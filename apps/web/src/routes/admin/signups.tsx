@@ -13,7 +13,9 @@ import { adminExport, adminImportPeople, adminResendImports, adminRoster } from 
 import { progressLabel, signupProgress } from '../../signup/admin-progress'
 import { parseSignupSearch, type SignupSearch } from '../../signup/admin-search'
 import type { RosterFields } from '../../signup/admin-csv'
+import { toggleSelected } from '../../signup/admin-bulk'
 import { BrevoCampaignPanel } from './-brevo-campaign-panel'
+import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
 import { useDebouncedQuery } from './-debounced-query'
 
 export const Route = createFileRoute('/admin/signups')({
@@ -99,6 +101,9 @@ function SignupsPage() {
   const [links, setLinks] = useState<{ email: string; link: string }[]>([])
   const [reloadKey, setReloadKey] = useState(0)
   const [mirDraft, setMirDraft] = useState(search.mir)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [wholeView, setWholeView] = useState(false)
+  const [bulkNote, setBulkNote] = useState('')
 
   const commitQuery = useCallback(
     (q: string) => {
@@ -111,6 +116,12 @@ function SignupsPage() {
   useEffect(() => {
     setMirDraft(search.mir)
   }, [search.mir])
+
+  useEffect(() => {
+    setSelected(new Set())
+    setWholeView(false)
+    setBulkNote('')
+  }, [search.view, search.mir, search.q])
 
   useEffect(() => {
     let cancelled = false
@@ -142,10 +153,29 @@ function SignupsPage() {
     }
   }, [search.view, search.mir, search.q, search.page, search.sort, search.dir, reloadKey])
 
+  const pageAll = people.length > 0 && (wholeView || people.every((person) => selected.has(person.id)))
+  const select = access.permissions.edit
+    ? {
+        pageAll,
+        checked: (id: string) => wholeView || selected.has(id),
+        onPage: (on: boolean) => {
+          setWholeView(false)
+          setSelected(on ? new Set(people.map((person) => person.id)) : new Set())
+        },
+        onRow: (id: string, on: boolean) => {
+          if (wholeView && !on) {
+            setWholeView(false)
+            setSelected(new Set(people.map((person) => person.id).filter((item) => item !== id)))
+            return
+          }
+          setSelected((current) => toggleSelected(current, id, on))
+        },
+      }
+    : null
   const sorting: SortingState = [{ id: search.sort, desc: search.dir === 'desc' }]
   const table = useReactTable({
     data: people,
-    columns,
+    columns: rosterColumns(select),
     state: { sorting },
     manualSorting: true,
     manualPagination: true,
@@ -176,7 +206,7 @@ function SignupsPage() {
     <div className="grid gap-5">
       <AdminHeading
         title="Записвания"
-        lede="Завършилите са изпратили записването. Започналите са отворили формата, но не са стигнали до края. Отвори човек, за да отбележиш обаждане, да оставиш бележка или да поправиш данните."
+        lede="Завършилите са изпратили записването. Започналите са отворили формата, но не са стигнали до края. Маркирай редове, за да отбележиш обаждане за избраните или за целия филтър, без да отваряш всеки човек."
       />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <label className="grid min-w-0 flex-1 gap-1 text-sm font-bold text-[#1a1020]" htmlFor="signup-search">
@@ -224,6 +254,30 @@ function SignupsPage() {
       <p className="text-sm font-bold text-[#1a1020]" role="status">
         {phase === 'loading' && people.length === 0 ? 'Зареждаме записаните…' : `${total} в този изглед. Показани ${from}–${to}.`}
       </p>
+      {canEdit && (people.length > 0 || wholeView) ? (
+        <BulkCallbackBar
+          total={total}
+          visibleCount={people.length}
+          selectedCount={selected.size}
+          wholeView={wholeView}
+          onWholeView={() => setWholeView((current) => !current)}
+          view={search.view}
+          mir={search.mir}
+          q={search.q}
+          ids={[...selected]}
+          onApplied={(next) => {
+            setBulkNote(next)
+            setSelected(new Set())
+            setWholeView(false)
+            setReloadKey((key) => key + 1)
+          }}
+        />
+      ) : null}
+      {bulkNote ? (
+        <p className="text-sm font-bold text-[#145744]" role="status">
+          {bulkNote}
+        </p>
+      ) : null}
       {phase === 'error' ? (
         <p className="rounded-xl border-2 border-[#8f1d1d] bg-[#fff5f5] px-3 py-2 text-sm font-bold text-[#8f1d1d]" role="alert">
           {message}
@@ -232,7 +286,7 @@ function SignupsPage() {
       {phase !== 'loading' && people.length === 0 ? (
         <p className="rounded-2xl border-2 border-[#2b062f] bg-[#f6f1f7] px-4 py-6 text-[#1a1020]">Няма хора за това търсене.</p>
       ) : null}
-      <PeopleCards people={people} />
+      <PeopleCards people={people} select={select} />
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[880px] border-collapse text-left text-sm text-[#1a1020]">
           <thead>
@@ -363,12 +417,44 @@ function SignupsPage() {
   )
 }
 
-function PeopleCards({ people }: { people: RosterFields[] }) {
+function rosterColumns(select: RowSelect | null) {
+  const leading = select
+    ? [
+        columnHelper.display({
+          id: 'select',
+          enableSorting: false,
+          header: () => (
+            <input
+              type="checkbox"
+              className="h-5 w-5"
+              checked={select.pageAll}
+              aria-label="Избери тази страница"
+              onChange={(event) => select.onPage(event.target.checked)}
+            />
+          ),
+          cell: ({ row }) => (
+            <SelectPerson name={personName(row.original)} checked={select.checked(row.original.id)} onChange={(on) => select.onRow(row.original.id, on)} />
+          ),
+        }),
+      ]
+    : []
+  return [...leading, ...columns]
+}
+
+interface RowSelect {
+  pageAll: boolean
+  checked: (id: string) => boolean
+  onPage: (on: boolean) => void
+  onRow: (id: string, on: boolean) => void
+}
+
+function PeopleCards({ people, select }: { people: RosterFields[]; select: RowSelect | null }) {
   if (people.length === 0) return null
   return (
     <ul className="grid gap-3 md:hidden">
       {people.map((person) => (
         <li key={person.id} className="grid gap-1 rounded-2xl border-2 border-[#2b062f] p-4 text-sm text-[#1a1020]">
+          {select ? <SelectPerson name={personName(person)} checked={select.checked(person.id)} onChange={(on) => select.onRow(person.id, on)} /> : null}
           <Link to="/admin/signups/$personId" params={{ personId: person.id }} className="text-base font-black text-[#2b062f] underline">
             {personName(person) || '—'}
           </Link>

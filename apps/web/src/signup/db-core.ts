@@ -105,6 +105,7 @@ const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_signups_confirm ON signups(confirm_token)',
   'CREATE INDEX IF NOT EXISTS idx_companions_signup ON companions(signup_id)',
   'CREATE INDEX IF NOT EXISTS idx_taken_mir ON taken_sections(mir_code)',
+  'CREATE INDEX IF NOT EXISTS idx_signups_staff_called ON signups(staff_called_at)',
 ]
 
 export interface SignupRow {

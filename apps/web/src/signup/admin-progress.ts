@@ -84,6 +84,19 @@ export function roleLabel(role: string | null) {
   return 'Без избор'
 }
 
+export function daysLabel(first: boolean, runoff: boolean) {
+  if (first && runoff) return '25 октомври и 1 ноември'
+  if (first) return '25 октомври'
+  if (runoff) return '1 ноември'
+  return 'Без избран ден'
+}
+
+export function formatStaffWhen(at: string) {
+  const date = new Date(at)
+  if (Number.isNaN(date.getTime())) return at
+  return new Intl.DateTimeFormat('bg-BG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Sofia' }).format(date)
+}
+
 export interface StaffColumnFlags {
   email: string
   submitted: boolean

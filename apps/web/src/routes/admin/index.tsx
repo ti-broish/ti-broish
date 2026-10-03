@@ -1,7 +1,7 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading } from '../../components/admin-ui'
-import { defaultSectionSearch, defaultSignupSearch, type SignupSearch } from '../../signup/admin-search'
+import { defaultQueueSearch, defaultSectionSearch, defaultSignupSearch, type SignupSearch } from '../../signup/admin-search'
 
 export const Route = createFileRoute('/admin/')({
   component: AdminHome,
@@ -19,7 +19,7 @@ function AdminHome() {
         <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'started' }} label="Започнали" value={summary.started} detail="Отворили са формата, без да я изпратят." />
         <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'assigned' }} label="Със секция" value={summary.assigned} detail="Имат публикувана секция." />
         <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'unassigned' }} label="Без секция" value={summary.unassigned} detail="Още без публикувана секция." />
-        <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'calls' }} label="Обаждания" value={summary.calls} detail="Поискали са разговор." />
+        <Stat to="/admin/calls" label="Обаждания" value={summary.queue} detail="Поискали са разговор и още не сме се обадили." />
         <Stat to="/admin/access" label="Екип" value={summary.staff} detail="Хора с достъп до админа." />
       </div>
       <div className="grid gap-3 md:grid-cols-3">
@@ -47,7 +47,7 @@ function Stat({
   value,
   detail,
 }: {
-  to: '/admin/signups' | '/admin/access'
+  to: '/admin/signups' | '/admin/access' | '/admin/calls'
   search?: SignupSearch
   label: string
   value: number
@@ -61,6 +61,13 @@ function Stat({
       <span className="text-sm text-[#333]">{detail}</span>
     </>
   )
+  if (to === '/admin/calls') {
+    return (
+      <Link to={to} search={defaultQueueSearch} className={className}>
+        {body}
+      </Link>
+    )
+  }
   if (to === '/admin/signups' && search) {
     return (
       <Link to={to} search={search} className={className}>

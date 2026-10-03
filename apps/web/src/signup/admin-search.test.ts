@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyAdminSearch,
   escapeFtsQuery,
+  parseQueueSearch,
   parseSignupSearch,
   rosterOrder,
   searchClause,
@@ -113,5 +114,28 @@ describe('roster URL state', () => {
     expect(rosterOrder('name', 'asc')).toBe("json_extract(payload, '$.lastName') ASC, json_extract(payload, '$.firstName') ASC")
     expect(rosterOrder('name; DROP TABLE signups', 'desc')).toBe('updated_at DESC')
     expect(rosterOrder('email', 'nope')).toBe('email DESC')
+    expect(rosterOrder('flagged', 'desc')).toBe("COALESCE(json_extract(payload, '$.callRequestedAt'), '') DESC")
+    expect(rosterOrder('flagged; DROP TABLE signups', 'asc')).toBe('updated_at ASC')
+    const days = rosterOrder('days', 'desc')
+    expect(days).toContain('rounds_first')
+    expect(days).not.toContain('DROP')
+    expect(days.endsWith('DESC')).toBe(true)
+  })
+})
+
+describe('call queue URL', () => {
+  it('opens on people still waiting for a call, newest flag first', () => {
+    expect(parseQueueSearch({})).toMatchObject({ show: 'open', sort: 'flagged', dir: 'desc', page: 1 })
+    expect(parseQueueSearch({ show: 'all', sort: 'days', dir: 'asc', page: '2' })).toMatchObject({
+      show: 'all',
+      sort: 'days',
+      dir: 'asc',
+      page: 2,
+    })
+    expect(parseQueueSearch({ show: 'drop', sort: 'email; DROP', dir: 'sideways' })).toMatchObject({
+      show: 'open',
+      sort: 'flagged',
+      dir: 'desc',
+    })
   })
 })

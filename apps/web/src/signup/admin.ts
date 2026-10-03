@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
 import { campaignCsv, internalCsv, normalizeSection, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
+import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
 import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { travelLabelOf } from './admin-assign'
@@ -56,6 +57,8 @@ interface RawPerson {
   call_message: string
   radius: string
   travel_municipalities: string
+  rounds_first: number
+  rounds_runoff: number
 }
 
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -132,12 +135,16 @@ function fieldsOf(row: RawPerson): RosterFields {
     ...notesFromRow(row),
     radius: row.radius ?? '',
     travelLabel: travelLabelOf(row.travel_municipalities ?? ''),
+    roundsFirst: row.rounds_first === 1,
+    roundsRunoff: row.rounds_runoff === 1,
   }
 }
 
 const PERSON_SQL = `${PERSON_SQL_BASE}${NOTES_SQL},
   COALESCE(radius, '') AS radius,
-  COALESCE(travel_municipalities, '[]') AS travel_municipalities`
+  COALESCE(travel_municipalities, '[]') AS travel_municipalities,
+  CASE WHEN rounds_first = 1 OR json_extract(payload, '$.rounds.first') = 1 THEN 1 ELSE 0 END AS rounds_first,
+  CASE WHEN rounds_runoff = 1 OR json_extract(payload, '$.rounds.runoff') = 1 THEN 1 ELSE 0 END AS rounds_runoff`
 
 function bound(db: Database, sql: string, binds: unknown[]) {
   const statement = db.prepare(sql)
@@ -161,6 +168,7 @@ export interface AdminSummary {
   assigned: number
   unassigned: number
   calls: number
+  queue: number
   staff: number
 }
 
@@ -173,10 +181,11 @@ async function summaryOf(db: Database): Promise<AdminSummary> {
          COALESCE(SUM(CASE WHEN COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS started,
          COALESCE(SUM(CASE WHEN COALESCE(published_section, '') != '' THEN 1 ELSE 0 END), 0) AS assigned,
          COALESCE(SUM(CASE WHEN COALESCE(published_section, '') = '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS unassigned,
-         COALESCE(SUM(CASE WHEN COALESCE(json_extract(payload, '$.callRequestedAt'), '') != '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS calls
+         COALESCE(SUM(CASE WHEN COALESCE(json_extract(payload, '$.callRequestedAt'), '') != '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS calls,
+         COALESCE(SUM(CASE WHEN COALESCE(json_extract(payload, '$.callRequestedAt'), '') != '' AND COALESCE(withdrawn, 0) = 0 AND COALESCE(staff_called_at, '') = '' THEN 1 ELSE 0 END), 0) AS queue
        FROM signups`,
     )
-    .first<{ total: number; finished: number; started: number; assigned: number; unassigned: number; calls: number }>()
+    .first<{ total: number; finished: number; started: number; assigned: number; unassigned: number; calls: number; queue: number }>()
   const staff = await db.prepare('SELECT COUNT(*) AS n FROM staff').first<{ n: number }>()
   return {
     total: Number(row?.total ?? 0),
@@ -185,6 +194,7 @@ async function summaryOf(db: Database): Promise<AdminSummary> {
     assigned: Number(row?.assigned ?? 0),
     unassigned: Number(row?.unassigned ?? 0),
     calls: Number(row?.calls ?? 0),
+    queue: Number(row?.queue ?? 0),
     staff: Number(staff?.n ?? 0),
   }
 }
@@ -290,6 +300,61 @@ export const adminRoster = createServerFn({ method: 'POST' })
       people,
       taken: taken.results ?? [],
     }
+  })
+
+
+export const adminBulkCallback = createServerFn({ method: 'POST' })
+  .validator((input: { called?: boolean; scope?: string; ids?: unknown; view?: string; mir?: string; q?: string }) => {
+    const picked = callbackIds(Array.isArray(input.ids) ? input.ids : [])
+    return {
+      called: input.called === true,
+      scope: input.scope === 'filter' ? ('filter' as const) : ('ids' as const),
+      ids: picked.ids,
+      truncated: picked.truncated,
+      view: typeof input.view === 'string' ? input.view : 'all',
+      mir: typeof input.mir === 'string' ? input.mir.slice(0, 8) : '',
+      q: typeof input.q === 'string' ? input.q.slice(0, 120) : '',
+    }
+  })
+  .handler(async ({ data }) => {
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const pending = data.called ? "COALESCE(staff_called_at, '') = ''" : "COALESCE(staff_called_at, '') != ''"
+    const collect = async (mode: 'fts' | 'like') => {
+      if (data.scope === 'ids') {
+        if (data.ids.length === 0) return { ids: [] as string[], capped: false }
+        const marks = data.ids.map(() => '?').join(', ')
+        const rows = await bound(access.db, `SELECT id FROM signups WHERE id IN (${marks}) AND ${pending}`, data.ids).all<{ id: string }>()
+        return { ids: (rows.results ?? []).map((row) => row.id), capped: false }
+      }
+      const filter = filtered(data.view, data.mir, data.q, mode)
+      if ('error' in filter) return filter
+      const rows = await bound(
+        access.db,
+        `SELECT id FROM signups WHERE (${filter.clause}) AND ${pending} ORDER BY updated_at DESC LIMIT ?`,
+        [...filter.binds, CALLBACK_FILTER_CAP + 1],
+      ).all<{ id: string }>()
+      const found = (rows.results ?? []).map((row) => row.id)
+      return { ids: found.slice(0, CALLBACK_FILTER_CAP), capped: found.length > CALLBACK_FILTER_CAP }
+    }
+    let targets: { ids: string[]; capped: boolean } | { error: string }
+    try {
+      targets = await collect(currentSearchEngine())
+    } catch (error) {
+      if (currentSearchEngine() === 'like' || !isFtsError(error)) throw error
+      useLikeSearch()
+      targets = await collect('like')
+    }
+    if ('error' in targets) return { ok: false as const, message: targets.error }
+    const now = new Date().toISOString()
+    const at = data.called ? now : ''
+    const by = data.called ? access.email : ''
+    for (const chunk of chunkIds(targets.ids, CALLBACK_CHUNK)) {
+      await bound(access.db, callbackSetSql(data.called, chunk.length), [at, by, now, ...chunk]).run()
+    }
+    const message = callbackMessage(data.called, targets.ids.length, targets.capped)
+    const limitNote = data.truncated ? ' Наведнъж минават до 200 избрани реда. За повече използвай целия изглед.' : ''
+    return { ok: true as const, updated: targets.ids.length, capped: targets.capped, message: `${message}${limitNote}` }
   })
 
 export const adminExport = createServerFn({ method: 'POST' })

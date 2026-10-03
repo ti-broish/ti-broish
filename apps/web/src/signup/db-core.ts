@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS staff (
   created_at TEXT NOT NULL
 )`
 
+const AUDIT = `
+CREATE TABLE IF NOT EXISTS signup_audit (
+  id TEXT PRIMARY KEY,
+  signup_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  field TEXT NOT NULL,
+  before_text TEXT NOT NULL,
+  after_text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)`
+
 const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_signups_source ON signups(source)',
   'CREATE INDEX IF NOT EXISTS idx_signups_mir ON signups(mir_code)',
@@ -151,6 +162,8 @@ export async function signupDatabase() {
   await migrateCompanionColumns(db)
   await db.prepare(TAKEN).run()
   await db.prepare(STAFF).run()
+  await db.prepare(AUDIT).run()
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_signup_audit_signup ON signup_audit(signup_id, created_at)').run()
   for (const sql of INDEXES) await db.prepare(sql).run()
   const now = new Date().toISOString()
   for (const email of parseAdminEmails((env as unknown as { ADMIN_EMAILS?: string }).ADMIN_EMAILS)) {

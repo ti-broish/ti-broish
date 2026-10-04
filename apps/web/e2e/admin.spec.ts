@@ -40,7 +40,7 @@ test.describe('staff admin', () => {
     expect(await contrastOf(idle)).toBeGreaterThanOrEqual(4.5)
     await nav.getByRole('link', { name: 'Записвания', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Записвания' })).toBeVisible()
-    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова', exact: true })).toBeVisible()
   })
 
   test('mobile drawer opens the same admin links', async ({ page }) => {
@@ -63,17 +63,17 @@ test.describe('staff admin', () => {
     const search = page.getByLabel('Търсене')
     await search.fill(STAFF_EMAIL)
     await expect(page).toHaveURL(new RegExp(`q=${encodeURIComponent(STAFF_EMAIL).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), { timeout: 5000 })
-    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
-    await expect(page.getByRole('cell', { name: 'Иван Иванов Иванов' })).toHaveCount(0)
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова', exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Иван Иванов Иванов', exact: true })).toHaveCount(0)
 
     await search.fill('0888333444')
     await expect(page).toHaveURL(/q=0888333444/, { timeout: 5000 })
-    await expect(page.getByRole('cell', { name: 'Иван Иванов Иванов' })).toBeVisible()
-    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toHaveCount(0)
+    await expect(page.getByRole('cell', { name: 'Иван Иванов Иванов', exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова', exact: true })).toHaveCount(0)
 
     await search.fill('Мария')
     await expect(page).toHaveURL(/q=/, { timeout: 5000 })
-    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова', exact: true })).toBeVisible()
 
     await page.getByRole('button', { name: 'Без секция' }).click()
     await expect(page).toHaveURL(/view=unassigned/)
@@ -91,8 +91,8 @@ test.describe('staff admin', () => {
     await expect(page.getByText('Завършили', { exact: true })).toBeVisible()
     await expect(page.getByText('Започнали', { exact: true })).toBeVisible()
     await page.goto('/admin/signups')
-    await page.getByRole('row', { name: STAFF_EMAIL }).getByRole('link', { name: 'Мария Георгиева Петрова' }).click()
-    await expect(page.getByRole('heading', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    await page.getByRole('row', { name: STAFF_EMAIL }).getByRole('link', { name: 'Мария Георгиева Петрова', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Мария Георгиева Петрова', exact: true })).toBeVisible()
     await expect(page.getByText('Завършил записването.')).toBeVisible()
     await expect(page.getByText('ЕГН е въведено')).toBeVisible()
     await page.getByRole('radio', { name: 'Мобилен екип' }).check()
@@ -119,12 +119,30 @@ test.describe('staff admin', () => {
     await expect(page.getByRole('cell', { name: 'ivan.admin-e2e@example.com' })).toHaveCount(0)
   })
 
+  test('the call queue shows the team note and a bulk mark leaves the open list', async ({ page }) => {
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/calls')
+    await expect(page.getByRole('heading', { name: 'Обаждания' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Петър Петров Петров' })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Ще се обадим утре.' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Мария Георгиева Петрова', exact: true })).toHaveCount(0)
+    await page.getByRole('checkbox', { name: 'Избери Петър Петров Петров' }).check()
+    await page.getByRole('button', { name: 'Отбележи обаждане' }).click()
+    await expect(page.getByText('Отбелязахме обаждане за 1 човек.')).toBeVisible()
+    await expect(page.getByText('Няма хора за обаждане в този изглед.')).toBeVisible()
+    await page.getByRole('button', { name: 'Всички поискали' }).click()
+    await expect(page).toHaveURL(/show=all/)
+    await expect(page.getByRole('link', { name: 'Петър Петров Петров' })).toBeVisible()
+    await expect(page.getByText('Обадени сме', { exact: true })).toBeVisible()
+  })
+
   test('a started signup opens from the phone list', async ({ page }) => {
     await signIn(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/admin/signups')
-    await page.getByRole('listitem').filter({ hasText: 'ivan.admin-e2e@example.com' }).getByRole('link', { name: 'Иван Иванов Иванов' }).click()
-    await expect(page.getByRole('heading', { name: 'Иван Иванов Иванов' })).toBeVisible()
+    await page.getByRole('listitem').filter({ hasText: 'ivan.admin-e2e@example.com' }).getByRole('link', { name: 'Иван Иванов Иванов', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Иван Иванов Иванов', exact: true })).toBeVisible()
     await expect(page.getByText(/Започнал е, но не е завършил/)).toBeVisible()
     await expect(page.getByText('Няма ЕГН', { exact: true })).toBeVisible()
     await expect(page.getByLabel('Бележка от екипа')).toBeVisible()
@@ -142,7 +160,8 @@ function seedStaffRoster() {
   const sql = `
 INSERT INTO signups (
   id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, role,
-  mir_code, region_code, town_name, section_place, draft_section, published_section, notes, created_at, updated_at
+  mir_code, region_code, town_name, section_place, draft_section, published_section, notes,
+  staff_note, staff_called_at, staff_called_by, rounds_first, rounds_runoff, created_at, updated_at
 ) VALUES
 (
   'e2e-maria',
@@ -151,7 +170,8 @@ INSERT INTO signups (
   'e2emaria',
   '{"firstName":"Мария","middleName":"Георгиева","lastName":"Петрова","phone":"0888111222","email":"${STAFF_EMAIL}"}',
   1, 0, 1, '0041010002', 'section',
-  '23', '23', 'гр. София', 'ул. Витоша 1', '', '234600101', '', datetime('now'), datetime('now')
+  '23', '23', 'гр. София', 'ул. Витоша 1', '', '234600101', '',
+  '', '', '', 1, 1, datetime('now'), datetime('now')
 ),
 (
   'e2e-ivan',
@@ -160,7 +180,18 @@ INSERT INTO signups (
   'e2eivan1',
   '{"firstName":"Иван","middleName":"Иванов","lastName":"Иванов","phone":"0888333444","email":"ivan.admin-e2e@example.com"}',
   1, 0, 0, '', 'mobile',
-  '24', '24', 'гр. София', 'ул. Пример 2', '244600199', '', '', datetime('now'), datetime('now')
+  '24', '24', 'гр. София', 'ул. Пример 2', '244600199', '', '',
+  '', '', '', 0, 0, datetime('now'), datetime('now')
+),
+(
+  'e2e-call',
+  'call.admin-e2e@example.com',
+  'e2e-call-session',
+  'e2ecall1',
+  '{"firstName":"Петър","middleName":"Петров","lastName":"Петров","phone":"0888555666","email":"call.admin-e2e@example.com","callRequestedAt":"2026-10-02T08:00:00.000Z","callMessage":"За секцията","rounds":{"first":true,"runoff":false}}',
+  1, 0, 1, '', 'section',
+  '23', '23', 'гр. София', 'ул. Обаждане 3', '', '', '',
+  'Ще се обадим утре.', '', '', 1, 0, datetime('now'), datetime('now')
 )
 ON CONFLICT(email) DO UPDATE SET
   session_token = excluded.session_token,
@@ -174,9 +205,11 @@ ON CONFLICT(email) DO UPDATE SET
   section_place = excluded.section_place,
   draft_section = excluded.draft_section,
   published_section = excluded.published_section,
-  rounds_first = 1,
-  rounds_runoff = 1,
-  staff_note = '';
+  staff_note = excluded.staff_note,
+  staff_called_at = excluded.staff_called_at,
+  staff_called_by = excluded.staff_called_by,
+  rounds_first = excluded.rounds_first,
+  rounds_runoff = excluded.rounds_runoff;
 INSERT INTO staff (email, role, invited_by, created_at)
 VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
 ON CONFLICT(email) DO UPDATE SET role = 'admin';

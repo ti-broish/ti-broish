@@ -1,4 +1,4 @@
-export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls'
+export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls' | 'queue'
 
 export interface RosterFields {
   id: string
@@ -27,6 +27,8 @@ export interface RosterFields {
   staffCalledBy: string
   radius?: string
   travelLabel?: string
+  roundsFirst?: boolean
+  roundsRunoff?: boolean
 }
 
 export interface TakenImport {
@@ -110,6 +112,12 @@ export function rosterWhere(view: RosterView, mir: string): { clause: string; bi
   if (view === 'calls') {
     return {
       clause: "COALESCE(json_extract(payload, '$.callRequestedAt'), '') != '' AND COALESCE(withdrawn, 0) = 0",
+      binds: [],
+    }
+  }
+  if (view === 'queue') {
+    return {
+      clause: "COALESCE(json_extract(payload, '$.callRequestedAt'), '') != '' AND COALESCE(withdrawn, 0) = 0 AND COALESCE(staff_called_at, '') = ''",
       binds: [],
     }
   }

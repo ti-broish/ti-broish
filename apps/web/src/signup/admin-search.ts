@@ -1,6 +1,6 @@
 import { validEgn } from './rules'
 
-export const SIGNUP_VIEWS = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'mir', 'draft'] as const
+export const SIGNUP_VIEWS = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'queue', 'mir', 'draft'] as const
 export const SIGNUP_SORTS = ['updated', 'name', 'email', 'phone', 'mir', 'role'] as const
 export const SECTION_VIEWS = ['unassigned', 'draft', 'assigned', 'abroad', 'mir'] as const
 
@@ -32,6 +32,25 @@ export const defaultSectionSearch: SectionSearch = {
   q: '',
   view: 'unassigned',
   mir: '',
+}
+
+export const QUEUE_SHOWS = ['open', 'all'] as const
+export const QUEUE_SORTS = ['flagged', 'days', 'name'] as const
+
+export type QueueSearch = {
+  q: string
+  page: number
+  show: (typeof QUEUE_SHOWS)[number]
+  sort: (typeof QUEUE_SORTS)[number]
+  dir: 'asc' | 'desc'
+}
+
+export const defaultQueueSearch: QueueSearch = {
+  q: '',
+  page: 1,
+  show: 'open',
+  sort: 'flagged',
+  dir: 'desc',
 }
 
 export type AdminSearchKind = 'empty' | 'egn' | 'email' | 'phone' | 'name' | 'text'
@@ -92,6 +111,18 @@ export function parseSectionSearch(search: Record<string, unknown>): SectionSear
   return { q: clipText(search.q), view, mir: clipText(search.mir, 8) }
 }
 
+export function parseQueueSearch(search: Record<string, unknown>): QueueSearch {
+  const show = typeof search.show === 'string' && isOneOf(search.show, QUEUE_SHOWS) ? search.show : 'open'
+  const sort = typeof search.sort === 'string' && isOneOf(search.sort, QUEUE_SORTS) ? search.sort : 'flagged'
+  return {
+    q: clipText(search.q),
+    page: clampPage(search.page),
+    show,
+    sort,
+    dir: search.dir === 'asc' ? 'asc' : 'desc',
+  }
+}
+
 export function clampPage(value: unknown) {
   const page = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(page) || page < 1) return 1
@@ -108,6 +139,13 @@ export function rosterOrder(sort: string, dir: string) {
   const direction = dir === 'asc' ? 'ASC' : 'DESC'
   if (sort === 'name') {
     return `json_extract(payload, '$.lastName') ${direction}, json_extract(payload, '$.firstName') ${direction}`
+  }
+  if (sort === 'flagged') return `COALESCE(json_extract(payload, '$.callRequestedAt'), '') ${direction}`
+  if (sort === 'days') {
+    const first = `CASE WHEN rounds_first = 1 OR json_extract(payload, '$.rounds.first') = 1 THEN 1 ELSE 0 END`
+    const runoff = `CASE WHEN rounds_runoff = 1 OR json_extract(payload, '$.rounds.runoff') = 1 THEN 1 ELSE 0 END`
+    if (direction === 'DESC') return `CASE WHEN ${first} = 1 THEN 0 WHEN ${runoff} = 1 THEN 1 ELSE 2 END ASC, ${first} DESC, ${runoff} DESC`
+    return `CASE WHEN ${first} = 1 THEN 2 WHEN ${runoff} = 1 THEN 1 ELSE 0 END ASC, ${first} ASC, ${runoff} ASC`
   }
   const columns: Record<string, string> = {
     email: 'email',

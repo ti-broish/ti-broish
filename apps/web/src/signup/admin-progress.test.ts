@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { applyStaffEdit, buildAdminPerson, nextStaffCall, progressLabel, sealStaffProfile, signupProgress, staffGapText, staffWrite } from './admin-progress'
+import { applyStaffEdit, buildAdminPerson, daysLabel, nextStaffCall, progressLabel, sealStaffProfile, signupProgress, staffGapText, staffWrite } from './admin-progress'
 import { emptyProfile } from './model'
 
 describe('signup progress', () => {
@@ -10,6 +10,9 @@ describe('signup progress', () => {
     expect(signupProgress({ submitted: true, withdrawn: true })).toBe('withdrawn')
     expect(progressLabel('finished')).toBe('Завършил')
     expect(progressLabel('started')).toBe('Започнал')
+    expect(daysLabel(true, true)).toBe('25 октомври и 1 ноември')
+    expect(daysLabel(false, true)).toBe('1 ноември')
+    expect(daysLabel(false, false)).toBe('Без избран ден')
   })
 
   it('describes the missing piece for the team', () => {

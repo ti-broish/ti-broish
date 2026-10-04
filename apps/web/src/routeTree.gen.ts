@@ -29,6 +29,7 @@ import { Route as VhodRouteImport } from './routes/vhod'
 import { Route as ZnachkaRouteImport } from './routes/znachka'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminAccessRouteImport } from './routes/admin/access'
+import { Route as AdminCallsRouteImport } from './routes/admin/calls'
 import { Route as AdminSectionsRouteImport } from './routes/admin/sections'
 import { Route as AdminSignupsRouteImport } from './routes/admin/signups'
 import { Route as IzprateniIdRouteImport } from './routes/izprateni.$id'
@@ -138,6 +139,11 @@ const AdminAccessRoute = AdminAccessRouteImport.update({
   path: '/access',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminCallsRoute = AdminCallsRouteImport.update({
+  id: '/calls',
+  path: '/calls',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminSectionsRoute = AdminSectionsRouteImport.update({
   id: '/sections',
   path: '/sections',
@@ -199,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/vhod': typeof VhodRoute
   '/znachka': typeof ZnachkaRoute
   '/admin/access': typeof AdminAccessRoute
+  '/admin/calls': typeof AdminCallsRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
@@ -227,6 +234,7 @@ export interface FileRoutesByTo {
   '/vhod': typeof VhodRoute
   '/znachka': typeof ZnachkaRoute
   '/admin/access': typeof AdminAccessRoute
+  '/admin/calls': typeof AdminCallsRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
@@ -258,6 +266,7 @@ export interface FileRoutesById {
   '/vhod': typeof VhodRoute
   '/znachka': typeof ZnachkaRoute
   '/admin/access': typeof AdminAccessRoute
+  '/admin/calls': typeof AdminCallsRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
@@ -290,6 +299,7 @@ export interface FileRouteTypes {
     | '/vhod'
     | '/znachka'
     | '/admin/access'
+    | '/admin/calls'
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
@@ -318,6 +328,7 @@ export interface FileRouteTypes {
     | '/vhod'
     | '/znachka'
     | '/admin/access'
+    | '/admin/calls'
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
@@ -348,6 +359,7 @@ export interface FileRouteTypes {
     | '/vhod'
     | '/znachka'
     | '/admin/access'
+    | '/admin/calls'
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
@@ -524,6 +536,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAccessRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/calls': {
+      id: '/admin/calls'
+      path: '/calls'
+      fullPath: '/admin/calls'
+      preLoaderRoute: typeof AdminCallsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/sections': {
       id: '/admin/sections'
       path: '/sections'
@@ -585,6 +604,7 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
+  AdminCallsRoute: typeof AdminCallsRoute
   AdminSectionsRoute: typeof AdminSectionsRoute
   AdminSignupsRoute: typeof AdminSignupsRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -593,6 +613,7 @@ interface AdminRouteRouteChildren {
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
+  AdminCallsRoute: AdminCallsRoute,
   AdminSectionsRoute: AdminSectionsRoute,
   AdminSignupsRoute: AdminSignupsRoute,
   AdminIndexRoute: AdminIndexRoute,

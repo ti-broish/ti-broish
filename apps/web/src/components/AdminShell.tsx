@@ -2,7 +2,7 @@ import { Link, Outlet, useRouterState } from '@tanstack/react-router'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { PageIntro } from './SiteChrome'
 import { adminInput } from './admin-ui'
-import { defaultSectionSearch, defaultSignupSearch } from '../signup/admin-search'
+import { defaultQueueSearch, defaultSectionSearch, defaultSignupSearch } from '../signup/admin-search'
 import { adminSession, claimStaffSession, type AdminSummary } from '../signup/admin'
 import { useProfile } from '../signup/store'
 import { staffRoleLabel, type StaffRole } from '../signup/staff'
@@ -44,6 +44,7 @@ export function useAdminAccess() {
 const links = [
   { to: '/admin', label: 'Начало', exact: true },
   { to: '/admin/signups', label: 'Записвания', exact: false },
+  { to: '/admin/calls', label: 'Обаждания', exact: false },
   { to: '/admin/sections', label: 'Секции', exact: false },
   { to: '/admin/access', label: 'Достъп', exact: false },
 ] as const
@@ -213,6 +214,13 @@ function AdminLink({
   if (to === '/admin/signups') {
     return (
       <Link to={to} search={defaultSignupSearch} className={className} aria-current={current} onClick={onClick}>
+        {children}
+      </Link>
+    )
+  }
+  if (to === '/admin/calls') {
+    return (
+      <Link to={to} search={defaultQueueSearch} className={className} aria-current={current} onClick={onClick}>
         {children}
       </Link>
     )

@@ -18,6 +18,7 @@ import {
   staffWrite,
   type AdminPerson,
 } from './admin-progress'
+import { auditLines, staffAuditChanges, type AuditLine } from './admin-audit'
 import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { deliverMail, importConfirmMail, staffInviteMail } from './mail'
 import { emptyProfile, validEmail, type Profile } from './model'
@@ -726,6 +727,17 @@ async function loadStoredPerson(db: Database, id: string) {
   return db.prepare(PERSON_DETAIL_SQL).bind(id).first<StoredPersonRow>()
 }
 
+async function loadAudit(db: Database, signupId: string): Promise<AuditLine[]> {
+  const rows = await db
+    .prepare(
+      `SELECT id, actor, field, before_text, after_text, created_at
+       FROM signup_audit WHERE signup_id = ? ORDER BY created_at DESC, id DESC LIMIT 30`,
+    )
+    .bind(signupId)
+    .all<{ id: string; actor: string; field: string; before_text: string; after_text: string; created_at: string }>()
+  return auditLines(rows.results ?? [])
+}
+
 export const adminPerson = createServerFn({ method: 'POST' })
   .validator((input: { id?: string }) => ({ id: clipStaffText(input.id ?? '', 80) }))
   .handler(async ({ data }) => {
@@ -734,7 +746,7 @@ export const adminPerson = createServerFn({ method: 'POST' })
     const row = await loadStoredPerson(access.db, data.id)
     if (!row) return { ok: false as const, message: 'Няма такъв човек.' }
     try {
-      return { ok: true as const, person: openedPerson(row) }
+      return { ok: true as const, person: openedPerson(row), changes: await loadAudit(access.db, row.id) }
     } catch {
       return { ok: false as const, message: 'Този запис не се чете.' }
     }
@@ -772,6 +784,10 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
     const row = await loadStoredPerson(access.db, data.id)
     if (!row) return { ok: false as const, message: 'Няма такъв човек.' }
     let edited
+    let beforeNote = ''
+    let beforeRole: ReturnType<typeof parseRoleChoice> = null
+    let beforeFirst = false
+    let beforeRunoff = false
     try {
       const profile = profileFrom({
         id: row.id,
@@ -782,18 +798,23 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
         egn: row.egn,
         published_section: row.published_section,
       })
+      const sealed = sealStaffProfile(profile, row.payload, {
+        email: row.email,
+        submitted: row.submitted === 1,
+        withdrawn: row.withdrawn === 1,
+        emailConfirmed: row.email_confirmed === 1,
+        notes: row.notes,
+        role: row.role,
+        experience: row.experience,
+        roundsFirst: row.rounds_first,
+        roundsRunoff: row.rounds_runoff,
+      })
+      beforeNote = row.staff_note
+      beforeRole = sealed.role
+      beforeFirst = sealed.rounds.first
+      beforeRunoff = sealed.rounds.runoff
       edited = applyStaffEdit(
-        sealStaffProfile(profile, row.payload, {
-          email: row.email,
-          submitted: row.submitted === 1,
-          withdrawn: row.withdrawn === 1,
-          emailConfirmed: row.email_confirmed === 1,
-          notes: row.notes,
-          role: row.role,
-          experience: row.experience,
-          roundsFirst: row.rounds_first,
-          roundsRunoff: row.rounds_runoff,
-        }),
+        sealed,
         {
           firstName: data.firstName,
           middleName: data.middleName,
@@ -832,8 +853,21 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
         row.id,
       )
       .run()
+    const audited = staffAuditChanges(
+      { role: beforeRole, roundsFirst: beforeFirst, roundsRunoff: beforeRunoff, staffNote: beforeNote },
+      { role: edited.role, roundsFirst: edited.rounds.first, roundsRunoff: edited.rounds.runoff, staffNote: write.staffNote },
+    )
+    for (const change of audited) {
+      await access.db
+        .prepare(
+          `INSERT INTO signup_audit (id, signup_id, actor, field, before_text, after_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(crypto.randomUUID(), row.id, access.email, change.field, change.before, change.after, now)
+        .run()
+    }
     return {
       ok: true as const,
+      changes: await loadAudit(access.db, row.id),
       person: buildAdminPerson(edited, {
         id: row.id,
         town: row.town_name,

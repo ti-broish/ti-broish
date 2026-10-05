@@ -154,7 +154,6 @@ describe('distributeSections', () => {
         person({ id: 'm', email: 'm@example.com', role: 'mobile' }),
         person({ id: 't', email: 't@example.com', mobileTeam: true }),
         person({ id: 'v', email: 'v@example.com', role: 'video' }),
-        person({ id: 'r', email: 'r@example.com', radius: 'region' }),
         person({ id: 'd', email: 'd@example.com', radius: 'distant' }),
         person({ id: 'f', email: 'f@example.com', regionCode: '32', mir: '32', radius: 'settlement' }),
         person({ id: 'n', email: 'n@example.com', radius: '', townId: null }),
@@ -162,7 +161,29 @@ describe('distributeSections', () => {
       sections,
     })
     expect(plan.assignments).toEqual([])
-    expect(plan.skipped.map((row) => row.reason)).toEqual(['mobile', 'mobile', 'mobile', 'wide', 'wide', 'abroad', 'no-place'])
+    expect(plan.skipped.map((row) => row.reason)).toEqual(['mobile', 'mobile', 'mobile', 'wide', 'abroad', 'no-place'])
+  })
+
+  it('keeps an oblast volunteer in that oblast and prefers their address', () => {
+    const plan = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com', radius: 'region', mir: '27', regionCode: '27', townId: 18157, place: 'Дом за стари хора' })],
+      sections: [
+        section({ id: '273700001', place: 'Читалище', townId: 18157, votersCount: null }),
+        section({ id: '273700010', place: 'Дом за стари хора, ул. Патриарх Евтимий 5', townId: 18157, votersCount: null }),
+        section({ id: '234615001', place: 'Дом за стари хора', townId: 68134, votersCount: 120 }),
+      ],
+    })
+    expect(plan.assignments[0]?.sectionId).toBe('273700010')
+    expect(plan.assignments[0]?.desk).toBe('unknown')
+
+    const sofia = distributeSections({
+      people: [person({ id: 's', email: 's@example.com', radius: 'region', mir: '23', regionCode: 'sofia-merged', place: 'Младост' })],
+      sections: [
+        section({ id: '244600001', place: 'Люлин', votersCount: 140 }),
+        section({ id: '234615001', place: 'Младост', votersCount: 900 }),
+      ],
+    })
+    expect(sofia.assignments[0]?.sectionId).toBe('244600001')
   })
 
   it('does not reuse a blocked section or cross into another MIR', () => {
@@ -291,7 +312,10 @@ describe('distribution sources', () => {
   it('describes the outcome for the team', () => {
     expect(
       describeDistribution({ drafted: 2, paper: 2, mobile: 3, wide: 1, abroad: 0, noPlace: 0, noSection: 1, keptAtAddress: 1 }),
-    ).toBe('Записахме 2 чернови в хартиени секции. За после остават 3 мобилни, 1 с обхват област или по-далеч. Без свободна хартиена секция в обхвата: 1. 1 група е на един адрес.')
+    ).toBe('Записахме 2 чернови в хартиени секции. За после остават 3 мобилни, 1 с обхват в други области. Без свободна хартиена секция в обхвата: 1. 1 група е на един адрес.')
+    expect(
+      describeDistribution({ drafted: 0, paper: 0, mobile: 1, wide: 1, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
+    ).toBe('Записахме 0 чернови. За после остават 1 мобилен, 1 с обхват в други области.')
     expect(
       describeDistribution({ drafted: 1, paper: 1, mobile: 0, wide: 0, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
     ).toBe('Записахме 1 чернова в хартиена секция.')

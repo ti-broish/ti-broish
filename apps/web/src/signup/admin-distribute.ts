@@ -33,7 +33,7 @@ export const adminDistribute = createServerFn({ method: 'POST' })
     const municipalities = new Set<string>()
     for (const person of loaded.candidates) {
       if (person.townId != null) townIds.add(person.townId)
-      if (person.radius === 'municipality' && person.municipalityCode && person.mir) {
+      if ((person.radius === 'municipality' || person.radius === 'region') && person.municipalityCode && person.mir) {
         municipalities.add(`${person.mir.padStart(2, '0')}:${person.municipalityCode.padStart(2, '0')}`)
       }
     }

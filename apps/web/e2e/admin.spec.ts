@@ -14,6 +14,7 @@ test('the roster stays out of the menu and asks for a confirmed team email', asy
   await expect(page.getByRole('link', { name: 'Достъп' })).toHaveCount(0)
   await page.goto('/admin/sections')
   await expect(page.getByRole('button', { name: 'Публикувай черновите в този изглед (без имейл)' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Направи чернови за страната' })).toHaveCount(0)
 })
 
 test.describe('staff admin', () => {
@@ -168,6 +169,7 @@ test.describe('staff admin', () => {
   })
 
   test('distribution lists only finished signups and marks paper against machine', async ({ page }) => {
+    test.setTimeout(120_000)
     await signIn(page)
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/admin/sections')
@@ -181,6 +183,16 @@ test.describe('staff admin', () => {
     await page.getByRole('button', { name: 'Публикувани', exact: true }).click()
     await expect(page.getByRole('table').getByText(STAFF_EMAIL)).toBeVisible()
     await expect(page.getByText('ivan.admin-e2e@example.com')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Без секция', exact: true }).click()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.getByRole('button', { name: 'Направи чернови за страната' })).toBeVisible()
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.getByRole('button', { name: 'Направи чернови за страната' }).click()
+    await page.getByRole('button', { name: 'Да, запиши черновите (без публикуване)' }).click()
+    const notice = page.getByText(/Записахме \d+ чернов/)
+    await expect(notice).toBeVisible({ timeout: 90_000 })
+    await page.waitForLoadState('networkidle')
+    await expect(notice).toBeVisible()
   })
 })
 

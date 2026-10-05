@@ -31,8 +31,14 @@ test.describe('staff admin', () => {
     await page.goto('/admin')
     const nav = page.getByRole('navigation', { name: 'Админ' })
     await expect(nav.getByRole('link', { name: 'Записвания' })).toBeVisible()
+    const aside = page.locator('aside')
+    const asideBox = await aside.boundingBox()
+    const logoBox = await aside.locator('img').boundingBox()
+    expect(asideBox?.width ?? 999).toBeLessThanOrEqual(90)
+    expect(logoBox?.height ?? 0).toBeGreaterThanOrEqual(48)
+    await page.getByRole('button', { name: 'Разгъни менюто' }).click()
     await expect(page.locator('aside span').filter({ hasText: /^Админ$/ })).toBeVisible()
-    await expect(page.locator('aside').getByText(STAFF_EMAIL, { exact: true })).toBeVisible()
+    await expect(aside.getByText(STAFF_EMAIL, { exact: true })).toBeVisible()
     await expect(page.getByText('Записани', { exact: true })).toBeVisible()
     const active = nav.getByRole('link', { name: 'Начало' })
     const idle = nav.getByRole('link', { name: 'Записвания' })
@@ -100,12 +106,14 @@ test.describe('staff admin', () => {
     await page.getByLabel('Бележка от екипа').fill('Обадихме се, ще дойде и на двата дни.')
     await page.getByLabel('Отбележи, че сме се обадили').check()
     await page.getByLabel('Телефон').fill('0888999000')
+    await page.getByRole('radio', { name: 'В гр. София' }).check()
     await page.getByRole('button', { name: 'Запази' }).click()
     await expect(page.getByText('Записахме промените.')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'История' })).toBeVisible()
     await expect(page.getByText('Роля: Секция → Мобилен екип')).toBeVisible()
     await expect(page.getByText('Дни: 25 октомври и 1 ноември → 25 октомври')).toBeVisible()
     await expect(page.getByText('Бележка от екипа: Празна бележка → Обадихме се, ще дойде и на двата дни.')).toBeVisible()
+    await expect(page.getByText('Пътуване: Само в Младост → В гр. София')).toBeVisible()
     await expect(page.getByText('Обадени сме', { exact: true })).toBeVisible()
     await expect(page.getByLabel('Телефон')).toHaveValue('0888999000')
     await page.getByRole('link', { name: 'Към записванията' }).click()
@@ -126,6 +134,7 @@ test.describe('staff admin', () => {
     await expect(page.getByRole('heading', { name: 'Обаждания' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Петър Петров Петров' })).toBeVisible()
     await expect(page.getByRole('cell', { name: 'Ще се обадим утре.' })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'call.admin-e2e@example.com' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Мария Георгиева Петрова', exact: true })).toHaveCount(0)
     await page.getByRole('checkbox', { name: 'Избери Петър Петров Петров' }).check()
     await page.getByRole('button', { name: 'Отбележи обаждане' }).click()
@@ -148,6 +157,22 @@ test.describe('staff admin', () => {
     await expect(page.getByLabel('Бележка от екипа')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Запази' })).toBeVisible()
   })
+
+  test('distribution lists only finished signups and marks paper against machine', async ({ page }) => {
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/sections')
+    await expect(page.getByText('Тук са само хората, които са завършили записването.')).toBeVisible()
+    await expect(page.getByText('Хартиена', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('Машинна', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('call.admin-e2e@example.com')).toBeVisible()
+    await expect(page.getByText('ivan.admin-e2e@example.com')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Чернова', exact: true }).click()
+    await expect(page.getByText('ivan.admin-e2e@example.com')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Публикувани', exact: true }).click()
+    await expect(page.getByText(STAFF_EMAIL)).toBeVisible()
+    await expect(page.getByText('ivan.admin-e2e@example.com')).toHaveCount(0)
+  })
 })
 
 async function signIn(page: Page) {
@@ -168,7 +193,7 @@ INSERT INTO signups (
   '${STAFF_EMAIL}',
   '${SESSION}',
   'e2emaria',
-  '{"firstName":"Мария","middleName":"Георгиева","lastName":"Петрова","phone":"0888111222","email":"${STAFF_EMAIL}"}',
+  '{"firstName":"Мария","middleName":"Георгиева","lastName":"Петрова","phone":"0888111222","email":"${STAFF_EMAIL}","role":"section","rounds":{"first":true,"runoff":true},"radius":"cityRegion","place":{"regionCode":"23","regionName":"София-град","municipalityName":"Столична","townName":"гр. София","cityRegionName":"Младост","sectionPlace":"ул. Витоша 1"}}',
   1, 0, 1, '0041010002', 'section',
   '23', '23', 'гр. София', 'ул. Витоша 1', '', '234600101', '',
   '', '', '', 1, 1, datetime('now'), datetime('now')

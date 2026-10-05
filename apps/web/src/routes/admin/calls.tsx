@@ -284,6 +284,7 @@ function queueColumns(select: RowSelect | null) {
         </Link>
       ),
     }),
+    columnHelper.accessor('email', { header: 'Имейл', cell: (info) => info.getValue() || '—' }),
     columnHelper.accessor('phone', { header: 'Телефон', cell: (info) => info.getValue() || '—' }),
     columnHelper.display({
       id: 'days',
@@ -329,6 +330,7 @@ function QueueCards({ people, select }: { people: RosterFields[]; select: RowSel
           <Link to="/admin/signups/$personId" params={{ personId: person.id }} className="text-base font-black text-[#2b062f] underline">
             {personName(person) || '—'}
           </Link>
+          <p>{person.email || '—'}</p>
           <p>{person.phone || '—'}</p>
           <p>{daysLabel(person.roundsFirst === true, person.roundsRunoff === true)}</p>
           <p className="whitespace-pre-wrap">{person.staffNote || '—'}</p>

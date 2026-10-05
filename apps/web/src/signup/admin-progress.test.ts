@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { applyStaffEdit, buildAdminPerson, daysLabel, nextStaffCall, progressLabel, sealStaffProfile, signupProgress, staffGapText, staffWrite } from './admin-progress'
+import { applyStaffEdit, buildAdminPerson, daysLabel, nextStaffCall, parseRadiusChoice, progressLabel, sealStaffProfile, signupProgress, staffGapText, staffTravelText, staffWrite } from './admin-progress'
 import { emptyProfile } from './model'
 
 describe('signup progress', () => {
@@ -101,7 +101,39 @@ describe('signup progress', () => {
     expect(payload.staffNote).toBeUndefined()
     expect(write.staffNote).toBe('Ще дойде.')
     expect(write.staffCalledBy).toBe('ada@example.com')
+    expect(write.radius).toBeNull()
     expect(write).not.toHaveProperty('email')
+    const sofia = {
+      regionCode: '23',
+      regionName: 'София-град',
+      municipalityName: 'Столична',
+      townName: 'гр. София',
+      cityRegionName: 'Младост',
+    }
+    expect(parseRadiusChoice('settlement', sofia)).toBe('settlement')
+    expect(parseRadiusChoice('nearby', { ...sofia, cityRegionName: undefined })).toBeNull()
+    const travelled = applyStaffEdit(
+      { ...sealed, place: sofia, radius: 'cityRegion' },
+      {
+        firstName: 'Мария',
+        middleName: '',
+        lastName: '',
+        phone: '',
+        role: 'section',
+        roundsFirst: true,
+        roundsRunoff: true,
+        experience: null,
+        radius: 'settlement',
+        extraCityRegions: [],
+        distantRegionCodes: ['02'],
+        travelMunicipalities: [],
+      },
+    )
+    expect(travelled.radius).toBe('settlement')
+    expect(staffTravelText(travelled)).toBe('В гр. София')
+    const stored = staffWrite(travelled, { at: '', by: '' }, '')
+    expect(stored.radius).toBe('settlement')
+    expect(stored).not.toHaveProperty('email')
     const person = buildAdminPerson(sealed, {
       id: '1',
       town: 'гр. София',

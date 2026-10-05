@@ -1,4 +1,5 @@
 import { mirFromSection, normalizeSection } from './admin-csv'
+import { sectionDesk } from './sections'
 
 export type AssignWarningCode = 'taken' | 'duplicate' | 'mir_mismatch'
 
@@ -20,6 +21,7 @@ export interface SectionCandidate {
   place: string
   score: number
   reason: string
+  desk: 'paper' | 'machine' | 'unknown'
 }
 
 export interface SuggestPerson {
@@ -83,7 +85,7 @@ export function warningSummary(warnings: AssignWarning[]) {
 }
 
 export function scoreSectionSuggestions(
-  sections: Array<{ id: string; place: string }>,
+  sections: Array<{ id: string; place: string; votersCount?: number | null; isMachine?: boolean | null }>,
   person: SuggestPerson,
   blocked: Set<string>,
   limit = 8,
@@ -139,11 +141,16 @@ export function scoreSectionSuggestions(
       reasons.push('пътуване')
     }
 
+    const desk = sectionDesk(section)
+    if (desk === 'paper') reasons.push('хартиена')
+    else if (desk === 'machine') reasons.push('машинна')
+
     scored.push({
       id,
       place: section.place,
       score,
       reason: [...new Set(reasons)].join(' · '),
+      desk,
     })
   }
 

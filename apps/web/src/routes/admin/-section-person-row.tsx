@@ -2,8 +2,19 @@ import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import { adminDraft } from '../../signup/admin-assign-actions'
 import { adminSuggest } from '../../signup/admin-suggest'
+import { addressDeskLine, deskLabel } from '../../signup/sections'
 
-type Suggestion = { id: string; place: string; score: number; reason: string }
+type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown' }
+
+export function DeskBadge({ desk }: { desk: 'paper' | 'machine' | 'unknown' }) {
+  const tone =
+    desk === 'paper'
+      ? 'bg-[#53c0a4] text-[#2b062f]'
+      : desk === 'machine'
+        ? 'bg-[#3a3140] text-white'
+        : 'border border-[#2b062f] bg-[#f4e4b3] text-[#1a1020]'
+  return <span className={`inline-flex min-h-6 items-center rounded-full px-2 text-xs font-black ${tone}`}>{deskLabel(desk)}</span>
+}
 
 export function SectionPersonRow(props: {
   person: RosterFields
@@ -34,6 +45,9 @@ export function SectionPersonRow(props: {
                     <p className="font-bold">{person.firstName} {person.lastName}</p>
                     <p>{person.email}</p>
                     <p className="text-[#333]">{person.mir || (person.region === '32' ? 'чужбина' : person.place)}</p>
+                    {addressDeskLine(person.paperCount, person.machineCount) ? (
+                      <p className="text-xs font-bold text-[#1a1020]">{addressDeskLine(person.paperCount, person.machineCount)}</p>
+                    ) : null}
                     {person.radius || person.travelLabel ? (
                       <p className="text-xs text-[#333]">
                         {person.radius ? `радиус: ${person.radius}` : null}
@@ -120,6 +134,7 @@ export function SectionPersonRow(props: {
                                     })
                                   }}
                                 >
+                                  <span className="mr-2 inline-flex align-middle"><DeskBadge desk={tip.desk} /></span>
                                   {tip.id}
                                   <span className="font-normal text-[#333]"> — {tip.place || tip.reason}</span>
                                 </button>

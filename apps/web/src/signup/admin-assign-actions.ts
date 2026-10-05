@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
-import { normalizeSection, rosterWhere, type RosterView } from './admin-csv'
+import { distributionWhere, normalizeSection, type RosterView } from './admin-csv'
 import { publishBlocked, validateAssignment, warningSummary, type AssignWarning, type DuplicateOwner } from './admin-assign'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
@@ -63,7 +63,7 @@ export const adminPublish = createServerFn({ method: 'POST' })
     const access = await gate('publish')
     if (!access.ok) return access
     const db = access.db
-    const filter = rosterWhere(viewOf(data.view), data.mir)
+    const filter = distributionWhere(viewOf(data.view), data.mir)
     if ('error' in filter) return { ok: false as const, message: filter.error }
     const pending = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
     const rows = await bound(

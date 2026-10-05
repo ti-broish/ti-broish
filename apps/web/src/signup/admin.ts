@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
-import { campaignCsv, internalCsv, normalizeSection, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
+import { campaignCsv, distributionWhere, internalCsv, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
 import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
@@ -10,11 +10,16 @@ import { PERSON_SQL_BASE } from './admin-person-sql'
 import {
   applyStaffEdit,
   buildAdminPerson,
+  clipNamedPlaces,
+  clipRegionCodes,
   clipStaffText,
+  clipTravelStops,
   nextStaffCall,
   parseExperienceChoice,
+  parseRadiusChoice,
   parseRoleChoice,
   sealStaffProfile,
+  staffTravelText,
   staffWrite,
   type AdminPerson,
 } from './admin-progress'
@@ -60,6 +65,8 @@ interface RawPerson {
   travel_municipalities: string
   rounds_first: number
   rounds_runoff: number
+  paper_count: number | null
+  machine_count: number | null
 }
 
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -138,6 +145,8 @@ function fieldsOf(row: RawPerson): RosterFields {
     travelLabel: travelLabelOf(row.travel_municipalities ?? ''),
     roundsFirst: row.rounds_first === 1,
     roundsRunoff: row.rounds_runoff === 1,
+    paperCount: typeof row.paper_count === 'number' ? row.paper_count : null,
+    machineCount: typeof row.machine_count === 'number' ? row.machine_count : null,
   }
 }
 
@@ -145,7 +154,9 @@ const PERSON_SQL = `${PERSON_SQL_BASE}${NOTES_SQL},
   COALESCE(radius, '') AS radius,
   COALESCE(travel_municipalities, '[]') AS travel_municipalities,
   CASE WHEN rounds_first = 1 OR json_extract(payload, '$.rounds.first') = 1 THEN 1 ELSE 0 END AS rounds_first,
-  CASE WHEN rounds_runoff = 1 OR json_extract(payload, '$.rounds.runoff') = 1 THEN 1 ELSE 0 END AS rounds_runoff`
+  CASE WHEN rounds_runoff = 1 OR json_extract(payload, '$.rounds.runoff') = 1 THEN 1 ELSE 0 END AS rounds_runoff,
+  paper_count,
+  machine_count`
 
 function bound(db: Database, sql: string, binds: unknown[]) {
   const statement = db.prepare(sql)
@@ -182,8 +193,8 @@ async function summaryOf(db: Database): Promise<AdminSummary> {
          COALESCE(SUM(CASE WHEN COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS started,
          COALESCE(SUM(CASE WHEN COALESCE(published_section, '') != '' THEN 1 ELSE 0 END), 0) AS assigned,
          COALESCE(SUM(CASE WHEN COALESCE(published_section, '') = '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS unassigned,
-         COALESCE(SUM(CASE WHEN COALESCE(json_extract(payload, '$.callRequestedAt'), '') != '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS calls,
-         COALESCE(SUM(CASE WHEN COALESCE(json_extract(payload, '$.callRequestedAt'), '') != '' AND COALESCE(withdrawn, 0) = 0 AND COALESCE(staff_called_at, '') = '' THEN 1 ELSE 0 END), 0) AS queue
+         COALESCE(SUM(CASE WHEN ${OPEN_CALL_SQL} THEN 1 ELSE 0 END), 0) AS calls,
+         COALESCE(SUM(CASE WHEN ${OPEN_CALL_SQL} AND COALESCE(staff_called_at, '') = '' THEN 1 ELSE 0 END), 0) AS queue
        FROM signups`,
     )
     .first<{ total: number; finished: number; started: number; assigned: number; unassigned: number; calls: number; queue: number }>()
@@ -200,16 +211,16 @@ async function summaryOf(db: Database): Promise<AdminSummary> {
   }
 }
 
-function filtered(view: string, mir: string, q: string, mode: 'fts' | 'like') {
-  const filter = rosterWhere(viewOf(view), mir)
+function filtered(view: string, mir: string, q: string, mode: 'fts' | 'like', finishedOnly: boolean) {
+  const filter = finishedOnly ? distributionWhere(viewOf(view), mir) : rosterWhere(viewOf(view), mir)
   if ('error' in filter) return filter
   const search = searchClause(q, mode)
   return { clause: `(${filter.clause}) AND (${search.clause})`, binds: [...filter.binds, ...search.binds] }
 }
 
-async function queryPeople(db: Database, view: string, mir: string, q: string, limit: number, offset: number, withEgn: boolean, sort: string, dir: string) {
+async function queryPeople(db: Database, view: string, mir: string, q: string, limit: number, offset: number, withEgn: boolean, sort: string, dir: string, finishedOnly = false) {
   const run = async (mode: 'fts' | 'like') => {
-    const filter = filtered(view, mir, q, mode)
+    const filter = filtered(view, mir, q, mode, finishedOnly)
     if ('error' in filter) return filter
     const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
     const rows = await selectPeople(db, filter.clause, filter.binds, limit, offset, withEgn, rosterOrder(sort, dir))
@@ -264,7 +275,7 @@ export const adminSession = createServerFn({ method: 'POST' })
   })
 
 export const adminRoster = createServerFn({ method: 'POST' })
-  .validator((input: { view?: string; mir?: string; q?: string; page?: number; limit?: number; sort?: string; dir?: string }) => ({
+  .validator((input: { view?: string; mir?: string; q?: string; page?: number; limit?: number; sort?: string; dir?: string; finished?: boolean }) => ({
     view: input.view ?? 'all',
     mir: input.mir ?? '',
     q: (input.q ?? '').slice(0, 120),
@@ -272,12 +283,13 @@ export const adminRoster = createServerFn({ method: 'POST' })
     limit: clampLimit(input.limit),
     sort: input.sort ?? 'updated',
     dir: input.dir === 'asc' ? 'asc' : 'desc',
+    finished: input.finished === true,
   }))
   .handler(async ({ data }) => {
     const access = await gate('view')
     if (!access.ok) return access
     const db = access.db
-    const queried = await queryPeople(db, data.view, data.mir, data.q, data.limit, (data.page - 1) * data.limit, false, data.sort, data.dir)
+    const queried = await queryPeople(db, data.view, data.mir, data.q, data.limit, (data.page - 1) * data.limit, false, data.sort, data.dir, data.finished)
     if ('error' in queried) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: queried.error }
     const people = queried.rows.map(fieldsOf)
     const takenMir = viewOf(data.view) === 'mir' ? data.mir.trim().padStart(2, '0') : ''
@@ -328,7 +340,7 @@ export const adminBulkCallback = createServerFn({ method: 'POST' })
         const rows = await bound(access.db, `SELECT id FROM signups WHERE id IN (${marks}) AND ${pending}`, data.ids).all<{ id: string }>()
         return { ids: (rows.results ?? []).map((row) => row.id), capped: false }
       }
-      const filter = filtered(data.view, data.mir, data.q, mode)
+      const filter = filtered(data.view, data.mir, data.q, mode, false)
       if ('error' in filter) return filter
       const rows = await bound(
         access.db,
@@ -403,7 +415,7 @@ export const adminPublish = createServerFn({ method: 'POST' })
     const access = await gate('publish')
     if (!access.ok) return access
     const db = access.db
-    const filter = rosterWhere(viewOf(data.view), data.mir)
+    const filter = distributionWhere(viewOf(data.view), data.mir)
     if ('error' in filter) return { ok: false as const, message: filter.error }
     const pending = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
     const count = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE (${filter.clause}) AND ${pending}`, filter.binds).first<{ n: number }>()
@@ -765,6 +777,10 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
     experience?: string
     called?: boolean
     staffNote?: string
+    radius?: string
+    extraCityRegions?: unknown
+    distantRegionCodes?: unknown
+    travelMunicipalities?: unknown
   }) => ({
     id: clipStaffText(input.id ?? '', 80),
     firstName: clipStaffText(input.firstName ?? '', 80),
@@ -777,6 +793,10 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
     experience: clipStaffText(input.experience ?? '', 20),
     called: input.called === true,
     staffNote: clipStaffText(input.staffNote ?? '', 4000),
+    radius: clipStaffText(input.radius ?? '', 20),
+    extraCityRegions: clipNamedPlaces(input.extraCityRegions),
+    distantRegionCodes: clipRegionCodes(input.distantRegionCodes),
+    travelMunicipalities: clipTravelStops(input.travelMunicipalities),
   }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
@@ -788,6 +808,7 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
     let beforeRole: ReturnType<typeof parseRoleChoice> = null
     let beforeFirst = false
     let beforeRunoff = false
+    let beforeTravel = ''
     try {
       const profile = profileFrom({
         id: row.id,
@@ -813,19 +834,26 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
       beforeRole = sealed.role
       beforeFirst = sealed.rounds.first
       beforeRunoff = sealed.rounds.runoff
-      edited = applyStaffEdit(
-        sealed,
-        {
-          firstName: data.firstName,
-          middleName: data.middleName,
-          lastName: data.lastName,
-          phone: data.phone,
-          role: parseRoleChoice(data.role),
-          roundsFirst: data.roundsFirst,
-          roundsRunoff: data.roundsRunoff,
-          experience: parseExperienceChoice(data.experience),
-        },
-      )
+      beforeTravel = staffTravelText(sealed)
+      const radius = parseRadiusChoice(data.radius, sealed.place)
+      edited = applyStaffEdit(sealed, {
+        firstName: data.firstName,
+        middleName: data.middleName,
+        lastName: data.lastName,
+        phone: data.phone,
+        role: parseRoleChoice(data.role),
+        roundsFirst: data.roundsFirst,
+        roundsRunoff: data.roundsRunoff,
+        experience: parseExperienceChoice(data.experience),
+        ...(radius
+          ? {
+              radius,
+              extraCityRegions: data.extraCityRegions,
+              distantRegionCodes: data.distantRegionCodes,
+              travelMunicipalities: data.travelMunicipalities,
+            }
+          : {}),
+      })
     } catch {
       return { ok: false as const, message: 'Този запис не се чете.' }
     }
@@ -836,6 +864,7 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
       .prepare(
         `UPDATE signups SET
            role = ?, rounds_first = ?, rounds_runoff = ?, experience = ?,
+           radius = ?, extra_city_regions = ?, distant_region_codes = ?, travel_municipalities = ?,
            payload = ?, notes = ?, staff_note = ?, staff_called_at = ?, staff_called_by = ?, updated_at = ?
          WHERE id = ?`,
       )
@@ -844,6 +873,10 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
         write.roundsFirst,
         write.roundsRunoff,
         write.experience,
+        write.radius,
+        write.extraCityRegions,
+        write.distantRegionCodes,
+        write.travelMunicipalities,
         write.payload,
         write.notes,
         write.staffNote,
@@ -854,8 +887,8 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
       )
       .run()
     const audited = staffAuditChanges(
-      { role: beforeRole, roundsFirst: beforeFirst, roundsRunoff: beforeRunoff, staffNote: beforeNote },
-      { role: edited.role, roundsFirst: edited.rounds.first, roundsRunoff: edited.rounds.runoff, staffNote: write.staffNote },
+      { role: beforeRole, roundsFirst: beforeFirst, roundsRunoff: beforeRunoff, staffNote: beforeNote, travel: beforeTravel },
+      { role: edited.role, roundsFirst: edited.rounds.first, roundsRunoff: edited.rounds.runoff, staffNote: write.staffNote, travel: staffTravelText(edited) },
     )
     for (const change of audited) {
       await access.db

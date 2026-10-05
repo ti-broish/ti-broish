@@ -2,11 +2,12 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminInput } from '../../components/admin-ui'
+import { StaffTravel, type StaffTravelValue } from '../../components/StaffTravel'
 import { adminPerson, adminUpdatePerson } from '../../signup/admin'
 import { describeAudit, formatAuditWhen, type AuditLine } from '../../signup/admin-audit'
 import { progressLabel, roleLabel, signupProgress, type AdminPerson } from '../../signup/admin-progress'
 import { defaultSignupSearch } from '../../signup/admin-search'
-import { EXPERIENCE, type Experience, type Role } from '../../signup/model'
+import { EXPERIENCE, type Experience, type NamedPlace, type Radius, type Role, type TravelStop } from '../../signup/model'
 
 export const Route = createFileRoute('/admin/signups_/$personId')({
   component: PersonPage,
@@ -25,6 +26,10 @@ interface PersonForm {
   experience: Experience | ''
   called: boolean
   staffNote: string
+  radius: Radius | ''
+  extraCityRegions: NamedPlace[]
+  distantRegionCodes: string[]
+  travelMunicipalities: TravelStop[]
 }
 
 function PersonPage() {
@@ -114,6 +119,10 @@ function PersonPage() {
                   experience: form.experience,
                   called: form.called,
                   staffNote: form.staffNote,
+                  radius: form.radius,
+                  extraCityRegions: form.extraCityRegions,
+                  distantRegionCodes: form.distantRegionCodes,
+                  travelMunicipalities: form.travelMunicipalities,
                 },
               })
                 .then((result) => {
@@ -189,6 +198,14 @@ function PersonPage() {
                   ))}
                 </select>
               </label>
+              <StaffTravel
+                place={person.home}
+                radius={form.radius || null}
+                extraCityRegions={form.extraCityRegions}
+                distantRegionCodes={form.distantRegionCodes}
+                travelMunicipalities={form.travelMunicipalities}
+                onChange={(next: StaffTravelValue) => setForm({ ...form, ...next })}
+              />
               <label className="flex min-h-11 items-center gap-3 text-sm font-bold text-[#1a1020]" htmlFor="staff-called">
                 <input
                   id="staff-called"
@@ -233,7 +250,7 @@ function PersonPage() {
               История
             </h2>
             {changes.length === 0 ? (
-              <p className="text-sm text-[#333]">Няма записани промени по ролята, дните или бележката.</p>
+              <p className="text-sm text-[#333]">Няма записани промени по ролята, дните, пътуването или бележката.</p>
             ) : (
               <ul className="grid gap-2 text-sm text-[#1a1020]">
                 {changes.map((change) => (
@@ -300,6 +317,10 @@ function formFrom(person: AdminPerson): PersonForm {
     experience: person.experience ?? '',
     called: Boolean(person.staffCalledAt),
     staffNote: person.staffNote,
+    radius: person.radius ?? '',
+    extraCityRegions: person.extraCityRegions,
+    distantRegionCodes: person.distantRegionCodes,
+    travelMunicipalities: person.travelMunicipalities,
   }
 }
 

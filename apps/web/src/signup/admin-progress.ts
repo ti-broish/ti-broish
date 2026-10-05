@@ -1,4 +1,14 @@
-import { radiusOptions, signupGap, type Experience, type Profile, type Radius, type Role } from './model'
+import {
+  radiusOptions,
+  signupGap,
+  type Experience,
+  type HomePlace,
+  type NamedPlace,
+  type Profile,
+  type Radius,
+  type Role,
+  type TravelStop,
+} from './model'
 import { signupColumns } from './record'
 
 export type SignupProgress = 'finished' | 'started' | 'withdrawn'
@@ -42,9 +52,15 @@ export interface StaffEdit {
   roundsFirst: boolean
   roundsRunoff: boolean
   experience: Experience | null
+  radius?: Radius | null
+  extraCityRegions?: NamedPlace[]
+  distantRegionCodes?: string[]
+  travelMunicipalities?: TravelStop[]
 }
 
 export function applyStaffEdit(profile: Profile, edit: StaffEdit): Profile {
+  const radius = edit.radius === undefined ? profile.radius : edit.radius
+  const nearby = radius === 'nearby'
   return {
     ...profile,
     firstName: edit.firstName.trim(),
@@ -54,6 +70,10 @@ export function applyStaffEdit(profile: Profile, edit: StaffEdit): Profile {
     role: edit.role,
     rounds: { first: edit.roundsFirst, runoff: edit.roundsRunoff },
     experience: edit.experience,
+    radius,
+    extraCityRegions: edit.extraCityRegions === undefined ? (nearby ? profile.extraCityRegions : []) : nearby ? edit.extraCityRegions : [],
+    distantRegionCodes: edit.distantRegionCodes === undefined ? profile.distantRegionCodes : edit.distantRegionCodes,
+    travelMunicipalities: edit.travelMunicipalities === undefined ? profile.travelMunicipalities : edit.travelMunicipalities,
   }
 }
 
@@ -75,6 +95,103 @@ export function parseRoleChoice(value: string): Role | null {
 export function parseExperienceChoice(value: string): Experience | null {
   if (value === 'never' || value === 'counted' || value === 'sik' || value === 'sik-lead' || value === 'code') return value
   return null
+}
+
+export function parseRadiusChoice(value: string, place: HomePlace | null): Radius | null {
+  return radiusOptions(place).find((option) => option.id === value)?.id ?? null
+}
+
+export function clipNamedPlaces(value: unknown): NamedPlace[] {
+  if (!Array.isArray(value)) return []
+  const places: NamedPlace[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const code = clipStaffText(String((item as { code?: unknown }).code ?? ''), 40)
+    const name = clipStaffText(String((item as { name?: unknown }).name ?? ''), 80)
+    if (!code || !name || places.some((place) => place.code === code)) continue
+    places.push({ code, name })
+    if (places.length >= 40) break
+  }
+  return places
+}
+
+export function clipRegionCodes(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const codes: string[] = []
+  for (const item of value) {
+    const code = String(item ?? '').trim()
+    if (!/^\d{2}$/.test(code) || codes.includes(code)) continue
+    codes.push(code)
+    if (codes.length >= 20) break
+  }
+  return codes
+}
+
+export function clipTravelStops(value: unknown): TravelStop[] {
+  if (!Array.isArray(value)) return []
+  const stops: TravelStop[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const regionCode = clipStaffText(String((item as { regionCode?: unknown }).regionCode ?? ''), 8)
+    const regionName = clipStaffText(String((item as { regionName?: unknown }).regionName ?? ''), 80)
+    const code = clipStaffText(String((item as { code?: unknown }).code ?? ''), 40)
+    const name = clipStaffText(String((item as { name?: unknown }).name ?? ''), 80)
+    if (!/^\d{2}$/.test(regionCode) || !code || !name) continue
+    if (stops.some((stop) => stop.regionCode === regionCode && stop.code === code)) continue
+    stops.push({ regionCode, regionName, code, name })
+    if (stops.length >= 40) break
+  }
+  return stops
+}
+
+const REGION_NAMES: Record<string, string> = {
+  '01': 'Благоевград',
+  '02': 'Бургас',
+  '03': 'Варна',
+  '04': 'Велико Търново',
+  '05': 'Видин',
+  '06': 'Враца',
+  '07': 'Габрово',
+  '08': 'Добрич',
+  '09': 'Кърджали',
+  '10': 'Кюстендил',
+  '11': 'Ловеч',
+  '12': 'Монтана',
+  '13': 'Пазарджик',
+  '14': 'Перник',
+  '15': 'Плевен',
+  '16': 'Пловдив',
+  '17': 'Пловдив',
+  '18': 'Разград',
+  '19': 'Русе',
+  '20': 'Силистра',
+  '21': 'Сливен',
+  '22': 'Смолян',
+  '23': 'София-град',
+  '24': 'София-град',
+  '25': 'София-град',
+  '26': 'София',
+  '27': 'Стара Загора',
+  '28': 'Търговище',
+  '29': 'Хасково',
+  '30': 'Шумен',
+  '31': 'Ямбол',
+}
+
+export function staffTravelText(profile: Pick<Profile, 'place' | 'radius' | 'extraCityRegions' | 'distantRegionCodes' | 'travelMunicipalities'>) {
+  const option = radiusOptions(profile.place).find((item) => item.id === profile.radius)
+  if (!option) return 'Без обхват'
+  const parts = [option.label]
+  if (profile.radius === 'nearby' && profile.extraCityRegions.length > 0) {
+    parts.push(profile.extraCityRegions.map((item) => item.name).join(', '))
+  }
+  if (profile.radius === 'distant' && profile.distantRegionCodes.length > 0) {
+    parts.push(profile.distantRegionCodes.map((code) => REGION_NAMES[code] ?? code).join(', '))
+  }
+  if ((profile.radius === 'region' || profile.radius === 'distant') && profile.travelMunicipalities.length > 0) {
+    parts.push(profile.travelMunicipalities.map((item) => item.name).join(', '))
+  }
+  return parts.join(' · ')
 }
 
 export function roleLabel(role: string | null) {
@@ -152,7 +269,12 @@ export interface AdminPerson {
   experience: Experience | null
   town: string
   place: string
+  home: HomePlace | null
+  radius: Radius | null
   radiusLabel: string
+  extraCityRegions: NamedPlace[]
+  distantRegionCodes: string[]
+  travelMunicipalities: TravelStop[]
   emailConfirmed: boolean
   submitted: boolean
   withdrawn: boolean
@@ -200,7 +322,12 @@ export function buildAdminPerson(
     experience: profile.experience,
     town: profile.place?.townName || extra.town,
     place: profile.place?.sectionPlace || extra.place,
+    home: profile.place,
+    radius: known?.id ?? null,
     radiusLabel: known?.label ?? '',
+    extraCityRegions: profile.extraCityRegions ?? [],
+    distantRegionCodes: profile.distantRegionCodes ?? [],
+    travelMunicipalities: profile.travelMunicipalities ?? [],
     emailConfirmed: profile.emailConfirmed,
     submitted: profile.submitted,
     withdrawn: profile.withdrawn,
@@ -226,6 +353,10 @@ export function staffWrite(profile: Profile, call: { at: string; by: string }, s
     roundsFirst: columns.roundsFirst,
     roundsRunoff: columns.roundsRunoff,
     experience: columns.experience,
+    radius: columns.radius,
+    extraCityRegions: columns.extraCityRegions,
+    distantRegionCodes: columns.distantRegionCodes,
+    travelMunicipalities: columns.travelMunicipalities,
     payload: columns.payload,
     notes: columns.notes,
     staffNote: clipStaffText(staffNote, 4000),

@@ -7,6 +7,7 @@ const same: StaffSnapshot = {
   roundsFirst: true,
   roundsRunoff: true,
   staffNote: 'Ще дойде.',
+  travel: 'Само в Младост',
 }
 
 describe('staff audit', () => {
@@ -17,14 +18,17 @@ describe('staff audit', () => {
         roundsFirst: true,
         roundsRunoff: false,
         staffNote: '  ',
+      travel: 'В гр. София',
       }),
     ).toEqual([
       { field: 'role', before: 'Секция', after: 'Мобилен екип' },
       { field: 'days', before: '25 октомври и 1 ноември', after: '25 октомври' },
+      { field: 'travel', before: 'Само в Младост', after: 'В гр. София' },
       { field: 'staff_note', before: 'Ще дойде.', after: 'Празна бележка' },
     ])
     expect(staffAuditChanges(same, { ...same, staffNote: '  Ще дойде.  ' })).toEqual([])
     expect(describeAudit('role', 'Секция', 'Мобилен екип')).toBe('Роля: Секция → Мобилен екип')
+    expect(describeAudit('travel', 'Само в Младост', 'В гр. София')).toBe('Пътуване: Само в Младост → В гр. София')
     expect(describeAudit('egn', '0041010002', '')).toBe('')
   })
 
@@ -53,6 +57,10 @@ describe('staff audit', () => {
     expect(insertAt).toBeGreaterThan(-1)
     const insertSql = body.slice(insertAt, body.indexOf('`', insertAt))
     expect(insertSql).not.toMatch(/egn|payload|staff_called/)
+    const updateAt = body.indexOf('UPDATE signups SET')
+    const updateSql = body.slice(updateAt, body.indexOf('`', updateAt))
+    expect(updateSql).toContain('radius = ?')
+    expect(updateSql).not.toMatch(/email =/)
     const volunteer = readFileSync(new URL('./db.ts', import.meta.url), 'utf8')
     expect(volunteer).not.toContain('signup_audit')
   })

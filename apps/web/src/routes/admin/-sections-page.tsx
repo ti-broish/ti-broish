@@ -8,7 +8,7 @@ import { adminNotifyAssignment, adminPublishOne } from '../../signup/assignment-
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import { TakenSectionsPanel } from './-taken-sections-panel'
-import { SectionPersonRow } from './-section-person-row'
+import { DeskBadge, SectionPersonRow } from './-section-person-row'
 import { useDebouncedQuery } from './-debounced-query'
 
 const sectionsRoute = getRouteApi('/admin/sections')
@@ -20,7 +20,7 @@ const views = [
   ['abroad', 'Чужбина'],
 ] as const
 
-type Suggestion = { id: string; place: string; score: number; reason: string }
+type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown' }
 
 export function SectionsPage() {
   const search = sectionsRoute.useSearch()
@@ -50,7 +50,7 @@ export function SectionsPage() {
   function load() {
     setArmed(false)
     setPhase('loading')
-    void adminRoster({ data: { view: search.view, mir: search.mir, q: search.q, page: 1, limit: 100, sort: 'updated', dir: 'desc' } }).then((result) => {
+    void adminRoster({ data: { view: search.view, mir: search.mir, q: search.q, page: 1, limit: 100, sort: 'updated', dir: 'desc', finished: true } }).then((result) => {
       if (!result.ok) {
         setPhase('error')
         setMessage(result.message)
@@ -78,7 +78,7 @@ export function SectionsPage() {
 
   return (
     <div className="grid gap-5">
-      <AdminHeading title="Секции" lede="Черновата се вижда само тук. Публикуването я показва в профила, без писмо, и пропуска заета, дублирана или чужда секция. За един човек ползвай „Публикувай и извести“ на реда." />
+      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. Черновата се вижда само тук. Публикуването я показва в профила, без писмо, и пропуска заета, дублирана или чужда секция. За един човек ползвай „Публикувай и извести“ на реда." />
       <label className="grid max-w-md gap-1 text-sm font-bold text-[#1a1020]" htmlFor="section-search">
         Търсене
         <input id="section-search" className={adminInput} type="search" value={draft} placeholder="Име, имейл, телефон или ЕГН" onChange={(event) => setDraft(event.target.value)} />
@@ -152,6 +152,12 @@ export function SectionsPage() {
       {phase === 'error' ? <p role="alert" className="font-bold text-[#8f1d1d]">{message}</p> : null}
       {message && phase !== 'error' ? <p className="text-sm font-bold text-[#1a1020]">{message}</p> : null}
       {phase !== 'loading' && people.length === 0 ? <p className="rounded-2xl border-2 border-[#2b062f] bg-[#f6f1f7] px-4 py-6">Няма хора за това търсене.</p> : null}
+      <div className="flex flex-wrap items-center gap-2 text-sm text-[#1a1020]" aria-label="Вид секция">
+        <span className="font-bold">Вид секция:</span>
+        <DeskBadge desk="paper" />
+        <DeskBadge desk="machine" />
+        <DeskBadge desk="unknown" />
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] border-collapse text-left text-sm text-[#1a1020]">
           <thead>

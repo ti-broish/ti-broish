@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestHost, getRequestUrl, setCookie } from '@tanstack/react-start/server'
 import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupD1, type SignupRow } from './db-core'
-import { signupGap, type Profile } from './model'
+import { normalizeCallRequest, signupGap, type Profile } from './model'
 import { companionsForSignup, syncCompanions } from './companion-lifecycle'
 import { deliverMail, isDevMailHost } from './mail'
 import { egnProblem, signupColumns } from './record'
@@ -71,6 +71,7 @@ export const saveSignup = createServerFn({ method: 'POST' })
     let data = input
     const db = await signupDatabase()
     if (!db || !data.email.trim()) return { ok: false as const, message: 'Липсва имейл.' }
+    data = normalizeCallRequest(data)
     const problem = egnProblem(data.egn)
     if (problem) return { ok: false as const, message: problem }
     const now = new Date().toISOString()

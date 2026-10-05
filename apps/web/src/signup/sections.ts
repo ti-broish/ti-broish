@@ -8,6 +8,19 @@ export function sectionDesk(section: { votersCount?: number | null; isMachine?: 
   return 'unknown'
 }
 
+export function deskLabel(desk: 'paper' | 'machine' | 'unknown') {
+  if (desk === 'paper') return 'Хартиена'
+  if (desk === 'machine') return 'Машинна'
+  return 'Неясен вид'
+}
+
+export function addressDeskLine(paper: number | null | undefined, machine: number | null | undefined) {
+  const parts: string[] = []
+  if (typeof paper === 'number' && paper > 0) parts.push(paper === 1 ? '1 хартиена' : `${paper} хартиени`)
+  if (typeof machine === 'number' && machine > 0) parts.push(machine === 1 ? '1 машинна' : `${machine} машинни`)
+  return parts.length ? `На адреса: ${parts.join(' и ')}` : ''
+}
+
 export function sectionNumber(id: string) {
   return id.length >= 3 ? id.slice(-3) : id
 }

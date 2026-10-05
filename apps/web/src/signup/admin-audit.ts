@@ -1,6 +1,6 @@
 import { roleLabel } from './admin-progress'
 
-export const AUDIT_FIELDS = ['role', 'days', 'staff_note'] as const
+export const AUDIT_FIELDS = ['role', 'days', 'travel', 'staff_note'] as const
 export type AuditField = (typeof AUDIT_FIELDS)[number]
 
 export interface StaffSnapshot {
@@ -8,6 +8,7 @@ export interface StaffSnapshot {
   roundsFirst: boolean
   roundsRunoff: boolean
   staffNote: string
+  travel: string
 }
 
 export interface AuditChange {
@@ -42,6 +43,9 @@ export function staffAuditChanges(before: StaffSnapshot, after: StaffSnapshot): 
   const daysBefore = daysText(before.roundsFirst, before.roundsRunoff)
   const daysAfter = daysText(after.roundsFirst, after.roundsRunoff)
   if (daysBefore !== daysAfter) changes.push({ field: 'days', before: daysBefore, after: daysAfter })
+  const travelBefore = noteText(before.travel)
+  const travelAfter = noteText(after.travel)
+  if (travelBefore !== travelAfter) changes.push({ field: 'travel', before: travelBefore, after: travelAfter })
   const noteBefore = noteText(before.staffNote)
   const noteAfter = noteText(after.staffNote)
   if (noteBefore !== noteAfter) changes.push({ field: 'staff_note', before: noteBefore, after: noteAfter })
@@ -51,6 +55,7 @@ export function staffAuditChanges(before: StaffSnapshot, after: StaffSnapshot): 
 export function auditFieldLabel(field: string) {
   if (field === 'role') return 'Роля'
   if (field === 'days') return 'Дни'
+  if (field === 'travel') return 'Пътуване'
   if (field === 'staff_note') return 'Бележка от екипа'
   return ''
 }
@@ -71,7 +76,7 @@ export function auditLines(
   rows: readonly { id: string; actor: string; field: string; before_text: string; after_text: string; created_at: string }[],
 ): AuditLine[] {
   return rows.flatMap((row) => {
-    if (row.field !== 'role' && row.field !== 'days' && row.field !== 'staff_note') return []
+    if (row.field !== 'role' && row.field !== 'days' && row.field !== 'travel' && row.field !== 'staff_note') return []
     return [{ id: row.id, actor: row.actor, field: row.field, before: row.before_text, after: row.after_text, at: row.created_at }]
   })
 }

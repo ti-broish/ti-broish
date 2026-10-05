@@ -193,6 +193,13 @@ export function profileView(profile: Profile): 'incomplete' | 'waiting' | 'assig
   return 'waiting'
 }
 
+/** A call request counts only with a reason. An empty reason drops the request. */
+export function normalizeCallRequest<T extends { callRequestedAt: string | null; callMessage: string }>(profile: T): T {
+  const message = profile.callMessage.trim().slice(0, 300)
+  if (!message) return { ...profile, callRequestedAt: null, callMessage: '' }
+  return { ...profile, callMessage: message }
+}
+
 export function signupGap(profile: Profile): string | null {
   if (!profile.firstName || !profile.email || !profile.phone) return 'Остават имената, имейлът и телефонът.'
   if (!profile.emailConfirmed) return 'Остава да потвърдиш имейла.'

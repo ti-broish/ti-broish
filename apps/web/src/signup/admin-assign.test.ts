@@ -48,9 +48,9 @@ describe('scoreSectionSuggestions', () => {
     const suggestions = scoreSectionSuggestions(
       [
         { id: '254600001', place: 'училище в друга МИР' },
-        { id: '234600101', place: 'ул. Пример 1, гр. София' },
+        { id: '234600101', place: 'ул. Пример 1, гр. София', votersCount: 120 },
         { id: '234600199', place: 'друго място' },
-        { id: '234600150', place: 'ул. Пример 1' },
+        { id: '234600150', place: 'ул. Пример 1', isMachine: true },
       ],
       {
         mir: '23',
@@ -65,6 +65,9 @@ describe('scoreSectionSuggestions', () => {
     )
     expect(suggestions.map((item) => item.id)).toEqual(['234600101', '234600150'])
     expect(suggestions[0]?.reason).toContain('място')
+    expect(suggestions[0]?.reason).toContain('хартиена')
+    expect(suggestions[0]?.desk).toBe('paper')
+    expect(suggestions[1]?.desk).toBe('machine')
     expect(suggestions.every((item) => item.id.startsWith('23'))).toBe(true)
   })
 

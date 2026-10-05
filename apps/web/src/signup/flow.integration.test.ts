@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyProfile, nextAssignment, profileView, registrationSettled, resumeSignupStep, signupGap, stepsFor, type Companion, type HomePlace } from './model'
+import { emptyProfile, nextAssignment, normalizeCallRequest, profileView, registrationSettled, resumeSignupStep, signupGap, stepsFor, type Companion, type HomePlace } from './model'
 import { companionRows, signupColumns } from './record'
 import { validateCall, validateProtocol, validateViolation } from './reports-validate'
 import { isProtocolDay } from './election'
@@ -40,6 +40,16 @@ function person(patch: Partial<Companion>): Companion {
 }
 
 describe('signup flow', () => {
+  it('drops a call request that has no reason', () => {
+    const asked = { callRequestedAt: '2026-10-02T08:00:00.000Z', callMessage: '  За секцията  ' }
+    expect(normalizeCallRequest(asked)).toEqual({ callRequestedAt: '2026-10-02T08:00:00.000Z', callMessage: 'За секцията' })
+    expect(normalizeCallRequest({ callRequestedAt: '2026-10-02T08:00:00.000Z', callMessage: '   ' })).toEqual({
+      callRequestedAt: null,
+      callMessage: '',
+    })
+    expect(normalizeCallRequest({ callRequestedAt: '2026-10-02T08:00:00.000Z', callMessage: 'а'.repeat(400) }).callMessage).toHaveLength(300)
+  })
+
   it('keeps the seats step for a mobile team or travel outside the city', () => {
     expect(stepsFor({ role: 'section', radius: 'cityRegion' })).not.toContain('seats')
     expect(stepsFor({ role: 'section', radius: 'municipality' })).toContain('seats')

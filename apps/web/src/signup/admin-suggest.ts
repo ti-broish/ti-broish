@@ -115,8 +115,20 @@ async function loadPollingSections(townId: number, cityRegionCode?: string) {
     headers: { Accept: 'application/json', 'Accept-Language': 'bg-BG' },
   })
   if (!response.ok) throw new Error(`sections ${response.status}`)
-  const rows = (await response.json()) as Array<{ id: string | number; place: string }>
-  return rows.map((row) => ({ id: String(row.id), place: row.place ?? '' }))
+  const rows = (await response.json()) as Array<{
+    id: string | number
+    place: string
+    votersCount?: number
+    voters_count?: number
+    isMachine?: boolean
+    is_machine?: boolean
+  }>
+  return rows.map((row) => ({
+    id: String(row.id),
+    place: row.place ?? '',
+    votersCount: typeof row.votersCount === 'number' ? row.votersCount : typeof row.voters_count === 'number' ? row.voters_count : null,
+    isMachine: typeof row.isMachine === 'boolean' ? row.isMachine : typeof row.is_machine === 'boolean' ? row.is_machine : null,
+  }))
 }
 
 function placeFromPayload(payload: string): { townId?: number; cityRegionCode?: string } {

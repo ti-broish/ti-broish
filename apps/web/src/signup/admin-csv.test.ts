@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { campaignCsv, egnLast4, internalCsv, parsePeopleCsv, parseTakenCsv, rosterWhere, visibleSection, type RosterFields } from './admin-csv'
+import { campaignCsv, distributionWhere, egnLast4, internalCsv, parsePeopleCsv, parseTakenCsv, rosterWhere, visibleSection, type RosterFields } from './admin-csv'
 
 const person: RosterFields = {
   id: '1',
@@ -67,9 +67,14 @@ describe('roster filters', () => {
     expect(rosterWhere('abroad', '')).toEqual({ clause: "region_code = '32'", binds: [] })
     const calls = rosterWhere('calls', '')
     expect('clause' in calls && calls.clause).toContain('callRequestedAt')
+    expect('clause' in calls && calls.clause).toContain('callMessage')
     const queue = rosterWhere('queue', '')
     expect('clause' in queue && queue.clause).toContain('callRequestedAt')
+    expect('clause' in queue && queue.clause).toContain('callMessage')
     expect('clause' in queue && queue.clause).toContain("staff_called_at, '') = ''")
+    const distribution = distributionWhere('unassigned', '')
+    expect('clause' in distribution && distribution.clause).toContain('COALESCE(submitted, 0) = 1')
+    expect('clause' in distribution && distribution.clause).toContain('COALESCE(withdrawn, 0) = 0')
     expect(rosterWhere('mir', '3')).toEqual({ clause: 'mir_code = ?', binds: ['03'] })
     expect(rosterWhere('mir', 'София')).toEqual({ error: 'МИР е номер, например 23.' })
   })

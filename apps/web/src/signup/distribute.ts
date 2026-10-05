@@ -2,7 +2,7 @@ import { normalizeSection } from './admin-csv'
 import { normalizeAddress, sectionDesk } from './sections'
 
 export type SkipReason = 'mobile' | 'wide' | 'abroad' | 'no-place' | 'no-section'
-export type Together = 'address' | 'town' | 'municipality' | 'solo'
+export type Together = 'address' | 'town' | 'municipality' | 'region' | 'solo'
 
 export interface DistributeCompanion {
   email: string
@@ -59,7 +59,7 @@ export interface DistributePlan {
   keptAtAddress: number
 }
 
-const LOCAL_RADIUS = new Set(['cityRegion', 'nearby', 'settlement', 'municipality'])
+const LOCAL_RADIUS = new Set(['cityRegion', 'nearby', 'settlement', 'municipality', 'region'])
 
 export function distributeSections(input: {
   people: DistributePerson[]
@@ -101,7 +101,8 @@ export function distributeSections(input: {
       placeCluster(members, sections, used, preference, 'address', pending.length) ??
       placeCluster(members, sections, used, preference, 'address', 0) ??
       placeCluster(members, sections, used, preference, 'town', 0) ??
-      placeCluster(members, sections, used, preference, 'municipality', 0)
+      placeCluster(members, sections, used, preference, 'municipality', 0) ??
+      placeCluster(members, sections, used, preference, 'region', 0)
     if (placed) {
       if (placed.reserved > 0) for (const email of pending) held.add(email)
       assignments.push(...placed.assignments)
@@ -137,8 +138,8 @@ export function describeDistribution(input: {
           ? `Записахме ${draftWord(input.drafted)}, от които ${input.paper} хартиени.`
           : `Записахме ${draftWord(input.drafted)}.`
   const later = [
-    input.mobile ? `${input.mobile} мобилни` : '',
-    input.wide ? `${input.wide} с обхват област или по-далеч` : '',
+    input.mobile ? countPhrase(input.mobile, 'мобилен', 'мобилни') : '',
+    input.wide ? countPhrase(input.wide, 'с обхват в други области', 'с обхват в други области') : '',
     input.abroad ? `${input.abroad} извън страната` : '',
     input.noPlace ? `${input.noPlace} без избран град` : '',
   ].filter(Boolean)
@@ -305,12 +306,12 @@ function allowedSections(person: DistributePerson, sections: DistributeSection[]
 function sectionFits(person: DistributePerson, section: DistributeSection) {
   if (section.isMobile === true) return false
   const parts = sectionParts(section.id)
-  const mir = padMir(person.mir)
-  if (!parts || !mir || parts.mir !== mir) return false
+  const mirs = person.radius === 'region' ? oblastMirs(person) : new Set([padMir(person.mir)].filter(Boolean))
+  if (!parts || !mirs.has(parts.mir)) return false
   const municipality = pad2(person.municipalityCode)
   if (person.radius === 'municipality' && municipality) {
     if (parts.municipality !== municipality) return false
-  } else if (section.townId == null || person.townId == null || section.townId !== person.townId) {
+  } else if (person.radius !== 'region' && (section.townId == null || person.townId == null || section.townId !== person.townId)) {
     return false
   }
   const districts = allowedDistricts(person)
@@ -318,8 +319,18 @@ function sectionFits(person: DistributePerson, section: DistributeSection) {
   return true
 }
 
+function oblastMirs(person: DistributePerson) {
+  if (person.regionCode === 'sofia-merged') return new Set(['23', '24', '25'])
+  const codes = new Set<string>()
+  const region = padMir(person.regionCode)
+  const mir = padMir(person.mir)
+  if (region) codes.add(region)
+  if (mir) codes.add(mir)
+  return codes
+}
+
 function allowedDistricts(person: DistributePerson) {
-  if (person.radius === 'settlement' || person.radius === 'municipality') return null
+  if (person.radius === 'settlement' || person.radius === 'municipality' || person.radius === 'region') return null
   const home = pad2(person.cityRegionCode)
   if (!home) return null
   const districts = new Set([home])
@@ -336,7 +347,9 @@ function bucketKey(section: DistributeSection, level: Exclude<Together, 'solo'>)
   if (level === 'address') return placeKey(section.place)
   if (level === 'town') return section.townId == null ? '' : `town:${section.townId}`
   const parts = sectionParts(section.id)
-  return parts ? `mir:${parts.mir}:muni:${parts.municipality}` : ''
+  if (!parts) return ''
+  if (level === 'region') return `region:${parts.mir}`
+  return `mir:${parts.mir}:muni:${parts.municipality}`
 }
 
 function bucketScore(
@@ -441,7 +454,8 @@ function preferred(members: DistributePerson[], anchors: readonly DistributeAnch
 function skipReason(person: DistributePerson): SkipReason | null {
   if (person.regionCode === '32' || padMir(person.mir) === '32') return 'abroad'
   if (person.role !== 'section' || person.mobileTeam) return 'mobile'
-  if (person.radius === 'region' || person.radius === 'distant') return 'wide'
+  if (person.radius === 'distant') return 'wide'
+  if (person.radius === 'region') return oblastMirs(person).size ? null : 'no-place'
   if (!LOCAL_RADIUS.has(person.radius) || !padMir(person.mir)) return 'no-place'
   if (person.radius === 'municipality') {
     if (!pad2(person.municipalityCode) && person.townId == null) return 'no-place'
@@ -460,6 +474,7 @@ function radiusRank(radius: string) {
   if (radius === 'nearby') return 1
   if (radius === 'settlement') return 2
   if (radius === 'municipality') return 3
+  if (radius === 'region') return 4
   return 9
 }
 
@@ -533,6 +548,10 @@ function mobileCompanion(companion: DistributeCompanion) {
 
 function draftWord(count: number) {
   return count === 1 ? '1 чернова' : `${count} чернови`
+}
+
+function countPhrase(count: number, one: string, many: string) {
+  return count === 1 ? `1 ${one}` : `${count} ${many}`
 }
 
 function numberOrNull(value: unknown) {

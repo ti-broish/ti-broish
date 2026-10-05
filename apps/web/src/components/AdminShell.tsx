@@ -1,5 +1,5 @@
 import { Link, Outlet, useRouterState } from '@tanstack/react-router'
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { PageIntro } from './SiteChrome'
 import { adminInput } from './admin-ui'
 import { defaultQueueSearch, defaultSectionSearch, defaultSignupSearch } from '../signup/admin-search'
@@ -41,8 +41,6 @@ export function useAdminAccess() {
   return access
 }
 
-const NAV_KEY = 'tb-admin-nav'
-
 const links = [
   { to: '/admin', label: 'Начало', exact: true },
   { to: '/admin/signups', label: 'Записвания', exact: false },
@@ -79,7 +77,6 @@ function loadAccess(setAccess: (access: AdminAccess) => void) {
 export function AdminShell() {
   const [access, setAccess] = useState<AdminAccess>({ kind: 'loading' })
   const [menuOpen, setMenuOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState(true)
   const path = useRouterState({ select: (state) => state.location.pathname })
 
   useEffect(() => {
@@ -89,26 +86,6 @@ export function AdminShell() {
   useEffect(() => {
     setMenuOpen(false)
   }, [path])
-
-  useEffect(() => {
-    try {
-      if (sessionStorage.getItem(NAV_KEY) === 'open') setCollapsed(false)
-    } catch {
-      /* The rail stays collapsed when storage is blocked. */
-    }
-  }, [])
-
-  function toggleNav() {
-    setCollapsed((current) => {
-      const next = !current
-      try {
-        sessionStorage.setItem(NAV_KEY, next ? 'closed' : 'open')
-      } catch {
-        /* The choice still applies for this visit. */
-      }
-      return next
-    })
-  }
 
   if (access.kind !== 'ready') {
     return (
@@ -122,13 +99,15 @@ export function AdminShell() {
 
   return (
     <AdminAccessContext.Provider value={access}>
-      <div className={`min-h-[calc(100vh-60px)] bg-white text-[#1a1020] md:grid ${collapsed ? 'md:grid-cols-[4.5rem_minmax(0,1fr)]' : 'md:grid-cols-[13rem_minmax(0,1fr)]'}`}>
-        <aside className="sticky top-[60px] hidden h-[calc(100vh-60px)] min-w-0 flex-col border-r-2 border-[#2b062f] bg-[#f6f1f7] md:flex">
-          <SidebarBrand collapsed={collapsed} onToggle={toggleNav} />
-          <SidebarNav path={path} collapsed={collapsed} />
-          <StaffFoot email={access.email} role={access.role} collapsed={collapsed} />
-        </aside>
-        <div className="min-w-0">
+      <div className="min-h-[calc(100vh-60px)] bg-white text-[#1a1020] md:grid md:grid-cols-[4.5rem_minmax(0,1fr)]">
+        <div className="sticky top-[60px] z-30 hidden h-[calc(100vh-60px)] md:block">
+          <aside className="group absolute inset-y-0 left-0 flex w-[4.5rem] flex-col overflow-hidden border-r-2 border-[#2b062f] bg-[#f6f1f7] transition-[width] duration-150 ease-out hover:w-[13rem] hover:shadow-[4px_0_24px_rgba(43,6,47,0.18)] focus-within:w-[13rem] focus-within:shadow-[4px_0_24px_rgba(43,6,47,0.18)]">
+            <SidebarBrand />
+            <SidebarNav path={path} />
+            <StaffFoot email={access.email} role={access.role} />
+          </aside>
+        </div>
+        <div className="relative z-0 min-w-0">
           <div className="flex items-center gap-3 border-b-2 border-[#2b062f] bg-[#f6f1f7] px-4 py-3 md:hidden">
             <button
               type="button"
@@ -178,34 +157,29 @@ export function AdminShell() {
   )
 }
 
-function SidebarBrand({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+function SidebarBrand() {
   return (
-    <div className={collapsed ? 'grid justify-items-center gap-2 px-1 pt-3' : 'grid gap-2 px-2 pt-3'}>
+    <div className="px-2 pt-3">
+      <img
+        src="/icons/icon-192.png"
+        alt="Ти Броиш"
+        className="mx-auto block h-14 w-14 rounded-xl object-contain group-hover:hidden group-focus-within:hidden"
+      />
       <img
         src="/logo.png"
-        alt="Ти Броиш"
-        className={collapsed ? 'h-14 w-14 object-cover object-left' : 'h-12 w-full object-contain object-left'}
+        alt=""
+        className="hidden h-12 w-full object-contain object-left group-hover:block group-focus-within:block"
       />
-      {collapsed ? null : <span className="text-sm font-black tracking-tight text-[#2b062f]">Админ</span>}
-      <button
-        type="button"
-        className="inline-flex h-11 w-full items-center justify-center rounded-xl border-2 border-[#2b062f] bg-white text-sm font-bold text-[#1a1020]"
-        aria-label={collapsed ? 'Разгъни менюто' : 'Свий менюто'}
-        aria-expanded={!collapsed}
-        onClick={onToggle}
-      >
-        {collapsed ? '»' : '«'}
-      </button>
+      <span className="mt-2 hidden text-sm font-black tracking-tight text-[#2b062f] group-hover:block group-focus-within:block">Админ</span>
     </div>
   )
 }
 
-function SidebarNav({ path, collapsed }: { path: string; collapsed: boolean }) {
+function SidebarNav({ path }: { path: string }) {
   return (
-    <nav aria-label="Админ" className={collapsed ? 'admin-nav grid gap-1 p-1' : 'admin-nav grid gap-1 p-2'}>
+    <nav aria-label="Админ" className="admin-nav grid gap-1 p-1 group-hover:p-2 group-focus-within:p-2">
       {links.map((item) => {
         const on = item.exact ? path === item.to : path.startsWith(item.to)
-        const pad = collapsed ? 'justify-center px-0' : 'px-3'
         return (
           <AdminLink
             key={item.to}
@@ -214,11 +188,12 @@ function SidebarNav({ path, collapsed }: { path: string; collapsed: boolean }) {
             label={item.label}
             className={
               on
-                ? `flex min-h-11 items-center rounded-xl bg-[#2b062f] text-sm font-bold ${pad}`
-                : `flex min-h-11 items-center rounded-xl text-sm font-bold hover:bg-[#e7dce9] ${pad}`
+                ? 'flex min-h-11 items-center justify-center rounded-xl bg-[#2b062f] px-0 text-sm font-bold group-hover:justify-start group-hover:px-3 group-focus-within:justify-start group-focus-within:px-3'
+                : 'flex min-h-11 items-center justify-center rounded-xl px-0 text-sm font-bold hover:bg-[#e7dce9] group-hover:justify-start group-hover:px-3 group-focus-within:justify-start group-focus-within:px-3'
             }
           >
-            {collapsed ? item.label.slice(0, 1) : item.label}
+            <span className="group-hover:hidden group-focus-within:hidden">{item.label.slice(0, 1)}</span>
+            <span className="hidden group-hover:inline group-focus-within:inline">{item.label}</span>
           </AdminLink>
         )
       })}
@@ -226,20 +201,16 @@ function SidebarNav({ path, collapsed }: { path: string; collapsed: boolean }) {
   )
 }
 
-function StaffFoot({ email, role, collapsed }: { email: string; role: StaffRole; collapsed: boolean }) {
-  if (collapsed) {
-    return (
-      <div className="mt-auto border-t-2 border-[#2b062f] p-2 text-center">
-        <p className="text-sm font-black text-[#1a1020]" title={email}>
-          {email.slice(0, 1).toUpperCase()}
-        </p>
-      </div>
-    )
-  }
+function StaffFoot({ email, role }: { email: string; role: StaffRole }) {
   return (
-    <div className="mt-auto border-t-2 border-[#2b062f] p-3">
-      <p className="break-all text-sm font-bold text-[#1a1020]">{email}</p>
-      <p className="text-sm text-[#333]">{staffRoleLabel(role)}</p>
+    <div className="mt-auto border-t-2 border-[#2b062f] p-2 group-hover:p-3 group-focus-within:p-3">
+      <p className="text-center text-sm font-black text-[#1a1020] group-hover:hidden group-focus-within:hidden" title={email}>
+        {email.slice(0, 1).toUpperCase()}
+      </p>
+      <div className="hidden group-hover:block group-focus-within:block">
+        <p className="break-all text-sm font-bold text-[#1a1020]">{email}</p>
+        <p className="text-sm text-[#333]">{staffRoleLabel(role)}</p>
+      </div>
     </div>
   )
 }
@@ -257,10 +228,10 @@ function AdminLink({
   active: boolean
   label?: string
   onClick?: () => void
-  children: string
+  children: ReactNode
 }) {
   const current = active ? 'page' : undefined
-  const name = label ?? children
+  const name = label ?? (typeof children === 'string' ? children : undefined)
   if (to === '/admin/signups') {
     return (
       <Link to={to} search={defaultSignupSearch} className={className} aria-current={current} aria-label={name} onClick={onClick}>

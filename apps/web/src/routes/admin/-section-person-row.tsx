@@ -57,6 +57,9 @@ export function SectionPersonRow(props: {
                     ) : null}
                   </td>
                   <td className="py-3 pr-3">
+                    {person.draftSection && person.draftLocked ? (
+                      <p className="mb-1 text-xs font-bold text-[#1a1020]">Запазена корекция. Следващото разпределение я държи.</p>
+                    ) : null}
                     {canEdit ? (
                       <div className="grid gap-2">
                         <form
@@ -73,7 +76,9 @@ export function SectionPersonRow(props: {
                                     ? result.blockedOnPublish
                                       ? `Черновата е запазена, но няма да се публикува: ${result.warning}`
                                       : result.warning
-                                    : 'Черновата е запазена и не се вижда от човека.',
+                                    : section.trim()
+                                      ? 'Черновата е запазена и не се вижда от човека. Следващото разпределение я запазва.'
+                                      : 'Черновата е изчистена. Следващото разпределение може да сложи друга.',
                                 )
                                 load()
                               }
@@ -128,7 +133,7 @@ export function SectionPersonRow(props: {
                                       if (!result.ok) setMessage(result.message)
                                       else {
                                         setRowWarnings((current) => ({ ...current, [person.id]: result.warnings ?? [] }))
-                                        setMessage(result.warning || `Чернова ${tip.id} от предложение.`)
+                                        setMessage(result.warning || `Чернова ${tip.id} от предложение. Следващото разпределение я запазва.`)
                                         load()
                                       }
                                     })

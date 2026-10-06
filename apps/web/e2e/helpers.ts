@@ -1,5 +1,9 @@
 import type { Page } from '@playwright/test'
-import { emptyProfile, type Profile } from '../src/signup/model'
+import { emptyProfile, nextAssignment, type Profile } from '../src/signup/model'
+
+export function nextWaveLabel(rounds: Profile['rounds'] = { first: true, runoff: true }) {
+  return nextAssignment({ rounds }).label
+}
 
 export const SIGNUP_STORAGE_KEY = 'ti-broish-signup-v1'
 

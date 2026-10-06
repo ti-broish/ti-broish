@@ -1,7 +1,7 @@
 import { normalizeSection } from './admin-csv'
 import { normalizeAddress, sectionDesk } from './sections'
 
-export type SkipReason = 'mobile' | 'wide' | 'abroad' | 'no-place' | 'no-section'
+export type SkipReason = 'mobile' | 'video' | 'abroad' | 'no-place' | 'no-section'
 export type Together = 'address' | 'town' | 'municipality' | 'region' | 'solo'
 
 export interface DistributeCompanion {
@@ -24,6 +24,8 @@ export interface DistributePerson {
   municipalityCode: string
   cityRegionCode: string
   extraCityRegionCodes: string[]
+  distantMirs: string[]
+  travelStops: Array<{ regionCode: string; code: string }>
   place: string
   companions: DistributeCompanion[]
 }
@@ -59,7 +61,7 @@ export interface DistributePlan {
   keptAtAddress: number
 }
 
-const LOCAL_RADIUS = new Set(['cityRegion', 'nearby', 'settlement', 'municipality', 'region'])
+const LOCAL_RADIUS = new Set(['cityRegion', 'nearby', 'settlement', 'municipality', 'region', 'distant'])
 
 export function distributeSections(input: {
   people: DistributePerson[]
@@ -97,12 +99,7 @@ export function distributeSections(input: {
   for (const members of clusters) {
     const pending = pendingEmails(members, known, held)
     const preference = preferred(members, anchors)
-    const placed =
-      placeCluster(members, sections, used, preference, 'address', pending.length) ??
-      placeCluster(members, sections, used, preference, 'address', 0) ??
-      placeCluster(members, sections, used, preference, 'town', 0) ??
-      placeCluster(members, sections, used, preference, 'municipality', 0) ??
-      placeCluster(members, sections, used, preference, 'region', 0)
+    const placed = placeNear(members, sections, used, preference, pending.length, 'home') ?? placeNear(members, sections, used, preference, pending.length, 'chosen')
     if (placed) {
       if (placed.reserved > 0) for (const email of pending) held.add(email)
       assignments.push(...placed.assignments)
@@ -110,7 +107,9 @@ export function distributeSections(input: {
       continue
     }
     for (const person of members) {
-      const solo = placeCluster([person], sections, used, preference, 'address', 0)
+      const solo =
+        placeNear([person], sections, used, preference, 0, 'home') ??
+        placeNear([person], sections, used, preference, 0, 'chosen')
       if (solo) assignments.push(...solo.assignments.map((row) => ({ ...row, together: 'solo' as const })))
       else skipped.push({ personId: person.id, email: person.email, reason: 'no-section' })
     }
@@ -119,15 +118,40 @@ export function distributeSections(input: {
   return { assignments, skipped, keptAtAddress }
 }
 
+export type DraftHold = 'published' | 'correction' | 'rewrite'
+
+/** A published section stays. A draft saved with Запази stays. Every other draft can be replaced. */
+export function distributionHold(input: { draftSection: string; publishedSection: string; locked: boolean }): DraftHold {
+  if (normalizeSection(input.publishedSection)) return 'published'
+  if (input.locked && normalizeSection(input.draftSection)) return 'correction'
+  return 'rewrite'
+}
+
+/** Codes a rerun must not give to someone else: published sections, saved corrections, and a published person's pending draft. */
+export function heldSectionCodes(
+  rows: Array<{ draftSection: string; publishedSection: string; locked: boolean; withdrawn?: boolean }>,
+) {
+  const codes = new Set<string>()
+  for (const row of rows) {
+    if (row.withdrawn) continue
+    const published = normalizeSection(row.publishedSection)
+    const draft = normalizeSection(row.draftSection)
+    if (published) codes.add(published)
+    if (draft && (row.locked || published)) codes.add(draft)
+  }
+  return [...codes]
+}
+
 export function describeDistribution(input: {
   drafted: number
   paper: number
   mobile: number
-  wide: number
+  video: number
   abroad: number
   noPlace: number
   noSection: number
   keptAtAddress: number
+  kept?: number
 }) {
   const drafted =
     input.drafted === 1 && input.paper === 1
@@ -139,11 +163,14 @@ export function describeDistribution(input: {
           : `Записахме ${draftWord(input.drafted)}.`
   const later = [
     input.mobile ? countPhrase(input.mobile, 'мобилен', 'мобилни') : '',
-    input.wide ? countPhrase(input.wide, 'с обхват в други области', 'с обхват в други области') : '',
+    input.video ? countPhrase(input.video, 'на видеонаблюдение', 'на видеонаблюдение') : '',
     input.abroad ? `${input.abroad} извън страната` : '',
     input.noPlace ? `${input.noPlace} без избран град` : '',
   ].filter(Boolean)
   const sentences = [drafted]
+  const kept = input.kept ?? 0
+  if (kept === 1) sentences.push('Задържахме 1 корекция.')
+  else if (kept > 1) sentences.push(`Задържахме ${kept} корекции.`)
   if (later.length) sentences.push(`За после остават ${later.join(', ')}.`)
   if (input.noSection) sentences.push(`Без свободна хартиена секция в обхвата: ${input.noSection}.`)
   if (input.keptAtAddress === 1) sentences.push('1 група е на един адрес.')
@@ -213,6 +240,24 @@ export function readPollingSections(payload: unknown, fallbackTownId: number): D
   return sections
 }
 
+function placeNear(
+  members: DistributePerson[],
+  sections: DistributeSection[],
+  used: Set<string>,
+  preference: { places: Set<string>; towns: Set<number> },
+  extra: number,
+  reach: 'home' | 'chosen',
+) {
+  if (reach === 'chosen' && !members.some((person) => person.radius === 'distant' && person.distantMirs.length > 0)) return null
+  return (
+    placeCluster(members, sections, used, preference, 'address', extra, reach) ??
+    (extra > 0 ? placeCluster(members, sections, used, preference, 'address', 0, reach) : null) ??
+    placeCluster(members, sections, used, preference, 'town', 0, reach) ??
+    placeCluster(members, sections, used, preference, 'municipality', 0, reach) ??
+    placeCluster(members, sections, used, preference, 'region', 0, reach)
+  )
+}
+
 function placeCluster(
   members: DistributePerson[],
   sections: DistributeSection[],
@@ -220,8 +265,9 @@ function placeCluster(
   preference: { places: Set<string>; towns: Set<number> },
   level: Exclude<Together, 'solo'>,
   extra: number,
+  reach: 'home' | 'chosen',
 ): { assignments: DraftAssignment[]; together: Together; reserved: number } | null {
-  const pools = members.map((person) => allowedSections(person, sections, used))
+  const pools = members.map((person) => allowedSections(person, sections, used, reach))
   if (pools.some((pool) => pool.length === 0)) return null
   const keys = new Set<string>()
   for (const pool of pools) {
@@ -293,30 +339,41 @@ export function relevantPrefixes(people: DistributePerson[], sections: Distribut
   const candidates = people.filter((person) => skipReason(person) === null)
   const prefixes = new Set<string>()
   for (const section of dedupeSections(sections)) {
-    if (!candidates.some((person) => sectionFits(person, section))) continue
+    if (!candidates.some((person) => sectionFits(person, section, 'chosen'))) continue
     prefixes.add(section.id.slice(0, 6))
   }
   return [...prefixes]
 }
 
-function allowedSections(person: DistributePerson, sections: DistributeSection[], used: Set<string>) {
-  return sections.filter((section) => !used.has(section.id) && sectionFits(person, section))
+function allowedSections(person: DistributePerson, sections: DistributeSection[], used: Set<string>, reach: 'home' | 'chosen') {
+  return sections.filter((section) => !used.has(section.id) && sectionFits(person, section, reach))
 }
 
-function sectionFits(person: DistributePerson, section: DistributeSection) {
+function sectionFits(person: DistributePerson, section: DistributeSection, reach: 'home' | 'chosen') {
   if (section.isMobile === true) return false
   const parts = sectionParts(section.id)
-  const mirs = person.radius === 'region' ? oblastMirs(person) : new Set([padMir(person.mir)].filter(Boolean))
+  const mirs = mirsFor(person, reach)
   if (!parts || !mirs.has(parts.mir)) return false
   const municipality = pad2(person.municipalityCode)
   if (person.radius === 'municipality' && municipality) {
     if (parts.municipality !== municipality) return false
-  } else if (person.radius !== 'region' && (section.townId == null || person.townId == null || section.townId !== person.townId)) {
+  } else if (person.radius !== 'region' && person.radius !== 'distant' && (section.townId == null || person.townId == null || section.townId !== person.townId)) {
     return false
   }
   const districts = allowedDistricts(person)
   if (districts && !districts.has(parts.district)) return false
   return true
+}
+
+function mirsFor(person: DistributePerson, reach: 'home' | 'chosen') {
+  const mirs = person.radius === 'region' || person.radius === 'distant' ? oblastMirs(person) : new Set([padMir(person.mir)].filter(Boolean))
+  if (reach === 'chosen' && person.radius === 'distant') {
+    for (const code of person.distantMirs) {
+      const mir = padMir(code)
+      if (mir) mirs.add(mir)
+    }
+  }
+  return mirs
 }
 
 function oblastMirs(person: DistributePerson) {
@@ -330,7 +387,7 @@ function oblastMirs(person: DistributePerson) {
 }
 
 function allowedDistricts(person: DistributePerson) {
-  if (person.radius === 'settlement' || person.radius === 'municipality' || person.radius === 'region') return null
+  if (person.radius === 'settlement' || person.radius === 'municipality' || person.radius === 'region' || person.radius === 'distant') return null
   const home = pad2(person.cityRegionCode)
   if (!home) return null
   const districts = new Set([home])
@@ -453,8 +510,10 @@ function preferred(members: DistributePerson[], anchors: readonly DistributeAnch
 
 function skipReason(person: DistributePerson): SkipReason | null {
   if (person.regionCode === '32' || padMir(person.mir) === '32') return 'abroad'
-  if (person.role !== 'section' || person.mobileTeam) return 'mobile'
-  if (person.radius === 'distant') return 'wide'
+  if (person.mobileTeam || person.role === 'mobile') return 'mobile'
+  if (person.role === 'video') return 'video'
+  if (person.role !== 'section') return 'mobile'
+  if (person.radius === 'distant') return oblastMirs(person).size || person.distantMirs.some((code) => padMir(code)) ? null : 'no-place'
   if (person.radius === 'region') return oblastMirs(person).size ? null : 'no-place'
   if (!LOCAL_RADIUS.has(person.radius) || !padMir(person.mir)) return 'no-place'
   if (person.radius === 'municipality') {
@@ -475,6 +534,7 @@ function radiusRank(radius: string) {
   if (radius === 'settlement') return 2
   if (radius === 'municipality') return 3
   if (radius === 'region') return 4
+  if (radius === 'distant') return 5
   return 9
 }
 

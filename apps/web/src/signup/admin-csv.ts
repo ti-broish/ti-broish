@@ -17,6 +17,8 @@ export interface RosterFields {
   emailConfirmed: boolean
   imported: boolean
   draftSection: string
+  /** Saved with Запази. A later country draft keeps this row and rewrites the others. */
+  draftLocked?: boolean
   publishedSection: string
   egn: string
   notes: string

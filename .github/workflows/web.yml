@@ -22,8 +22,13 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec tsc --noEmit --pretty false
-      - run: pnpm test
+      - parallel:
+          - name: Typecheck
+            working-directory: apps/web
+            run: pnpm exec tsc --noEmit --pretty false
+          - name: Unit tests
+            working-directory: apps/web
+            run: pnpm test
 
   e2e:
     runs-on: ubuntu-latest

@@ -4,6 +4,8 @@ import { normalizeSection } from './admin-csv'
 import {
   describeDistribution,
   distributeSections,
+  distributionHold,
+  heldSectionCodes,
   readPollingSections,
   readTownIds,
   relevantPrefixes,
@@ -69,16 +71,28 @@ export const adminDistribute = createServerFn({ method: 'POST' })
     })
 
     const now = new Date().toISOString()
+    await db
+      .prepare(
+        `UPDATE signups
+         SET draft_section = NULL, updated_at = ?
+         WHERE COALESCE(published_section, '') = ''
+           AND COALESCE(draft_locked, 0) = 0
+           AND COALESCE(draft_section, '') != ''
+           AND COALESCE(submitted, 0) = 1
+           AND COALESCE(withdrawn, 0) = 0`,
+      )
+      .bind(now)
+      .run()
     let drafted = 0
     let paper = 0
     for (const row of plan.assignments) {
       const result = await db
         .prepare(
           `UPDATE signups
-           SET draft_section = ?, updated_at = ?
+           SET draft_section = ?, draft_locked = 0, updated_at = ?
            WHERE id = ?
-             AND COALESCE(draft_section, '') = ''
              AND COALESCE(published_section, '') = ''
+             AND COALESCE(draft_locked, 0) = 0
              AND COALESCE(submitted, 0) = 1
              AND COALESCE(withdrawn, 0) = 0
              AND COALESCE(role, '') = 'section'`,
@@ -96,6 +110,7 @@ export const adminDistribute = createServerFn({ method: 'POST' })
       message: describeDistribution({
         drafted,
         paper,
+        kept: loaded.kept,
         mobile: skipped('mobile'),
         video: skipped('video'),
         abroad: skipped('abroad'),
@@ -135,6 +150,7 @@ interface SignupRow {
   distant_region_codes: string
   travel_municipalities: string
   draft_section: string
+  draft_locked: number
   published_section: string
   payload: string
 }
@@ -153,6 +169,7 @@ async function loadPeople(db: Database) {
         COALESCE(distant_region_codes, '[]') AS distant_region_codes,
         COALESCE(travel_municipalities, '[]') AS travel_municipalities,
         COALESCE(draft_section, '') AS draft_section,
+        COALESCE(draft_locked, 0) AS draft_locked,
         COALESCE(published_section, '') AS published_section,
         payload
       FROM signups
@@ -183,6 +200,7 @@ async function loadPeople(db: Database) {
   const candidates: DistributePerson[] = []
   const anchors: Array<DistributeAnchor & { sectionId: string }> = []
   const knownEmails: string[] = []
+  let kept = 0
   for (const row of signups.results ?? []) {
     const profile = readPayload(row.payload)
     const email = row.email.trim().toLowerCase()
@@ -191,13 +209,18 @@ async function loadPeople(db: Database) {
       ...companion,
       mobileTeam: profile.companionMobile.get(companion.email.trim().toLowerCase()) === true,
     }))
-    const sectionId = normalizeSection(row.published_section || row.draft_section)
-    if (sectionId) {
+    const hold = distributionHold({
+      draftSection: row.draft_section,
+      publishedSection: row.published_section,
+      locked: row.draft_locked === 1,
+    })
+    if (hold !== 'rewrite') {
+      if (hold === 'correction') kept += 1
       anchors.push({
         email,
         place: '',
         townId: null,
-        sectionId,
+        sectionId: normalizeSection(row.published_section || row.draft_section),
         companionEmails: group.filter((companion) => companion.inGroup && companion.samePlace).map((companion) => companion.email),
       })
       continue
@@ -221,7 +244,7 @@ async function loadPeople(db: Database) {
       companions: group,
     })
   }
-  return { candidates, anchors, knownEmails }
+  return { candidates, anchors, knownEmails, kept }
 }
 
 async function blockedSections(db: Database) {
@@ -230,15 +253,22 @@ async function blockedSections(db: Database) {
   for (const row of taken.results ?? []) blocked.add(normalizeSection(row.section_code))
   const used = await db
     .prepare(
-      `SELECT COALESCE(draft_section, '') AS draft_section, COALESCE(published_section, '') AS published_section
+      `SELECT COALESCE(draft_section, '') AS draft_section,
+              COALESCE(published_section, '') AS published_section,
+              COALESCE(draft_locked, 0) AS draft_locked
        FROM signups
        WHERE COALESCE(withdrawn, 0) = 0
          AND (COALESCE(draft_section, '') != '' OR COALESCE(published_section, '') != '')`,
     )
-    .all<{ draft_section: string; published_section: string }>()
-  for (const row of used.results ?? []) {
-    if (row.draft_section) blocked.add(normalizeSection(row.draft_section))
-    if (row.published_section) blocked.add(normalizeSection(row.published_section))
+    .all<{ draft_section: string; published_section: string; draft_locked: number }>()
+  for (const code of heldSectionCodes(
+    (used.results ?? []).map((row) => ({
+      draftSection: row.draft_section,
+      publishedSection: row.published_section,
+      locked: row.draft_locked === 1,
+    })),
+  )) {
+    blocked.add(code)
   }
   return [...blocked]
 }

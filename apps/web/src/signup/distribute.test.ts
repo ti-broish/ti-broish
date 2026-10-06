@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   describeDistribution,
   distributeSections,
+  distributionHold,
+  heldSectionCodes,
   readPollingSections,
   readTownIds,
   votersFromResults,
@@ -344,5 +346,32 @@ describe('distribution sources', () => {
     expect(
       describeDistribution({ drafted: 0, paper: 0, mobile: 0, video: 0, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
     ).toBe('Записахме 0 чернови.')
+    expect(
+      describeDistribution({ drafted: 4, paper: 4, mobile: 0, video: 0, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0, kept: 1 }),
+    ).toBe('Записахме 4 чернови в хартиени секции. Задържахме 1 корекция.')
+    expect(
+      describeDistribution({ drafted: 0, paper: 0, mobile: 0, video: 0, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0, kept: 2 }),
+    ).toBe('Записахме 0 чернови. Задържахме 2 корекции.')
+  })
+
+  it('keeps a saved correction and lets the next run reuse an unlocked draft', () => {
+    const rows = [
+      { draftSection: '234615001', publishedSection: '', locked: false },
+      { draftSection: '234615002', publishedSection: '', locked: true },
+      { draftSection: '234615003', publishedSection: '234615004', locked: false },
+    ]
+    expect(rows.map((row) => distributionHold(row))).toEqual(['rewrite', 'correction', 'published'])
+    expect(heldSectionCodes(rows).sort()).toEqual(['234615002', '234615003', '234615004'])
+    const plan = distributeSections({
+      people: [person({ id: 'b', email: 'b@example.com' })],
+      sections: [
+        section({ id: '234615001', place: 'ул. А 1', votersCount: 100 }),
+        section({ id: '234615002', place: 'ул. Б 2', votersCount: 80 }),
+      ],
+      blocked: heldSectionCodes(rows),
+      anchors: [{ email: 'locked@example.com', place: 'ул. Б 2', townId: 68134, companionEmails: [] }],
+    })
+    expect(plan.assignments.map((row) => row.sectionId)).toEqual(['234615001'])
+    expect(plan.assignments.some((row) => row.sectionId === '234615002')).toBe(false)
   })
 })

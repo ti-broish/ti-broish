@@ -118,6 +118,30 @@ export function distributeSections(input: {
   return { assignments, skipped, keptAtAddress }
 }
 
+export type DraftHold = 'published' | 'correction' | 'rewrite'
+
+/** A published section stays. A draft saved with Запази stays. Every other draft can be replaced. */
+export function distributionHold(input: { draftSection: string; publishedSection: string; locked: boolean }): DraftHold {
+  if (normalizeSection(input.publishedSection)) return 'published'
+  if (input.locked && normalizeSection(input.draftSection)) return 'correction'
+  return 'rewrite'
+}
+
+/** Codes a rerun must not give to someone else: published sections, saved corrections, and a published person's pending draft. */
+export function heldSectionCodes(
+  rows: Array<{ draftSection: string; publishedSection: string; locked: boolean; withdrawn?: boolean }>,
+) {
+  const codes = new Set<string>()
+  for (const row of rows) {
+    if (row.withdrawn) continue
+    const published = normalizeSection(row.publishedSection)
+    const draft = normalizeSection(row.draftSection)
+    if (published) codes.add(published)
+    if (draft && (row.locked || published)) codes.add(draft)
+  }
+  return [...codes]
+}
+
 export function describeDistribution(input: {
   drafted: number
   paper: number
@@ -127,6 +151,7 @@ export function describeDistribution(input: {
   noPlace: number
   noSection: number
   keptAtAddress: number
+  kept?: number
 }) {
   const drafted =
     input.drafted === 1 && input.paper === 1
@@ -143,6 +168,9 @@ export function describeDistribution(input: {
     input.noPlace ? `${input.noPlace} без избран град` : '',
   ].filter(Boolean)
   const sentences = [drafted]
+  const kept = input.kept ?? 0
+  if (kept === 1) sentences.push('Задържахме 1 корекция.')
+  else if (kept > 1) sentences.push(`Задържахме ${kept} корекции.`)
   if (later.length) sentences.push(`За после остават ${later.join(', ')}.`)
   if (input.noSection) sentences.push(`Без свободна хартиена секция в обхвата: ${input.noSection}.`)
   if (input.keptAtAddress === 1) sentences.push('1 група е на един адрес.')

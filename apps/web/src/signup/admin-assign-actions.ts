@@ -48,7 +48,16 @@ export const adminDraft = createServerFn({ method: 'POST' })
       .first<{ id: string; email: string; mir: string }>()
     if (!person) return { ok: false as const, message: 'Няма такова записване.' }
     const warnings = section ? await assignmentWarnings(db, section, person.id, person.mir) : []
-    await db.prepare(`UPDATE signups SET draft_section = NULLIF(?, ''), updated_at = ? WHERE id = ?`).bind(section, new Date().toISOString(), data.id).run()
+    await db
+      .prepare(
+        `UPDATE signups
+         SET draft_section = NULLIF(?, ''),
+             draft_locked = CASE WHEN TRIM(?) = '' THEN 0 ELSE 1 END,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(section, section, new Date().toISOString(), data.id)
+      .run()
     return {
       ok: true as const,
       warning: warningSummary(warnings),

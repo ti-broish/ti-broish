@@ -188,7 +188,7 @@ test.describe('staff admin', () => {
     await expect(page.getByRole('button', { name: 'Направи чернови за страната' })).toBeVisible()
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.getByRole('button', { name: 'Направи чернови за страната' }).click()
-    await page.getByRole('button', { name: 'Да, запиши черновите (без публикуване)' }).click()
+    await page.getByRole('button', { name: 'Да, запиши черновите (без публикуване, корекциите остават)' }).click()
     const notice = page.getByText(/Записахме \d+ чернов/)
     await expect(notice).toBeVisible({ timeout: 90_000 })
     await page.waitForLoadState('networkidle')

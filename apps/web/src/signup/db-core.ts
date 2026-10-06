@@ -54,6 +54,7 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN submitted INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE signups ADD COLUMN notes TEXT',
   'ALTER TABLE signups ADD COLUMN draft_section TEXT',
+  'ALTER TABLE signups ADD COLUMN draft_locked INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE signups ADD COLUMN published_section TEXT',
   'ALTER TABLE signups ADD COLUMN published_at TEXT',
   'ALTER TABLE signups ADD COLUMN imported INTEGER NOT NULL DEFAULT 0',

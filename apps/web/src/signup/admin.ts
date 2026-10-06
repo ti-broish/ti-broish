@@ -56,6 +56,7 @@ interface RawPerson {
   email_confirmed: number
   imported: number
   draft_section: string
+  draft_locked: number
   published_section: string
   egn?: string
   notes: string
@@ -138,6 +139,7 @@ function fieldsOf(row: RawPerson): RosterFields {
     emailConfirmed: row.email_confirmed === 1,
     imported: row.imported === 1,
     draftSection: row.draft_section,
+    draftLocked: row.draft_locked === 1,
     publishedSection: row.published_section,
     egn: row.egn ?? '',
     ...notesFromRow(row),
@@ -402,7 +404,16 @@ export const adminDraft = createServerFn({ method: 'POST' })
     if (!access.ok) return access
     const db = access.db
     const section = normalizeSection(data.section).slice(0, 32)
-    await db.prepare(`UPDATE signups SET draft_section = NULLIF(?, ''), updated_at = ? WHERE id = ?`).bind(section, new Date().toISOString(), data.id).run()
+    await db
+      .prepare(
+        `UPDATE signups
+         SET draft_section = NULLIF(?, ''),
+             draft_locked = CASE WHEN TRIM(?) = '' THEN 0 ELSE 1 END,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(section, section, new Date().toISOString(), data.id)
+      .run()
     const taken = section
       ? await db.prepare('SELECT organisation FROM taken_sections WHERE section_code = ?').bind(section).first<{ organisation: string }>()
       : null

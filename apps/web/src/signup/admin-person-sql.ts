@@ -14,4 +14,5 @@ export const PERSON_SQL_BASE = `id, email,
   COALESCE(email_confirmed, 0) AS email_confirmed,
   COALESCE(imported, 0) AS imported,
   COALESCE(draft_section, '') AS draft_section,
+  COALESCE(draft_locked, 0) AS draft_locked,
   COALESCE(published_section, '') AS published_section`

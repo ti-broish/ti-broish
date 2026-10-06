@@ -20,6 +20,8 @@ function person(patch: Partial<DistributePerson> & Pick<DistributePerson, 'id' |
     municipalityCode: '46',
     cityRegionCode: '15',
     extraCityRegionCodes: [],
+    distantMirs: [],
+    travelStops: [],
     place: 'ул. А 1',
     companions: [],
     ...patch,
@@ -147,21 +149,41 @@ describe('distributeSections', () => {
     expect(outside.skipped[0]?.reason).toBe('no-section')
   })
 
-  it('leaves mobile people, wide travel, and abroad for later', () => {
+  it('leaves only the mobile team, video, and abroad for later', () => {
     const sections = [section({ id: '234615001', place: 'ул. А 1' })]
     const plan = distributeSections({
       people: [
         person({ id: 'm', email: 'm@example.com', role: 'mobile' }),
         person({ id: 't', email: 't@example.com', mobileTeam: true }),
         person({ id: 'v', email: 'v@example.com', role: 'video' }),
-        person({ id: 'd', email: 'd@example.com', radius: 'distant' }),
         person({ id: 'f', email: 'f@example.com', regionCode: '32', mir: '32', radius: 'settlement' }),
         person({ id: 'n', email: 'n@example.com', radius: '', townId: null }),
       ],
       sections,
     })
     expect(plan.assignments).toEqual([])
-    expect(plan.skipped.map((row) => row.reason)).toEqual(['mobile', 'mobile', 'mobile', 'wide', 'abroad', 'no-place'])
+    expect(plan.skipped.map((row) => row.reason)).toEqual(['mobile', 'mobile', 'video', 'abroad', 'no-place'])
+  })
+
+  it('keeps a volunteer who accepts other oblasts at home until home has no desk', () => {
+    const homeFirst = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com', radius: 'distant', distantMirs: ['02'], place: 'ул. А 1' })],
+      sections: [
+        section({ id: '234615001', place: 'ул. А 1', votersCount: null }),
+        section({ id: '023700001', place: 'Бургас', townId: 42, votersCount: 120 }),
+      ],
+    })
+    expect(homeFirst.assignments[0]?.sectionId).toBe('234615001')
+
+    const away = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com', radius: 'distant', distantMirs: ['02'], place: 'ул. А 1' })],
+      sections: [
+        section({ id: '234615001', place: 'ул. А 1', votersCount: 800 }),
+        section({ id: '023700001', place: 'Бургас', townId: 42, votersCount: 120 }),
+        section({ id: '163700001', place: 'Пловдив', townId: 99, votersCount: 80 }),
+      ],
+    })
+    expect(away.assignments[0]?.sectionId).toBe('023700001')
   })
 
   it('keeps an oblast volunteer in that oblast and prefers their address', () => {
@@ -311,16 +333,16 @@ describe('distribution sources', () => {
 
   it('describes the outcome for the team', () => {
     expect(
-      describeDistribution({ drafted: 2, paper: 2, mobile: 3, wide: 1, abroad: 0, noPlace: 0, noSection: 1, keptAtAddress: 1 }),
-    ).toBe('Записахме 2 чернови в хартиени секции. За после остават 3 мобилни, 1 с обхват в други области. Без свободна хартиена секция в обхвата: 1. 1 група е на един адрес.')
+      describeDistribution({ drafted: 2, paper: 2, mobile: 3, video: 0, abroad: 0, noPlace: 0, noSection: 1, keptAtAddress: 1 }),
+    ).toBe('Записахме 2 чернови в хартиени секции. За после остават 3 мобилни. Без свободна хартиена секция в обхвата: 1. 1 група е на един адрес.')
     expect(
-      describeDistribution({ drafted: 0, paper: 0, mobile: 1, wide: 1, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
-    ).toBe('Записахме 0 чернови. За после остават 1 мобилен, 1 с обхват в други области.')
+      describeDistribution({ drafted: 0, paper: 0, mobile: 1, video: 1, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
+    ).toBe('Записахме 0 чернови. За после остават 1 мобилен, 1 на видеонаблюдение.')
     expect(
-      describeDistribution({ drafted: 1, paper: 1, mobile: 0, wide: 0, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
+      describeDistribution({ drafted: 1, paper: 1, mobile: 0, video: 0, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
     ).toBe('Записахме 1 чернова в хартиена секция.')
     expect(
-      describeDistribution({ drafted: 0, paper: 0, mobile: 0, wide: 0, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
+      describeDistribution({ drafted: 0, paper: 0, mobile: 0, video: 0, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
     ).toBe('Записахме 0 чернови.')
   })
 })

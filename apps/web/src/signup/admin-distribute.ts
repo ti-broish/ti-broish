@@ -33,8 +33,13 @@ export const adminDistribute = createServerFn({ method: 'POST' })
     const municipalities = new Set<string>()
     for (const person of loaded.candidates) {
       if (person.townId != null) townIds.add(person.townId)
-      if ((person.radius === 'municipality' || person.radius === 'region') && person.municipalityCode && person.mir) {
+      if ((person.radius === 'municipality' || person.radius === 'region' || person.radius === 'distant') && person.municipalityCode && person.mir) {
         municipalities.add(`${person.mir.padStart(2, '0')}:${person.municipalityCode.padStart(2, '0')}`)
+      }
+      for (const stop of person.travelStops) {
+        const mir = stop.regionCode.trim().padStart(2, '0')
+        const code = stop.code.trim().padStart(2, '0')
+        if (/^\d{2}$/.test(mir) && /^\d{2}$/.test(code)) municipalities.add(`${mir}:${code}`)
       }
     }
     const municipalityTowns = await pool([...municipalities], 6, async (key) => {
@@ -92,7 +97,7 @@ export const adminDistribute = createServerFn({ method: 'POST' })
         drafted,
         paper,
         mobile: skipped('mobile'),
-        wide: skipped('wide'),
+        video: skipped('video'),
         abroad: skipped('abroad'),
         noPlace: skipped('no-place'),
         noSection: skipped('no-section'),
@@ -127,6 +132,8 @@ interface SignupRow {
   place: string
   radius: string
   extra_city_regions: string
+  distant_region_codes: string
+  travel_municipalities: string
   draft_section: string
   published_section: string
   payload: string
@@ -143,6 +150,8 @@ async function loadPeople(db: Database) {
         COALESCE(section_place, '') AS place,
         COALESCE(radius, '') AS radius,
         COALESCE(extra_city_regions, '[]') AS extra_city_regions,
+        COALESCE(distant_region_codes, '[]') AS distant_region_codes,
+        COALESCE(travel_municipalities, '[]') AS travel_municipalities,
         COALESCE(draft_section, '') AS draft_section,
         COALESCE(published_section, '') AS published_section,
         payload
@@ -206,6 +215,8 @@ async function loadPeople(db: Database) {
       municipalityCode: profile.municipalityCode,
       cityRegionCode: row.city_region_code || profile.cityRegionCode,
       extraCityRegionCodes: extra.length ? extra : profile.extraCityRegionCodes,
+      distantMirs: mirList(row.distant_region_codes),
+      travelStops: stopList(row.travel_municipalities),
       place: row.place,
       companions: group,
     })
@@ -282,6 +293,28 @@ function readPayload(payload: string) {
     }
   } catch {
     return empty
+  }
+}
+
+function mirList(raw: string) {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+  } catch {
+    return []
+  }
+}
+
+function stopList(raw: string) {
+  try {
+    const parsed = JSON.parse(raw) as Array<{ regionCode?: string; code?: string }>
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((item) => ({ regionCode: item?.regionCode ?? '', code: item?.code ?? '' }))
+      .filter((item) => item.regionCode && item.code)
+  } catch {
+    return []
   }
 }
 

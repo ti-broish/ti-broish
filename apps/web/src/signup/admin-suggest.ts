@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { normalizeSection } from './admin-csv'
 import { scoreSectionSuggestions } from './admin-assign'
+import { isSpecialBulgariaSection } from './stationary-sections'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows } from './staff'
 
@@ -123,12 +124,16 @@ async function loadPollingSections(townId: number, cityRegionCode?: string) {
     isMachine?: boolean
     is_machine?: boolean
   }>
-  return rows.map((row) => ({
-    id: String(row.id),
-    place: row.place ?? '',
-    votersCount: typeof row.votersCount === 'number' ? row.votersCount : typeof row.voters_count === 'number' ? row.voters_count : null,
-    isMachine: typeof row.isMachine === 'boolean' ? row.isMachine : typeof row.is_machine === 'boolean' ? row.is_machine : null,
-  }))
+  return rows.flatMap((row) => {
+    const id = String(row.id)
+    if (isSpecialBulgariaSection(id)) return []
+    return [{
+      id,
+      place: row.place ?? '',
+      votersCount: typeof row.votersCount === 'number' ? row.votersCount : typeof row.voters_count === 'number' ? row.voters_count : null,
+      isMachine: typeof row.isMachine === 'boolean' ? row.isMachine : typeof row.is_machine === 'boolean' ? row.is_machine : null,
+    }]
+  })
 }
 
 function placeFromPayload(payload: string): { townId?: number; cityRegionCode?: string } {

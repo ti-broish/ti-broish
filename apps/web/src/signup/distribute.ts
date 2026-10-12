@@ -1,5 +1,6 @@
 import { normalizeSection } from './admin-csv'
 import { normalizeAddress, sectionDesk } from './sections'
+import { isSpecialBulgariaSection } from './stationary-sections'
 
 export type SkipReason = 'mobile' | 'video' | 'abroad' | 'no-place' | 'no-section'
 export type Together = 'address' | 'town' | 'municipality' | 'region' | 'solo'
@@ -242,7 +243,7 @@ export function readPollingSections(payload: unknown, fallbackTownId: number): D
       townId,
       votersCount: numberOrNull(row.votersCount) ?? numberOrNull(row.voters_count),
       isMachine: boolOrNull(row.isMachine) ?? boolOrNull(row.is_machine),
-      isMobile: boolOrNull(row.isMobile) ?? boolOrNull(row.is_mobile),
+      isMobile: isSpecialBulgariaSection(id) ? true : (boolOrNull(row.isMobile) ?? boolOrNull(row.is_mobile)),
     })
   }
   return sections

@@ -168,6 +168,14 @@ test.describe('staff admin', () => {
     await expect(page.getByRole('button', { name: 'Запази' })).toBeVisible()
   })
 
+  test('a name in Секции opens that person', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/admin/sections')
+    await page.getByRole('link', { name: 'Петър Петров' }).click()
+    await expect(page).toHaveURL(/\/admin\/signups\/e2e-call$/)
+    await expect(page.getByRole('heading', { name: 'Петър Петров Петров' })).toBeVisible()
+  })
+
   test('distribution lists only finished signups and marks paper against machine', async ({ page }) => {
     test.setTimeout(120_000)
     await signIn(page)

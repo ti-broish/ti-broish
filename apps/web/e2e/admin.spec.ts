@@ -193,6 +193,11 @@ test.describe('staff admin', () => {
     await expect(notice).toBeVisible({ timeout: 90_000 })
     await page.waitForLoadState('networkidle')
     await expect(notice).toBeVisible()
+    await page.getByRole('button', { name: 'Изчисти черновите' }).click()
+    await page.getByRole('button', { name: 'Да, изчисти черновите (публикуваните остават)' }).click()
+    await expect(page.getByText(/Изчистихме \d+ чернов/)).toBeVisible()
+    await page.getByRole('button', { name: 'Публикувани', exact: true }).click()
+    await expect(page.getByRole('table').getByText(STAFF_EMAIL)).toBeVisible()
   })
 })
 

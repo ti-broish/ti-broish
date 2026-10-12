@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  describeClearedDrafts,
   describeDistribution,
   distributeSections,
   distributionHold,
@@ -400,6 +401,9 @@ describe('distribution sources', () => {
     expect(
       describeDistribution({ drafted: 0, paper: 0, mobile: 0, video: 0, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0, kept: 2 }),
     ).toBe('Записахме 0 чернови. Задържахме 2 корекции.')
+    expect(describeClearedDrafts(0)).toBe('Няма чернови за изчистване. Публикуваните секции остават.')
+    expect(describeClearedDrafts(1)).toBe('Изчистихме 1 чернова. Публикуваните секции остават.')
+    expect(describeClearedDrafts(12)).toBe('Изчистихме 12 чернови. Публикуваните секции остават.')
   })
 
   it('keeps a saved correction and lets the next run reuse an unlocked draft', () => {

@@ -130,7 +130,33 @@ describe('signup progress', () => {
       },
     )
     expect(travelled.radius).toBe('settlement')
+    expect(travelled.distantRegionCodes).toEqual([])
     expect(staffTravelText(travelled)).toBe('В гр. София')
+    const narrowed = applyStaffEdit(
+      {
+        ...sealed,
+        place: sofia,
+        radius: 'region',
+        extraCityRegions: [{ code: '09', name: 'Лозенец' }],
+        distantRegionCodes: ['06'],
+        travelMunicipalities: [{ regionCode: '06', regionName: 'Враца', code: '20', name: 'Козлодуй' }],
+      },
+      {
+        firstName: 'Мария',
+        middleName: '',
+        lastName: '',
+        phone: '',
+        role: 'section',
+        roundsFirst: true,
+        roundsRunoff: true,
+        experience: null,
+        radius: 'municipality',
+      },
+    )
+    expect(narrowed.extraCityRegions).toEqual([])
+    expect(narrowed.distantRegionCodes).toEqual([])
+    expect(narrowed.travelMunicipalities).toEqual([])
+    expect(staffTravelText(narrowed)).toBe('В община Столична')
     const stored = staffWrite(travelled, { at: '', by: '' }, '')
     expect(stored.radius).toBe('settlement')
     expect(stored).not.toHaveProperty('email')

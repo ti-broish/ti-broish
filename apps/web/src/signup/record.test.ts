@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyProfile } from './model'
+import { emptyProfile, scopeForRadius, toggleDistantCodes } from './model'
 import { companionRows, signupColumns, storedProfile } from './record'
 
 describe('signup columns', () => {
@@ -73,5 +73,53 @@ describe('signup columns', () => {
       },
     ])
     expect(people[0]).toMatchObject({ inGroup: 0, email: 'maria@example.com' })
+  })
+
+  it('drops municipalities and districts that the chosen distance does not use', () => {
+    const place = {
+      regionCode: 'sofia-merged',
+      regionName: 'София-град',
+      municipalityName: 'Столична',
+      townName: 'гр. София',
+      cityRegionCode: '15',
+      cityRegionName: 'Младост',
+    }
+    const kozloduy = { regionCode: '06', regionName: 'Враца', code: '20', name: 'Козлодуй' }
+    const lozenets = { code: '09', name: 'Лозенец' }
+    const town = signupColumns({
+      ...emptyProfile(),
+      place,
+      radius: 'settlement',
+      extraCityRegions: [lozenets],
+      distantRegionCodes: ['06', '26'],
+      travelMunicipalities: [kozloduy],
+    })
+    expect(JSON.parse(town.extraCityRegions)).toEqual([])
+    expect(JSON.parse(town.distantRegionCodes)).toEqual([])
+    expect(JSON.parse(town.travelMunicipalities)).toEqual([])
+    expect(JSON.parse(town.payload).travelMunicipalities).toEqual([])
+
+    const nearby = signupColumns({
+      ...emptyProfile(),
+      place,
+      radius: 'nearby',
+      extraCityRegions: [lozenets],
+      travelMunicipalities: [kozloduy],
+    })
+    expect(JSON.parse(nearby.extraCityRegions)).toEqual([lozenets])
+    expect(JSON.parse(nearby.travelMunicipalities)).toEqual([])
+
+    const region = scopeForRadius('region', { regionCode: '06', regionName: 'Враца' }, {
+      extraCityRegions: [lozenets],
+      distantRegionCodes: ['02'],
+      travelMunicipalities: [kozloduy, { regionCode: '02', regionName: 'Бургас', code: '00', name: 'Бургас' }],
+    })
+    expect(region.travelMunicipalities).toEqual([kozloduy])
+    expect(region.distantRegionCodes).toEqual([])
+    expect(region.extraCityRegions).toEqual([])
+
+    const removed = toggleDistantCodes(['06', '02'], [kozloduy, { regionCode: '02', regionName: 'Бургас', code: '00', name: 'Бургас' }], '06')
+    expect(removed.distantRegionCodes).toEqual(['02'])
+    expect(removed.travelMunicipalities.map((stop) => stop.name)).toEqual(['Бургас'])
   })
 })

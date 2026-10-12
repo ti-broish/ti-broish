@@ -15,6 +15,7 @@ import {
   cityRegionOutlines,
   highlightCodes,
   placeLabel,
+  toggleDistantCodes,
   placeOutline,
   placeReady,
   radiusOptions,
@@ -567,10 +568,7 @@ function townPlain(name: string | undefined) {
 function toggleDistant(profile: Profile, code: string) {
   const home = profile.place?.regionCode
   if (code === home || (home === 'sofia-merged' && ['23', '24', '25'].includes(code))) return
-  const exists = profile.distantRegionCodes.includes(code)
-  updateProfile({
-    distantRegionCodes: exists ? profile.distantRegionCodes.filter((item) => item !== code) : [...profile.distantRegionCodes, code],
-  })
+  updateProfile(toggleDistantCodes(profile.distantRegionCodes, profile.travelMunicipalities, code))
 }
 
 function PlaceStep({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
@@ -674,6 +672,7 @@ function PlaceStep({ error, onError, onNext }: { error: string; onError: (value:
               radius: regionChanged || districtChanged ? null : profile.radius,
               distantRegionCodes: regionChanged ? [] : profile.distantRegionCodes,
               extraCityRegions: regionChanged || districtChanged ? [] : profile.extraCityRegions,
+              travelMunicipalities: regionChanged || districtChanged ? [] : profile.travelMunicipalities,
             })
           }}
         />

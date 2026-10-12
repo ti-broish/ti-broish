@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { HomePlace, Profile } from '../src/signup/model'
-import { nextWaveLabel, seedProfile } from './helpers'
+import { nextWaveLabel, seedProfile, SIGNUP_STORAGE_KEY } from './helpers'
 
 const sofia: HomePlace = {
   regionCode: 'sofia-merged',
@@ -60,6 +60,52 @@ test('a city district does not ask for car seats, and travel outside the city do
   await page.getByRole('button', { name: 'Напред' }).click()
   await expect(page.getByRole('heading', { name: 'Променяш местата в колата' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Имаш ли кола?' })).toBeVisible()
+})
+
+test('a narrower distance clears municipalities and districts from a wider one', async ({ page }) => {
+  await seedProfile(
+    page,
+    registered({
+      radius: 'region',
+      extraCityRegions: [{ code: '09', name: 'Лозенец' }],
+      distantRegionCodes: ['06', '26'],
+      travelMunicipalities: [{ regionCode: '06', regionName: 'Враца', code: '20', name: 'Козлодуй' }],
+    }),
+  )
+  await page.goto('/signup?step=travel')
+  await expect(page.getByRole('radio', { name: 'В София-град' })).toBeChecked()
+  await page.getByRole('radio', { name: 'В гр. София' }).check()
+  await expect(page.getByRole('radio', { name: 'В гр. София' })).toBeChecked()
+  const saved = await page.evaluate((key) => localStorage.getItem(key), SIGNUP_STORAGE_KEY)
+  const stored = JSON.parse(saved ?? '{}') as {
+    radius?: string
+    extraCityRegions?: unknown[]
+    distantRegionCodes?: unknown[]
+    travelMunicipalities?: unknown[]
+  }
+  expect(stored.radius).toBe('settlement')
+  expect(stored.extraCityRegions).toEqual([])
+  expect(stored.distantRegionCodes).toEqual([])
+  expect(stored.travelMunicipalities).toEqual([])
+  await expect(page.getByText('Козлодуй')).toHaveCount(0)
+  await expect(page.getByText('Лозенец')).toHaveCount(0)
+})
+
+test('a municipality distance does not show leftover municipalities', async ({ page }) => {
+  await seedProfile(
+    page,
+    registered({
+      radius: 'municipality',
+      extraCityRegions: [{ code: '09', name: 'Лозенец' }],
+      travelMunicipalities: [{ regionCode: '06', regionName: 'Враца', code: '20', name: 'Козлодуй' }],
+    }),
+  )
+  await page.goto('/profil')
+  await expect(page.getByText('В община Столична')).toBeVisible()
+  await expect(page.getByText('Козлодуй')).toHaveCount(0)
+  await expect(page.getByText('Лозенец')).toHaveCount(0)
+  await page.goto('/signup?step=travel')
+  await expect(page.getByRole('radio', { name: 'В община Столична' })).toBeChecked()
 })
 
 test('a mobile team inside the city only answers about a drone', async ({ page }) => {

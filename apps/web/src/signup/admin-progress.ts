@@ -1,5 +1,6 @@
 import {
   radiusOptions,
+  scopeForRadius,
   signupGap,
   type Experience,
   type HomePlace,
@@ -60,7 +61,11 @@ export interface StaffEdit {
 
 export function applyStaffEdit(profile: Profile, edit: StaffEdit): Profile {
   const radius = edit.radius === undefined ? profile.radius : edit.radius
-  const nearby = radius === 'nearby'
+  const scoped = scopeForRadius(radius, profile.place, {
+    extraCityRegions: edit.extraCityRegions === undefined ? profile.extraCityRegions : edit.extraCityRegions,
+    distantRegionCodes: edit.distantRegionCodes === undefined ? profile.distantRegionCodes : edit.distantRegionCodes,
+    travelMunicipalities: edit.travelMunicipalities === undefined ? profile.travelMunicipalities : edit.travelMunicipalities,
+  })
   return {
     ...profile,
     firstName: edit.firstName.trim(),
@@ -71,9 +76,7 @@ export function applyStaffEdit(profile: Profile, edit: StaffEdit): Profile {
     rounds: { first: edit.roundsFirst, runoff: edit.roundsRunoff },
     experience: edit.experience,
     radius,
-    extraCityRegions: edit.extraCityRegions === undefined ? (nearby ? profile.extraCityRegions : []) : nearby ? edit.extraCityRegions : [],
-    distantRegionCodes: edit.distantRegionCodes === undefined ? profile.distantRegionCodes : edit.distantRegionCodes,
-    travelMunicipalities: edit.travelMunicipalities === undefined ? profile.travelMunicipalities : edit.travelMunicipalities,
+    ...scoped,
   }
 }
 
@@ -181,16 +184,11 @@ const REGION_NAMES: Record<string, string> = {
 export function staffTravelText(profile: Pick<Profile, 'place' | 'radius' | 'extraCityRegions' | 'distantRegionCodes' | 'travelMunicipalities'>) {
   const option = radiusOptions(profile.place).find((item) => item.id === profile.radius)
   if (!option) return 'Без обхват'
+  const scoped = scopeForRadius(profile.radius, profile.place, profile)
   const parts = [option.label]
-  if (profile.radius === 'nearby' && profile.extraCityRegions.length > 0) {
-    parts.push(profile.extraCityRegions.map((item) => item.name).join(', '))
-  }
-  if (profile.radius === 'distant' && profile.distantRegionCodes.length > 0) {
-    parts.push(profile.distantRegionCodes.map((code) => REGION_NAMES[code] ?? code).join(', '))
-  }
-  if ((profile.radius === 'region' || profile.radius === 'distant') && profile.travelMunicipalities.length > 0) {
-    parts.push(profile.travelMunicipalities.map((item) => item.name).join(', '))
-  }
+  if (scoped.extraCityRegions.length > 0) parts.push(scoped.extraCityRegions.map((item) => item.name).join(', '))
+  if (scoped.distantRegionCodes.length > 0) parts.push(scoped.distantRegionCodes.map((code) => REGION_NAMES[code] ?? code).join(', '))
+  if (scoped.travelMunicipalities.length > 0) parts.push(scoped.travelMunicipalities.map((item) => item.name).join(', '))
   return parts.join(' · ')
 }
 

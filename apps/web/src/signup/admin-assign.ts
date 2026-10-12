@@ -177,7 +177,8 @@ function tokens(value: string) {
   return value.split(/[\s,./\-]+/).filter(Boolean)
 }
 
-export function travelLabelOf(raw: string) {
+export function travelLabelOf(raw: string, radius = '') {
+  if (radius !== 'region' && radius !== 'distant') return ''
   return travelNamesOf(raw).slice(0, 3).join(', ')
 }
 

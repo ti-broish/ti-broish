@@ -1,4 +1,4 @@
-import { EXPERIENCE, placeLabel, radiusOptions, roleLabel, type Companion, type Profile } from '../signup/model'
+import { EXPERIENCE, placeLabel, radiusOptions, roleLabel, scopeForRadius, type Companion, type Profile } from '../signup/model'
 
 export function profileFacts(profile: Profile): { label: string; value: string }[] {
   return [
@@ -44,9 +44,10 @@ function daysValue(profile: Profile) {
 function travelValue(profile: Profile) {
   if (profile.role === 'video') return 'От вкъщи'
   const radius = radiusOptions(profile.place).find((item) => item.id === profile.radius)?.label
+  const scoped = scopeForRadius(profile.radius, profile.place, profile)
   const extras = [
-    profile.extraCityRegions.map((region) => region.name).join(', '),
-    profile.travelMunicipalities.map((stop) => stop.name).join(', '),
+    scoped.extraCityRegions.map((region) => region.name).join(', '),
+    scoped.travelMunicipalities.map((stop) => stop.name).join(', '),
     ...vehicleNotes(profile),
   ].filter(Boolean)
   if (!radius && extras.length === 0) return 'Още не е избрано'

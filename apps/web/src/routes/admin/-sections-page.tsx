@@ -4,7 +4,7 @@ import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminChipOn, adminGhost, adminInput } from '../../components/admin-ui'
 import { adminRoster } from '../../signup/admin'
 import { adminPublish } from '../../signup/admin-assign-actions'
-import { adminDistribute } from '../../signup/admin-distribute'
+import { adminClearDrafts, adminDistribute } from '../../signup/admin-distribute'
 import { adminNotifyAssignment, adminPublishOne } from '../../signup/assignment-notify'
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
@@ -33,7 +33,9 @@ export function SectionsPage() {
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [armed, setArmed] = useState(false)
   const [armedDraft, setArmedDraft] = useState(false)
+  const [armedClear, setArmedClear] = useState(false)
   const [distributing, setDistributing] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [draftValues, setDraftValues] = useState<Record<string, string>>({})
   const [rowWarnings, setRowWarnings] = useState<Record<string, AssignWarning[]>>({})
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion[]>>({})
@@ -53,6 +55,7 @@ export function SectionsPage() {
   function load(notice = '') {
     setArmed(false)
     setArmedDraft(false)
+    setArmedClear(false)
     setPhase('loading')
     void adminRoster({ data: { view: search.view, mir: search.mir, q: search.q, page: 1, limit: 100, sort: 'updated', dir: 'desc', finished: true } }).then((result) => {
       if (!result.ok) {
@@ -82,7 +85,7 @@ export function SectionsPage() {
 
   return (
     <div className="grid gap-5">
-      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. „Направи чернови за страната“ слага чернови по избрания обхват, първо в хартиена секция под 300 избиратели. Група се държи на един адрес, после в града, после в общината, после в областта. Човек, който приема и други области, остава първо в своята. Мобилният екип остава за после. „Запази“ на реда държи тази чернова при следващо пускане. Останалите чернови се смятат наново. Черновата се вижда само тук, докато не я публикуваш." />
+      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. „Направи чернови за страната“ слага чернови по избрания обхват, първо в хартиена секция под 300 избиратели. Група се държи на един адрес, после в града, после в общината, после в областта. Човек, който приема и други области, остава първо в своята. Мобилният екип остава за после. „Запази“ на реда държи тази чернова при следващо пускане. Останалите чернови се смятат наново. „Изчисти черновите“ маха и заключените със „Запази“, за да ги сметнем отначало. Публикуваните секции остават. Черновата се вижда само тук, докато не я публикуваш." />
       <label className="grid max-w-md gap-1 text-sm font-bold text-[#1a1020]" htmlFor="section-search">
         Търсене
         <input id="section-search" className={adminInput} type="search" value={draft} placeholder="Име, имейл, телефон или ЕГН" onChange={(event) => setDraft(event.target.value)} />
@@ -116,29 +119,56 @@ export function SectionsPage() {
         </button>
       </form>
       {canEdit ? (
-        <button
-          type="button"
-          className={armedDraft ? 'brand-button w-auto px-6' : adminGhost}
-          disabled={distributing}
-          onClick={() => {
-            if (!armedDraft) {
-              setArmedDraft(true)
-              return
-            }
-            setArmedDraft(false)
-            setDistributing(true)
-            void adminDistribute().then((result) => {
-              setDistributing(false)
-              setMessage(result.message)
-              if (result.ok) load(result.message)
-            }).catch(() => {
-              setDistributing(false)
-              setMessage('Черновите не се записаха. Опитай пак.')
-            })
-          }}
-        >
-          {distributing ? 'Смятаме черновите…' : armedDraft ? 'Да, запиши черновите (без публикуване, корекциите остават)' : 'Направи чернови за страната'}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={armedDraft ? 'brand-button w-auto px-6' : adminGhost}
+            disabled={distributing || clearing}
+            onClick={() => {
+              if (!armedDraft) {
+                setArmedClear(false)
+                setArmedDraft(true)
+                return
+              }
+              setArmedDraft(false)
+              setDistributing(true)
+              void adminDistribute().then((result) => {
+                setDistributing(false)
+                setMessage(result.message)
+                if (result.ok) load(result.message)
+              }).catch(() => {
+                setDistributing(false)
+                setMessage('Черновите не се записаха. Опитай пак.')
+              })
+            }}
+          >
+            {distributing ? 'Смятаме черновите…' : armedDraft ? 'Да, запиши черновите (без публикуване, корекциите остават)' : 'Направи чернови за страната'}
+          </button>
+          <button
+            type="button"
+            className={armedClear ? 'brand-button w-auto px-6' : adminGhost}
+            disabled={distributing || clearing}
+            onClick={() => {
+              if (!armedClear) {
+                setArmedDraft(false)
+                setArmedClear(true)
+                return
+              }
+              setArmedClear(false)
+              setClearing(true)
+              void adminClearDrafts().then((result) => {
+                setClearing(false)
+                setMessage(result.message)
+                if (result.ok) load(result.message)
+              }).catch(() => {
+                setClearing(false)
+                setMessage('Черновите не се изчистиха. Опитай пак.')
+              })
+            }}
+          >
+            {clearing ? 'Чистим черновите…' : armedClear ? 'Да, изчисти черновите (публикуваните остават)' : 'Изчисти черновите'}
+          </button>
+        </div>
       ) : null}
       {canPublish ? (
         <button

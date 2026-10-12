@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { normalizeSection } from './admin-csv'
 import {
+  describeClearedDrafts,
   describeDistribution,
   distributeSections,
   distributionHold,
@@ -119,6 +120,29 @@ export const adminDistribute = createServerFn({ method: 'POST' })
         keptAtAddress: plan.keptAtAddress,
       }),
     }
+  })
+
+const pendingDraft = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
+
+export const adminClearDrafts = createServerFn({ method: 'POST' })
+  .handler(async () => {
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const countRow = await access.db.prepare(`SELECT COUNT(*) AS n FROM signups WHERE ${pendingDraft}`).first<{ n: number }>()
+    const cleared = Number(countRow?.n ?? 0)
+    if (cleared > 0) {
+      await access.db
+        .prepare(
+          `UPDATE signups
+           SET draft_section = NULLIF(COALESCE(published_section, ''), ''),
+               draft_locked = 0,
+               updated_at = ?
+           WHERE ${pendingDraft}`,
+        )
+        .bind(new Date().toISOString())
+        .run()
+    }
+    return { ok: true as const, cleared, message: describeClearedDrafts(cleared) }
   })
 
 async function gate(action: StaffAction): Promise<{ ok: true; db: Database; email: string; role: StaffRole } | Denial> {

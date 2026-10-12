@@ -178,6 +178,14 @@ export function describeDistribution(input: {
   return sentences.join(' ')
 }
 
+/** Pending drafts, including ones kept with Запази. A published section is not a draft. */
+export function describeClearedDrafts(count: number) {
+  const kept = 'Публикуваните секции остават.'
+  if (count <= 0) return `Няма чернови за изчистване. ${kept}`
+  if (count === 1) return `Изчистихме 1 чернова. ${kept}`
+  return `Изчистихме ${count} чернови. ${kept}`
+}
+
 /** The public section list omits voter counts. Results files include stats.voters per section. */
 export function votersFromResults(payload: unknown) {
   const found = new Map<string, number>()

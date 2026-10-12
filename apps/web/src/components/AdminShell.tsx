@@ -263,32 +263,77 @@ function AdminLink({
 function StaffSignIn({ onDone }: { onDone: () => void }) {
   const { profile, ready } = useProfile()
   const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
   const [note, setNote] = useState('')
+  const [preview, setPreview] = useState('')
+  const [phase, setPhase] = useState<'email' | 'code'>('email')
   useEffect(() => {
     if (ready && profile.email) setEmail(profile.email)
   }, [ready, profile.email])
+
+  function submit(nextCode: string) {
+    setNote('')
+    void claimStaffSession({ data: { email, code: nextCode } }).then((result) => {
+      if ('needsCode' in result && result.needsCode) {
+        setPreview(result.previewCode)
+        setPhase('code')
+        setNote('')
+        return
+      }
+      if (!result.ok) {
+        setNote(result.message)
+        return
+      }
+      onDone()
+    })
+  }
+
+  if (phase === 'code') {
+    return (
+      <form
+        className="grid gap-3"
+        onSubmit={(event) => {
+          event.preventDefault()
+          submit(code)
+        }}
+      >
+        <p className="text-[#1a1020]">Изпратихме шестцифрен код на {email}. Списъкът се отваря след кода.</p>
+        {preview ? <p className="text-[#1a1020]">Оттук писмото не тръгва. Кодът е {preview}.</p> : null}
+        <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="staff-code">
+          Код от писмото
+          <input
+            id="staff-code"
+            className={field}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+          />
+        </label>
+        {note ? <p className="text-sm font-bold text-[#8f1d1d]">{note}</p> : null}
+        <button className={button} type="submit">
+          Влез в списъка
+        </button>
+      </form>
+    )
+  }
+
   return (
     <form
       className="grid gap-3"
       onSubmit={(event) => {
         event.preventDefault()
-        void claimStaffSession({ data: { email } }).then((result) => {
-          if (!result.ok) {
-            setNote(result.message)
-            return
-          }
-          onDone()
-        })
+        submit('')
       }}
     >
-      <p className="text-[#1a1020]">Профилът на това устройство не отваря списъка. Влез с имейла, с който си в екипа.</p>
+      <p className="text-[#1a1020]">Профилът на това устройство не отваря списъка. Влез с имейла, с който си в екипа. Пращаме шестцифрен код.</p>
       <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="staff-email">
         Имейл
         <input id="staff-email" className={field} type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
       </label>
       {note ? <p className="text-sm font-bold text-[#8f1d1d]">{note}</p> : null}
       <button className={button} type="submit">
-        Влез в списъка
+        Изпрати код
       </button>
     </form>
   )

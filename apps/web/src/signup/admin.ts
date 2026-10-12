@@ -25,7 +25,7 @@ import {
 } from './admin-progress'
 import { auditLines, staffAuditChanges, type AuditLine } from './admin-audit'
 import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
-import { deliverMail, importConfirmMail, staffInviteMail } from './mail'
+import { confirmCodeMail, deliverMail, importConfirmMail, isDevMailHost, staffInviteMail } from './mail'
 import { emptyProfile, validEmail, type Profile } from './model'
 import { signupColumns } from './record'
 import { sessionCookieSecure } from './session-cookie'
@@ -119,6 +119,10 @@ function referralCode() {
 
 function secretToken() {
   return `${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`
+}
+
+function sixDigit() {
+  return String((crypto.getRandomValues(new Uint32Array(1))[0] ?? 0) % 1_000_000).padStart(6, '0')
 }
 
 function fieldsOf(row: RawPerson): RosterFields {
@@ -237,20 +241,40 @@ async function queryPeople(db: Database, view: string, mir: string, q: string, l
   }
 }
 
+/** A staff email is not proof of the mailbox. The code has to match before the session cookie is set. */
 export const claimStaffSession = createServerFn({ method: 'POST' })
-  .validator((input: { email: string }) => input)
+  .validator((input: { email: string; code?: string }) => input)
   .handler(async ({ data }) => {
     const db = await signupDatabase()
     const email = data.email.trim().toLowerCase()
+    const code = (data.code ?? '').trim()
     if (!db) return { ok: false as const, message: 'Няма база за записванията.' }
     if (!validEmail(email)) return { ok: false as const, message: 'Имейлът не е валиден.' }
     const row = await db
-      .prepare('SELECT session_token, email_confirmed FROM signups WHERE lower(email) = ?')
+      .prepare('SELECT session_token, email_confirmed, email_code FROM signups WHERE lower(email) = ?')
       .bind(email)
-      .first<{ session_token: string | null; email_confirmed: number }>()
+      .first<{ session_token: string | null; email_confirmed: number; email_code: string | null }>()
     if (!row?.email_confirmed || !row.session_token) return { ok: false as const, message: 'Няма потвърден профил с този имейл.' }
     const member = await db.prepare('SELECT role FROM staff WHERE email = ?').bind(email).first<{ role: string }>()
     if (!parseStaffRole(member?.role)) return { ok: false as const, message: 'Този имейл не е поканен в екипа.' }
+    if (!code) {
+      const next = sixDigit()
+      const now = new Date().toISOString()
+      await db.prepare('UPDATE signups SET email_code = ?, updated_at = ? WHERE lower(email) = ?').bind(next, now, email).run()
+      const sent = await deliverMail(confirmCodeMail(email, next))
+      if (!sent && !isDevMailHost()) {
+        await db.prepare('UPDATE signups SET email_code = NULL WHERE lower(email) = ?').bind(email).run()
+        return { ok: false as const, message: 'Писмото не тръгна. Опитай отново след малко.' }
+      }
+      return {
+        ok: false as const,
+        needsCode: true as const,
+        previewCode: sent ? '' : next,
+        message: 'Изпратихме шестцифрен код на този имейл.',
+      }
+    }
+    if (!row.email_code || code !== row.email_code) return { ok: false as const, message: 'Кодът не съвпада.' }
+    await db.prepare('UPDATE signups SET email_code = NULL, updated_at = ? WHERE lower(email) = ?').bind(new Date().toISOString(), email).run()
     setCookie(SESSION_COOKIE, row.session_token, {
       httpOnly: true,
       secure: sessionCookieSecure(new URL(getRequestUrl()).hostname),

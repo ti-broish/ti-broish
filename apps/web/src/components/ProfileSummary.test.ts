@@ -45,6 +45,7 @@ describe('profile facts', () => {
         },
         radius: 'nearby',
         extraCityRegions: [{ code: '09', name: 'Лозенец' }],
+        travelMunicipalities: [{ regionCode: '06', regionName: 'Враца', code: '20', name: 'Козлодуй' }],
         hasCar: true,
         carSeats: 2,
         hasDrone: false,
@@ -56,6 +57,7 @@ describe('profile facts', () => {
     expect(facts['Дни']).toBe('25 октомври')
     expect(facts['Място']).toContain('Младост')
     expect(facts['Пътуване']).toContain('Лозенец')
+    expect(facts['Пътуване']).not.toContain('Козлодуй')
     expect(facts['Пътуване']).toContain('кола, 2 места')
     expect(facts['Пътуване']).toContain('без дрон')
     expect(facts['Опит']).toBe('Броил си 1–2 пъти')

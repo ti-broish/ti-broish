@@ -72,7 +72,8 @@ describe('scoreSectionSuggestions', () => {
   })
 
   it('labels the first travel stops', () => {
-    expect(travelLabelOf('[{"name":"Младост"},{"name":"Люлин"},{"name":"Овча купел"},{"name":"Излишък"}]')).toBe('Младост, Люлин, Овча купел')
-    expect(travelLabelOf('не е json')).toBe('')
+    expect(travelLabelOf('[{"name":"Младост"},{"name":"Люлин"},{"name":"Овча купел"},{"name":"Излишък"}]', 'region')).toBe('Младост, Люлин, Овча купел')
+    expect(travelLabelOf('[{"name":"Козлодуй"}]', 'municipality')).toBe('')
+    expect(travelLabelOf('не е json', 'distant')).toBe('')
   })
 })

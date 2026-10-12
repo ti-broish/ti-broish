@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchRegions, fetchTowns, type ElectionRegion } from '../signup/geo'
-import { radiusOptions, type NamedPlace, type Profile, type TravelStop } from '../signup/model'
+import { homeRegionCodes, radiusOptions, scopeForRadius, type NamedPlace, type Profile, type TravelStop } from '../signup/model'
 import { machineOnlyPlace, needsWiderTravel } from '../signup/rules'
 import { updateProfile } from '../signup/store'
 import { OblastPicker } from './OblastPicker'
@@ -43,7 +43,7 @@ export function TravelChoice({ profile }: { profile: Profile }) {
       .then(setRegions)
       .catch(() => undefined)
   }, [])
-  const homeCodes = profile.place?.regionCode === 'sofia-merged' ? ['23', '24', '25'] : profile.place?.regionCode ? [profile.place.regionCode] : []
+  const homeCodes = homeRegionCodes(profile.place)
   const oblastCodes = profile.radius === 'distant' ? profile.distantRegionCodes : profile.radius === 'region' ? homeCodes : []
   const stops = regions
     .filter((region) => oblastCodes.includes(region.code))
@@ -54,9 +54,10 @@ export function TravelChoice({ profile }: { profile: Profile }) {
 
   function toggleDistrict(item: NamedPlace) {
     const exists = profile.extraCityRegions.some((region) => region.code === item.code)
+    const extraCityRegions = exists ? profile.extraCityRegions.filter((region) => region.code !== item.code) : [...profile.extraCityRegions, item]
     updateProfile({
       radius: 'nearby',
-      extraCityRegions: exists ? profile.extraCityRegions.filter((region) => region.code !== item.code) : [...profile.extraCityRegions, item],
+      ...scopeForRadius('nearby', profile.place, { ...profile, extraCityRegions }),
     })
   }
 
@@ -88,7 +89,7 @@ export function TravelChoice({ profile }: { profile: Profile }) {
               onChange={() =>
                 updateProfile({
                   radius: option.id,
-                  extraCityRegions: option.id === 'nearby' ? profile.extraCityRegions : [],
+                  ...scopeForRadius(option.id, profile.place, profile),
                 })
               }
             />

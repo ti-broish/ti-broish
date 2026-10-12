@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchRegions, type ElectionRegion } from '../signup/geo'
-import { radiusOptions, type HomePlace, type NamedPlace, type Radius, type TravelStop } from '../signup/model'
+import { homeRegionCodes, radiusOptions, scopeForRadius, toggleDistantCodes, type HomePlace, type NamedPlace, type Radius, type TravelStop } from '../signup/model'
 import { OBLASTS } from '../signup/oblasts'
 import { machineOnlyPlace, needsWiderTravel } from '../signup/rules'
 import { useTownDistricts } from './TravelChoice'
@@ -40,9 +40,8 @@ export function StaffTravel({
       .catch(() => undefined)
   }, [])
 
-  const homeKey = place?.regionCode ?? ''
-  const homeCodes = homeKey === 'sofia-merged' ? ['23', '24', '25'] : homeKey ? [homeKey] : []
-  const home = useMemo(() => new Set(homeKey === 'sofia-merged' ? ['23', '24', '25'] : homeKey ? [homeKey] : []), [homeKey])
+  const homeCodes = homeRegionCodes(place)
+  const home = useMemo(() => new Set(homeRegionCodes(place)), [place?.regionCode])
   const oblastCodes = radius === 'distant' ? distantRegionCodes : radius === 'region' ? homeCodes : []
   const stops = regions
     .filter((region) => oblastCodes.includes(region.code))
@@ -68,24 +67,18 @@ export function StaffTravel({
   }
 
   function chooseRadius(id: Radius) {
-    commit({ radius: id, extraCityRegions: id === 'nearby' ? extraCityRegions : [] })
+    commit({ radius: id, ...scopeForRadius(id, place, { extraCityRegions, distantRegionCodes, travelMunicipalities }) })
   }
 
   function toggleDistrict(item: NamedPlace) {
     const exists = extraCityRegions.some((region) => region.code === item.code)
-    commit({
-      radius: 'nearby',
-      extraCityRegions: exists ? extraCityRegions.filter((region) => region.code !== item.code) : [...extraCityRegions, item],
-    })
+    const next = exists ? extraCityRegions.filter((region) => region.code !== item.code) : [...extraCityRegions, item]
+    commit({ radius: 'nearby', ...scopeForRadius('nearby', place, { extraCityRegions: next, distantRegionCodes, travelMunicipalities }) })
   }
 
   function toggleCode(code: string) {
     if (!code || home.has(code)) return
-    const exists = distantRegionCodes.includes(code)
-    commit({
-      radius: 'distant',
-      distantRegionCodes: exists ? distantRegionCodes.filter((item) => item !== code) : [...distantRegionCodes, code],
-    })
+    commit({ radius: 'distant', ...toggleDistantCodes(distantRegionCodes, travelMunicipalities, code) })
   }
 
   function toggleStop(stop: TravelStop) {

@@ -144,7 +144,7 @@ function fieldsOf(row: RawPerson): RosterFields {
     egn: row.egn ?? '',
     ...notesFromRow(row),
     radius: row.radius ?? '',
-    travelLabel: travelLabelOf(row.travel_municipalities ?? ''),
+    travelLabel: travelLabelOf(row.travel_municipalities ?? '', row.radius ?? ''),
     roundsFirst: row.rounds_first === 1,
     roundsRunoff: row.rounds_runoff === 1,
     paperCount: typeof row.paper_count === 'number' ? row.paper_count : null,

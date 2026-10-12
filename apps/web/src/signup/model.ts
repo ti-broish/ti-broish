@@ -382,11 +382,65 @@ export function mapScope(place: HomePlace | null, radius: Radius | null): 'broad
   return 'local'
 }
 
+export function homeRegionCodes(place: HomePlace | null) {
+  if (!place || place.regionCode === '32') return []
+  if (place.regionCode === 'sofia-merged') return ['23', '24', '25']
+  return [place.regionCode]
+}
+
 export function highlightCodes(place: HomePlace | null, radius: Radius | null, distant: string[]) {
   if (!place || place.regionCode === '32') return []
-  const home = place.regionCode === 'sofia-merged' ? ['23', '24', '25'] : [place.regionCode]
+  const home = homeRegionCodes(place)
   if (radius !== 'distant') return home
   return [...home, ...distant.filter((code) => !home.includes(code))]
+}
+
+function regionKey(code: string) {
+  const trimmed = code.trim()
+  if (!/^\d{1,2}$/.test(trimmed)) return ''
+  return trimmed.padStart(2, '0')
+}
+
+/**
+ * A town, municipality, or district does not use oblast municipalities or extra
+ * districts. Nearby keeps only the extra districts. An oblast keeps municipalities
+ * in that oblast. Other oblasts keep their own.
+ */
+export function scopeForRadius(
+  radius: Radius | null,
+  place: HomePlace | null,
+  current: { extraCityRegions: NamedPlace[]; distantRegionCodes: string[]; travelMunicipalities: TravelStop[] },
+) {
+  if (radius === 'nearby') {
+    return { extraCityRegions: current.extraCityRegions, distantRegionCodes: [] as string[], travelMunicipalities: [] as TravelStop[] }
+  }
+  if (radius === 'region') {
+    const home = new Set(homeRegionCodes(place).map(regionKey))
+    return {
+      extraCityRegions: [] as NamedPlace[],
+      distantRegionCodes: [] as string[],
+      travelMunicipalities: current.travelMunicipalities.filter((stop) => home.has(regionKey(stop.regionCode))),
+    }
+  }
+  if (radius === 'distant') {
+    const distant = new Set(current.distantRegionCodes.map(regionKey))
+    return {
+      extraCityRegions: [] as NamedPlace[],
+      distantRegionCodes: current.distantRegionCodes,
+      travelMunicipalities: current.travelMunicipalities.filter((stop) => distant.has(regionKey(stop.regionCode))),
+    }
+  }
+  return { extraCityRegions: [] as NamedPlace[], distantRegionCodes: [] as string[], travelMunicipalities: [] as TravelStop[] }
+}
+
+export function toggleDistantCodes(codes: string[], stops: TravelStop[], code: string) {
+  const key = regionKey(code)
+  const exists = codes.some((item) => regionKey(item) === key)
+  if (!exists) return { distantRegionCodes: [...codes, code], travelMunicipalities: stops }
+  return {
+    distantRegionCodes: codes.filter((item) => regionKey(item) !== key),
+    travelMunicipalities: stops.filter((stop) => regionKey(stop.regionCode) !== key),
+  }
 }
 
 export function roleLabel(role: Role | null, mobileTeam = false) {

@@ -1,15 +1,12 @@
 import { useMemo, useState } from 'react'
 import { OBLASTS } from '../signup/oblasts'
-import { highlightCodes, type Profile } from '../signup/model'
+import { highlightCodes, toggleDistantCodes, type Profile } from '../signup/model'
 import { updateProfile } from '../signup/store'
 
 function toggleCode(profile: Profile, code: string) {
   const home = profile.place?.regionCode
   if (code === home || (home === 'sofia-merged' && ['23', '24', '25'].includes(code))) return
-  const exists = profile.distantRegionCodes.includes(code)
-  updateProfile({
-    distantRegionCodes: exists ? profile.distantRegionCodes.filter((item) => item !== code) : [...profile.distantRegionCodes, code],
-  })
+  updateProfile(toggleDistantCodes(profile.distantRegionCodes, profile.travelMunicipalities, code))
 }
 
 export function OblastPicker({ profile }: { profile: Profile }) {

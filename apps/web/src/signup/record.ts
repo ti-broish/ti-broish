@@ -1,4 +1,4 @@
-import type { Companion, Profile } from './model'
+import { scopeForRadius, type Companion, type Profile } from './model'
 import { isPersonalReferral, mirOf, validEgn } from './rules'
 
 export interface SignupColumns {
@@ -55,7 +55,7 @@ export function storedProfile(profile: Profile): Profile {
     source = source || referredBy.toLowerCase()
     referredBy = null
   }
-  const stored = { ...profile, email, source, referredBy }
+  const stored = { ...profile, email, source, referredBy, ...scopeForRadius(profile.radius, profile.place, profile) }
   delete (stored as { demoState?: unknown }).demoState
   return stored
 }

@@ -211,6 +211,82 @@ describe('distributeSections', () => {
     expect(sofia.assignments[0]?.sectionId).toBe('244600001')
   })
 
+  it('stays inside the municipalities an oblast volunteer picked', () => {
+    const volunteer = person({
+      id: 'a',
+      email: 'a@example.com',
+      radius: 'region',
+      mir: '06',
+      regionCode: '06',
+      townId: 100,
+      municipalityCode: '01',
+      cityRegionCode: '',
+      place: 'Враца',
+      travelStops: [{ regionCode: '06', code: '20' }],
+    })
+    const sections = [
+      section({ id: '060100001', place: 'Враца', townId: 100, votersCount: 90 }),
+      section({ id: '062000011', place: 'Козлодуй', townId: 200, votersCount: 200 }),
+      section({ id: '060100002', place: 'Враца', townId: 100, votersCount: 800 }),
+    ]
+    const limited = distributeSections({ people: [volunteer], sections })
+    expect(limited.assignments[0]?.sectionId).toBe('062000011')
+
+    const wholeOblast = distributeSections({ people: [{ ...volunteer, travelStops: [] }], sections })
+    expect(wholeOblast.assignments[0]?.sectionId).toBe('060100001')
+
+    const onlyMachinesThere = distributeSections({
+      people: [volunteer],
+      sections: [
+        section({ id: '060100001', place: 'Враца', townId: 100, votersCount: 90 }),
+        section({ id: '062000011', place: 'Козлодуй', townId: 200, votersCount: 800 }),
+      ],
+    })
+    expect(onlyMachinesThere.assignments).toEqual([])
+    expect(onlyMachinesThere.skipped[0]?.reason).toBe('no-section')
+  })
+
+  it('limits each distant oblast to its picked municipalities and still tries home first', () => {
+    const volunteer = person({
+      id: 'a',
+      email: 'a@example.com',
+      radius: 'distant',
+      distantMirs: ['06', '02'],
+      travelStops: [{ regionCode: '06', code: '20' }],
+      place: 'ул. А 1',
+    })
+    const homeFirst = distributeSections({
+      people: [volunteer],
+      sections: [
+        section({ id: '234615001', place: 'ул. А 1', votersCount: 140 }),
+        section({ id: '060100001', place: 'Враца', townId: 100, votersCount: 90 }),
+        section({ id: '062000011', place: 'Козлодуй', townId: 200, votersCount: 200 }),
+      ],
+    })
+    expect(homeFirst.assignments[0]?.sectionId).toBe('234615001')
+
+    const away = distributeSections({
+      people: [volunteer],
+      sections: [
+        section({ id: '234615001', place: 'ул. А 1', votersCount: 800 }),
+        section({ id: '060100001', place: 'Враца', townId: 100, votersCount: 90 }),
+        section({ id: '062000011', place: 'Козлодуй', townId: 200, votersCount: 200 }),
+        section({ id: '023700001', place: 'Бургас', townId: 42, votersCount: 120 }),
+      ],
+    })
+    expect(away.assignments[0]?.sectionId).toBe('023700001')
+
+    const onlyKozloduy = distributeSections({
+      people: [{ ...volunteer, distantMirs: ['06'] }],
+      sections: [
+        section({ id: '234615001', place: 'ул. А 1', votersCount: 800 }),
+        section({ id: '060100001', place: 'Враца', townId: 100, votersCount: 90 }),
+        section({ id: '062000011', place: 'Козлодуй', townId: 200, votersCount: 200 }),
+      ],
+    })
+    expect(onlyKozloduy.assignments[0]?.sectionId).toBe('062000011')
+  })
+
   it('does not reuse a blocked section or cross into another MIR', () => {
     const plan = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com', radius: 'settlement' })],
@@ -346,6 +422,14 @@ describe('distribution sources', () => {
     expect(
       relevantPrefixes([person({ id: 'a', email: 'a@example.com' })], [section({ id: '234615001', place: 'ул. А 1' })]),
     ).toEqual(['234615'])
+    const distantHome = person({
+      id: 'd',
+      email: 'd@example.com',
+      radius: 'distant',
+      distantMirs: ['06'],
+      travelStops: [{ regionCode: '23', code: '01' }],
+    })
+    expect(relevantPrefixes([distantHome], [section({ id: '234615001', place: 'ул. А 1' })])).toEqual(['234615'])
   })
 
   it('leaves a section above 300 voters free when a smaller paper section is free', () => {

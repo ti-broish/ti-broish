@@ -339,7 +339,7 @@ export function relevantPrefixes(people: DistributePerson[], sections: Distribut
   const candidates = people.filter((person) => skipReason(person) === null)
   const prefixes = new Set<string>()
   for (const section of dedupeSections(sections)) {
-    if (!candidates.some((person) => sectionFits(person, section, 'chosen'))) continue
+    if (!candidates.some((person) => sectionFits(person, section, 'home') || sectionFits(person, section, 'chosen'))) continue
     prefixes.add(resultsPrefix(section.id))
   }
   return [...prefixes]
@@ -372,9 +372,26 @@ function sectionFits(person: DistributePerson, section: DistributeSection, reach
   } else if (person.radius !== 'region' && person.radius !== 'distant' && (section.townId == null || person.townId == null || section.townId !== person.townId)) {
     return false
   }
+  if (restrictsMunicipalities(person, reach) && !municipalityAllowed(person, parts.mir, parts.municipality)) return false
   const districts = allowedDistricts(person)
   if (districts && !districts.has(parts.district)) return false
   return true
+}
+
+/** Picked municipalities limit that MIR. An oblast with none stays whole. Home for a distant volunteer ignores them. */
+function restrictsMunicipalities(person: DistributePerson, reach: 'home' | 'chosen') {
+  if (person.radius === 'region') return true
+  return person.radius === 'distant' && reach === 'chosen'
+}
+
+function municipalityAllowed(person: DistributePerson, mir: string, municipality: string) {
+  const allowed = new Set<string>()
+  for (const stop of person.travelStops) {
+    if (padMir(stop.regionCode) !== mir) continue
+    const code = pad2(stop.code)
+    if (code) allowed.add(code)
+  }
+  return allowed.size === 0 || allowed.has(municipality)
 }
 
 function mirsFor(person: DistributePerson, reach: 'home' | 'chosen') {

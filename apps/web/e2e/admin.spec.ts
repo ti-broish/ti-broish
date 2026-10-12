@@ -10,7 +10,8 @@ test('the roster stays out of the menu and asks for a confirmed team email', asy
   await page.goto('/admin')
   await expect(page.getByRole('heading', { name: 'Админ' })).toBeVisible()
   await expect(page.getByText('Влез с потвърдения си имейл.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Влез в списъка' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Изпрати код' })).toBeVisible()
+  await expect(page.getByLabel('Код от писмото')).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Достъп' })).toHaveCount(0)
   await page.goto('/admin/sections')
   await expect(page.getByRole('button', { name: 'Публикувай черновите в този изглед (без имейл)' })).toHaveCount(0)
@@ -24,6 +25,35 @@ test.describe('staff admin', () => {
     await expect(page.getByRole('heading', { name: 'Админ' })).toBeVisible()
     await page.close()
     seedStaffRoster()
+  })
+
+  test('a team email stays signed out until the mail code matches', async ({ page }) => {
+    await page.goto('/admin')
+    await page.getByLabel('Имейл').fill('ivan.admin-e2e@example.com')
+    await page.getByRole('button', { name: 'Изпрати код' }).click()
+    await expect(page.getByText('Този имейл не е поканен в екипа.')).toBeVisible()
+    await expect(page.getByLabel('Код от писмото')).toHaveCount(0)
+    expect(await sessionValue(page)).toBeUndefined()
+
+    await page.getByLabel('Имейл').fill(STAFF_EMAIL)
+    await page.getByRole('button', { name: 'Изпрати код' }).click()
+    await expect(page.getByRole('heading', { name: 'Админ' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Начало' })).toHaveCount(0)
+    expect(await sessionValue(page)).toBeUndefined()
+    const preview = page.getByText(/Кодът е \d{6}\./)
+    await expect(preview).toBeVisible()
+    const code = ((await preview.textContent()) ?? '').match(/\d{6}/)?.[0] ?? ''
+    expect(code).toMatch(/^\d{6}$/)
+    const wrong = code === '000000' ? '111111' : '000000'
+    await page.getByLabel('Код от писмото').fill(wrong)
+    await page.getByRole('button', { name: 'Влез в списъка' }).click()
+    await expect(page.getByText('Кодът не съвпада.')).toBeVisible()
+    expect(await sessionValue(page)).toBeUndefined()
+
+    await page.getByLabel('Код от писмото').fill(code)
+    await page.getByRole('button', { name: 'Влез в списъка' }).click()
+    await expect(page.getByRole('heading', { name: 'Начало' })).toBeVisible()
+    expect(await sessionValue(page)).toBe(SESSION)
   })
 
   test('desktop sidebar shows the roster and keeps high-contrast labels', async ({ page }) => {
@@ -205,6 +235,11 @@ async function signIn(page: Page) {
   await page.context().addCookies([
     { name: 'tb_session', value: SESSION, url: 'http://127.0.0.1:3000', httpOnly: true, sameSite: 'Lax' },
   ])
+}
+
+async function sessionValue(page: Page) {
+  const cookies = await page.context().cookies('http://127.0.0.1:3000')
+  return cookies.find((cookie) => cookie.name === 'tb_session')?.value
 }
 
 function seedStaffRoster() {

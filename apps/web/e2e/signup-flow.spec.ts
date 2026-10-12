@@ -350,6 +350,9 @@ test('review will not finish while a step is still empty', async ({ page }) => {
 test('someone without a profile can label the call request', async ({ page }) => {
   await page.goto('/profil')
   await expect(page.getByRole('heading', { name: 'Още нямаш профил' })).toBeVisible()
+  await expect(page.getByLabel('Имейл')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Изпрати код' })).toBeVisible()
+  await expect(page.locator('main').getByRole('link', { name: 'Запиши се' })).toBeVisible()
   await expect(page.getByLabel('Име', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Телефон')).toBeVisible()
   await expect(page.getByLabel('За какво е обаждането')).toBeVisible()
@@ -380,6 +383,45 @@ test('a confirmed email can sign in from a fresh browser', async ({ page, browse
   const code = (await other.locator('main').innerText()).match(/Кодът е (\d{6})/)?.[1]
   await other.getByLabel('Код от писмото').fill(code ?? '')
   await other.getByRole('button', { name: 'Влез' }).click()
+  await expect(other.getByRole('heading', { name: 'Никола, това е профилът ти' })).toBeVisible()
+  await fresh.close()
+})
+
+test('a confirmed email can sign in from Профил on a fresh browser', async ({ page, browser }) => {
+  const email = `profil-${Date.now()}@example.com`
+  await page.goto('/signup?step=contact')
+  await page.getByLabel('Име', { exact: true }).fill('Никола')
+  await page.getByLabel('Презиме').fill('Николов')
+  await page.getByLabel('Фамилия').fill('Николов')
+  await page.getByLabel('Имейл').fill(email)
+  await page.getByLabel('Телефон').fill('0888123456')
+  await page.getByRole('button', { name: 'Изпрати код за потвърждение' }).click()
+  await page.getByRole('button', { name: 'Продължи с този код' }).click()
+  await expect(page.getByRole('heading', { name: 'ЕГН за разпределението' })).toBeVisible()
+
+  const fresh = await browser.newContext()
+  const other = await fresh.newPage()
+  await other.goto('/profil')
+  await expect(other.getByRole('heading', { name: 'Още нямаш профил' })).toBeVisible()
+  await other.getByLabel('Имейл').fill('nobody-profil@example.com')
+  await other.getByRole('button', { name: 'Изпрати код' }).click()
+  await expect(other.getByText('Няма потвърдено записване с този имейл.')).toBeVisible()
+  await expect(other.getByRole('heading', { name: 'Никола, това е профилът ти' })).toHaveCount(0)
+
+  await other.getByLabel('Имейл').fill(email)
+  await other.getByRole('button', { name: 'Изпрати код' }).click()
+  await expect(other.getByRole('heading', { name: 'Още нямаш профил' })).toBeVisible()
+  const preview = other.getByText(/Кодът е \d{6}\./)
+  await expect(preview).toBeVisible()
+  const code = ((await preview.textContent()) ?? '').match(/\d{6}/)?.[0] ?? ''
+  const wrong = code === '000000' ? '111111' : '000000'
+  await other.getByLabel('Код от писмото').fill(wrong)
+  await other.getByRole('button', { name: 'Влез', exact: true }).click()
+  await expect(other.getByText('Кодът не съвпада.')).toBeVisible()
+  await expect(other.getByRole('heading', { name: 'Още нямаш профил' })).toBeVisible()
+
+  await other.getByLabel('Код от писмото').fill(code)
+  await other.getByRole('button', { name: 'Влез', exact: true }).click()
   await expect(other.getByRole('heading', { name: 'Никола, това е профилът ти' })).toBeVisible()
   await fresh.close()
 })

@@ -5,16 +5,107 @@ import { ProfileSummary } from '../components/ProfileSummary'
 import { PageIntro } from '../components/SiteChrome'
 import { ShareSignup } from '../components/ShareSignup'
 import { StaffNote } from '../components/StaffNote'
+import { checkEmailCode, requestSignInCode } from '../signup/confirm-mail'
 import { saveSignup } from '../signup/db'
-import { applyLoadedSession, beginSessionLoad } from '../signup/use-registration'
+import { applyLoadedSession, beginSessionLoad, invalidateSessionLoad } from '../signup/use-registration'
 import { isProtocolDay } from '../signup/election'
-import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signupGap, type Profile } from '../signup/model'
+import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signupGap, validEmail, type Profile } from '../signup/model'
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
 import { ensureReferralCode, updateProfile, useProfile } from '../signup/store'
 
 export const Route = createFileRoute('/profil')({ component: ProfilePage })
+
+function ProfileSignIn() {
+  const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [preview, setPreview] = useState('')
+  const [phase, setPhase] = useState<'email' | 'code'>('email')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const field = 'min-h-11 w-full rounded-xl border border-[#ddd] bg-white px-3'
+
+  if (phase === 'code') {
+    return (
+      <form
+        className="grid gap-3"
+        onSubmit={(event) => {
+          event.preventDefault()
+          setError('')
+          setBusy(true)
+          void checkEmailCode({ data: { email, code } }).then((result) => {
+            if (!result.ok) {
+              setBusy(false)
+              setError('Кодът не съвпада.')
+              return
+            }
+            invalidateSessionLoad()
+            window.location.assign('/profil')
+          })
+        }}
+      >
+        <p className="leading-7">{preview ? `Оттук писмото не тръгва. Кодът е ${preview}.` : `Изпратихме код на ${email}.`}</p>
+        <label className="grid gap-1 text-sm font-semibold">
+          Код от писмото
+          <input className={field} inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value)} />
+        </label>
+        {error ? <p className="text-sm text-red-700">{error}</p> : null}
+        <button className="brand-button" type="submit" disabled={busy}>
+          Влез
+        </button>
+      </form>
+    )
+  }
+
+  return (
+    <form
+      className="grid gap-3"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const entered = email.trim()
+        setError('')
+        if (!validEmail(entered)) {
+          setError('Нужен е валиден имейл.')
+          return
+        }
+        setBusy(true)
+        void requestSignInCode({ data: { email: entered } })
+          .then((result) => {
+            setBusy(false)
+            if (result.status === 'missing') {
+              setError('Няма потвърдено записване с този имейл.')
+              return
+            }
+            if (result.status === 'failed' || result.status === 'unavailable') {
+              setError('Писмото не тръгна. Опитай отново след малко.')
+              return
+            }
+            if (result.status === 'invalid') {
+              setError('Нужен е валиден имейл.')
+              return
+            }
+            setPreview(result.previewCode)
+            setPhase('code')
+          })
+          .catch(() => {
+            setBusy(false)
+            setError('Писмото не тръгна. Опитай отново.')
+          })
+      }}
+    >
+      <p className="leading-7">Ако вече си се записал, влез с имейла. Пращаме шестцифрен код.</p>
+      <label className="grid gap-1 text-sm font-semibold">
+        Имейл
+        <input className={field} type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+      </label>
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      <button className="brand-button" type="submit" disabled={busy}>
+        Изпрати код
+      </button>
+    </form>
+  )
+}
 
 function AnonymousCall() {
   const [name, setName] = useState('')
@@ -108,7 +199,8 @@ function ProfilePage() {
   if (!profile.email) {
     return (
       <div className="grid gap-4">
-        <PageIntro title="Още нямаш профил" lede="Запиши се. Сигнал можеш да изпратиш и без профил." />
+        <PageIntro title="Още нямаш профил" lede="Влез с имейла, ако вече си се записал. Иначе се запиши. Сигнал можеш да изпратиш и без профил." />
+        <ProfileSignIn />
         <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
           Запиши се
         </Link>

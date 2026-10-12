@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import { adminDraft } from '../../signup/admin-assign-actions'
@@ -42,7 +43,11 @@ export function SectionPersonRow(props: {
   return (
                 <tr className="border-b border-[#eee] align-top">
                   <td className="py-3 pr-3">
-                    <p className="font-bold">{person.firstName} {person.lastName}</p>
+                    <p>
+                      <Link to="/admin/signups/$personId" params={{ personId: person.id }} className="font-bold text-[#2b062f] underline">
+                        {[person.firstName, person.lastName].filter(Boolean).join(' ') || '—'}
+                      </Link>
+                    </p>
                     <p>{person.email}</p>
                     <p className="text-[#333]">{person.mir || (person.region === '32' ? 'чужбина' : person.place)}</p>
                     {addressDeskLine(person.paperCount, person.machineCount) ? (

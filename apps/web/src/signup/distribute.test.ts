@@ -466,6 +466,45 @@ describe('distribution sources', () => {
     expect(sections).toEqual([{ id: '234615001', place: 'ул. А 1', townId: 5, votersCount: 40, isMachine: false, isMobile: null }])
   })
 
+  it('treats a Bulgaria section missing from the preliminary voter list as mobile', () => {
+    const sections = readPollingSections(
+      [
+        { id: '192700011', place: 'ул. Петър Берон 20' },
+        { id: '192700211', place: 'гр. Русе' },
+        { id: '010300141', place: 'МБАЛ Благоевград' },
+      ],
+      1,
+    )
+    expect(sections.map((row) => [row.id, row.isMobile])).toEqual([
+      ['192700011', null],
+      ['192700211', true],
+      ['010300141', true],
+    ])
+  })
+
+  it('does not assign a mobile or hospital section', () => {
+    const plan = distributeSections({
+      people: [
+        person({
+          id: 'a',
+          email: 'a@example.com',
+          mir: '19',
+          regionCode: '19',
+          townId: 63427,
+          municipalityCode: '27',
+          cityRegionCode: '',
+          radius: 'settlement',
+          place: 'гр. Русе',
+        }),
+      ],
+      sections: [
+        section({ id: '192700211', place: 'гр. Русе', townId: 63427, isMobile: true, votersCount: null }),
+        section({ id: '192700182', place: 'ул. Дрян 17', townId: 63427, votersCount: 180 }),
+      ],
+    })
+    expect(plan.assignments.map((row) => row.sectionId)).toEqual(['192700182'])
+  })
+
   it('describes the outcome for the team', () => {
     expect(
       describeDistribution({ drafted: 2, paper: 2, mobile: 3, video: 0, abroad: 0, noPlace: 0, noSection: 1, keptAtAddress: 1 }),

@@ -47,13 +47,17 @@ test('latin names are rejected on the first screen', async ({ page }) => {
   await expect(page.getByText('Трите имена са на кирилица.')).toBeVisible()
 })
 
-test('a city district does not ask for car seats, and travel outside the city does', async ({ page }) => {
+// Separate contexts. The first visit autosaves a session; a second seed in the
+// same context is replaced by that saved city-district profile on load.
+test('a city district does not ask for car seats', async ({ page }) => {
   await seedProfile(page, registered())
   await page.goto('/signup?step=travel')
   await expect(page.getByText(/Запазено място:.*Младост/)).toBeVisible()
   await page.getByRole('button', { name: 'Напред' }).click()
   await expect(page.getByRole('heading', { name: 'Променяш хората с теб' })).toBeVisible()
+})
 
+test('travel outside the city asks for car seats', async ({ page }) => {
   await seedProfile(page, registered({ radius: 'municipality' }))
   await page.goto('/signup?step=travel')
   await expect(page.getByRole('radio', { name: 'В община Столична' })).toBeChecked()

@@ -6,6 +6,7 @@ import {
   heldSectionCodes,
   readPollingSections,
   readTownIds,
+  relevantPrefixes,
   votersFromResults,
   type DistributePerson,
   type DistributeSection,
@@ -322,6 +323,53 @@ describe('distribution sources', () => {
     })
     expect(voters.get('234615001')).toBe(180)
     expect(voters.has('234615002')).toBe(false)
+  })
+
+  it('reads a section with no city region from the municipality results', () => {
+    const ruse = person({
+      id: 'a',
+      email: 'a@example.com',
+      mir: '19',
+      regionCode: '19',
+      townId: 63427,
+      municipalityCode: '27',
+      cityRegionCode: '',
+      radius: 'settlement',
+      place: 'ул. Петър Берон 20',
+    })
+    expect(
+      relevantPrefixes(
+        [ruse],
+        [section({ id: '192700011', place: 'ул. Петър Берон 20', townId: 63427, votersCount: null })],
+      ),
+    ).toEqual(['1927'])
+    expect(
+      relevantPrefixes([person({ id: 'a', email: 'a@example.com' })], [section({ id: '234615001', place: 'ул. А 1' })]),
+    ).toEqual(['234615'])
+  })
+
+  it('leaves a section above 300 voters free when a smaller paper section is free', () => {
+    const plan = distributeSections({
+      people: [
+        person({
+          id: 'a',
+          email: 'a@example.com',
+          mir: '19',
+          regionCode: '19',
+          townId: 63427,
+          municipalityCode: '27',
+          cityRegionCode: '',
+          radius: 'settlement',
+          place: 'ул. Петър Берон 20',
+        }),
+      ],
+      sections: [
+        section({ id: '192700011', place: 'ул. Петър Берон 20', townId: 63427, votersCount: 734 }),
+        section({ id: '192700182', place: 'ул. Дрян 17', townId: 63427, votersCount: 180 }),
+      ],
+    })
+    expect(plan.assignments.map((row) => row.sectionId)).toEqual(['192700182'])
+    expect(plan.assignments[0]?.desk).toBe('paper')
   })
 
   it('reads town ids and section rows from the public list', () => {

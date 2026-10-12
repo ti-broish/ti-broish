@@ -178,7 +178,7 @@ export function describeDistribution(input: {
   return sentences.join(' ')
 }
 
-/** The public section list omits voter counts. District results include stats.voters per section. */
+/** The public section list omits voter counts. Results files include stats.voters per section. */
 export function votersFromResults(payload: unknown) {
   const found = new Map<string, number>()
   walk(payload)
@@ -340,9 +340,21 @@ export function relevantPrefixes(people: DistributePerson[], sections: Distribut
   const prefixes = new Set<string>()
   for (const section of dedupeSections(sections)) {
     if (!candidates.some((person) => sectionFits(person, section, 'chosen'))) continue
-    prefixes.add(section.id.slice(0, 6))
+    prefixes.add(resultsPrefix(section.id))
   }
   return [...prefixes]
+}
+
+/**
+ * A city district is `results/<mir><municipality><district>.json`.
+ * Sections with no city region use district `00`. That file 500s, because the
+ * API looks up a city region that does not exist. The municipality file
+ * `results/<mir><municipality>.json` still lists each of those sections with
+ * its voter count.
+ */
+function resultsPrefix(sectionId: string) {
+  if (sectionId.slice(4, 6) === '00') return sectionId.slice(0, 4)
+  return sectionId.slice(0, 6)
 }
 
 function allowedSections(person: DistributePerson, sections: DistributeSection[], used: Set<string>, reach: 'home' | 'chosen') {

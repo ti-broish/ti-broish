@@ -4,6 +4,7 @@ import type { RosterFields } from '../../signup/admin-csv'
 import { adminDraft } from '../../signup/admin-assign-actions'
 import { adminSuggest } from '../../signup/admin-suggest'
 import { addressDeskLine, deskLabel } from '../../signup/sections'
+import { EMPTY_SECTION_DIRECTORY, sectionSpot, signupSpot, type SectionSpot } from '../../signup/section-where'
 
 type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown' }
 
@@ -33,13 +34,16 @@ export function SectionPersonRow(props: {
   canPublish: boolean
   publishOne: (id: string) => Promise<{ ok: boolean; message: string }>
   notifyAgain: (id: string) => Promise<{ ok: boolean; message: string }>
+  spots: Record<string, SectionSpot>
 }) {
   const {
     person, canEdit, draftValues, setDraftValues, warnings, setRowWarnings,
     tips, setSuggestions, suggestBusy, setSuggestBusy, setMessage, load,
-    canPublish, publishOne, notifyAgain,
+    canPublish, publishOne, notifyAgain, spots,
   } = props
   const pendingDraft = Boolean(person.draftSection && person.draftSection !== person.publishedSection)
+  const signed = signupSpot(person)
+  const draftCode = draftValues[person.id] ?? person.draftSection
   return (
                 <tr className="border-b border-[#eee] align-top">
                   <td className="py-3 pr-3">
@@ -49,19 +53,20 @@ export function SectionPersonRow(props: {
                       </Link>
                     </p>
                     <p>{person.email}</p>
-                    <p className="text-[#333]">{person.mir || (person.region === '32' ? 'чужбина' : person.place)}</p>
                     {addressDeskLine(person.paperCount, person.machineCount) ? (
                       <p className="text-xs font-bold text-[#1a1020]">{addressDeskLine(person.paperCount, person.machineCount)}</p>
                     ) : null}
-                    {person.radius || person.travelLabel ? (
-                      <p className="text-xs text-[#333]">
-                        {person.radius ? `радиус: ${person.radius}` : null}
-                        {person.radius && person.travelLabel ? ' · ' : null}
-                        {person.travelLabel ? `пътуване: ${person.travelLabel}` : null}
-                      </p>
-                    ) : null}
                   </td>
                   <td className="py-3 pr-3">
+                    <p>{signed.oblast || '—'}</p>
+                    {person.region === '32' ? <p className="text-xs text-[#333]">чужбина</p> : person.mir ? <p className="text-xs text-[#333]">МИР {person.mir}</p> : null}
+                  </td>
+                  <td className="py-3 pr-3">{signed.municipality || '—'}</td>
+                  <td className="py-3 pr-3">{signed.town || '—'}</td>
+                  <td className="py-3 pr-3">{signed.district || '—'}</td>
+                  <td className="max-w-xs py-3 pr-3">{signed.address || '—'}</td>
+                  <td className="max-w-xs py-3 pr-3">{signed.reach || '—'}</td>
+                  <td className="whitespace-nowrap py-3 pr-3">
                     {person.draftSection && person.draftLocked ? (
                       <p className="mb-1 text-xs font-bold text-[#1a1020]">Запазена корекция. Следващото разпределение я държи.</p>
                     ) : null}
@@ -157,7 +162,10 @@ export function SectionPersonRow(props: {
                       person.draftSection
                     )}
                   </td>
-                  <td className="py-3">
+                  <td className="py-3 pr-3">
+                    <SectionWhere spot={spotFor(draftCode, spots)} />
+                  </td>
+                  <td className="whitespace-nowrap py-3 pr-3">
                     <p>{person.publishedSection || '—'}</p>
                     {canPublish ? (
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -188,6 +196,25 @@ export function SectionPersonRow(props: {
                       </div>
                     ) : null}
                   </td>
+                  <td className="py-3 pr-3">
+                    <SectionWhere spot={spotFor(person.publishedSection, spots)} />
+                  </td>
                 </tr>
+  )
+}
+
+function spotFor(code: string, spots: Record<string, SectionSpot>) {
+  const digits = code.replace(/\D/g, '')
+  if (digits.length !== 9) return null
+  return spots[digits] ?? sectionSpot(digits, EMPTY_SECTION_DIRECTORY)
+}
+
+function SectionWhere({ spot }: { spot: SectionSpot | null }) {
+  if (!spot || (!spot.address && !spot.area)) return <>—</>
+  return (
+    <div className="min-w-52 max-w-sm">
+      {spot.address ? <p className="font-bold">{spot.address}</p> : null}
+      {spot.area ? <p className="text-[#333]">{spot.area}</p> : null}
+    </div>
   )
 }

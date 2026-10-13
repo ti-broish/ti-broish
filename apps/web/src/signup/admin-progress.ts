@@ -181,13 +181,22 @@ const REGION_NAMES: Record<string, string> = {
   '31': 'Ямбол',
 }
 
+/** Oblast name for a MIR or region code. Sofia city is one oblast across МИР 23, 24 and 25. */
+export function regionNameOf(code: string) {
+  const trimmed = code.trim()
+  if (trimmed === '32') return 'Чужбина'
+  if (trimmed === 'sofia-merged') return 'София-град'
+  if (!/^\d{1,2}$/.test(trimmed)) return ''
+  return REGION_NAMES[trimmed.padStart(2, '0')] ?? ''
+}
+
 export function staffTravelText(profile: Pick<Profile, 'place' | 'radius' | 'extraCityRegions' | 'distantRegionCodes' | 'travelMunicipalities'>) {
   const option = radiusOptions(profile.place).find((item) => item.id === profile.radius)
   if (!option) return 'Без обхват'
   const scoped = scopeForRadius(profile.radius, profile.place, profile)
   const parts = [option.label]
   if (scoped.extraCityRegions.length > 0) parts.push(scoped.extraCityRegions.map((item) => item.name).join(', '))
-  if (scoped.distantRegionCodes.length > 0) parts.push(scoped.distantRegionCodes.map((code) => REGION_NAMES[code] ?? code).join(', '))
+  if (scoped.distantRegionCodes.length > 0) parts.push(scoped.distantRegionCodes.map((code) => regionNameOf(code) || code).join(', '))
   if (scoped.travelMunicipalities.length > 0) parts.push(scoped.travelMunicipalities.map((item) => item.name).join(', '))
   return parts.join(' · ')
 }

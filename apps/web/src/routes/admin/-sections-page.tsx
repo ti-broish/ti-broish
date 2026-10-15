@@ -3,11 +3,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminChipOn, adminGhost, adminInput } from '../../components/admin-ui'
 import { adminRoster } from '../../signup/admin'
+import { adminSectionPlaces } from '../../signup/admin-section-places'
 import { adminPublish } from '../../signup/admin-assign-actions'
 import { adminClearDrafts, adminDistribute } from '../../signup/admin-distribute'
 import { adminNotifyAssignment, adminPublishOne } from '../../signup/assignment-notify'
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
+import type { SectionSpot } from '../../signup/section-where'
 import { TakenSectionsPanel } from './-taken-sections-panel'
 import { DeskBadge, SectionPersonRow } from './-section-person-row'
 import { useDebouncedQuery } from './-debounced-query'
@@ -40,6 +42,7 @@ export function SectionsPage() {
   const [rowWarnings, setRowWarnings] = useState<Record<string, AssignWarning[]>>({})
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion[]>>({})
   const [suggestBusy, setSuggestBusy] = useState<string | null>(null)
+  const [spots, setSpots] = useState<Record<string, SectionSpot>>({})
   const [mirDraft, setMirDraft] = useState(search.mir)
   const canEdit = access.permissions.edit
   const canPublish = access.permissions.publish
@@ -82,6 +85,31 @@ export function SectionsPage() {
   useEffect(() => {
     load()
   }, [search.view, search.mir, search.q])
+
+  const watchedCodes = [...new Set(people.flatMap((person) =>
+    [person.draftSection, person.publishedSection, draftValues[person.id] ?? '']
+      .map((code) => code.replace(/\D/g, ''))
+      .filter((code) => code.length === 9),
+  ))]
+  const watchedTowns = [...new Set(people.flatMap((person) => person.townId ? [person.townId] : []))]
+  const placeKey = `${watchedCodes.join(',')};${watchedTowns.join(',')}`
+
+  useEffect(() => {
+    const [codePart, townPart] = placeKey.split(';')
+    const codes = codePart ? codePart.split(',') : []
+    const townIds = townPart ? townPart.split(',').map(Number) : []
+    if (codes.length === 0) return
+    let cancelled = false
+    const handle = setTimeout(() => {
+      void adminSectionPlaces({ data: { codes, townIds } }).then((result) => {
+        if (!cancelled && result.ok) setSpots(result.places)
+      }).catch(() => {})
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(handle)
+    }
+  }, [placeKey])
 
   return (
     <div className="grid gap-5">
@@ -218,12 +246,20 @@ export function SectionsPage() {
         <DeskBadge desk="unknown" />
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] border-collapse text-left text-sm text-[#1a1020]">
+        <table className="w-full min-w-[1100px] border-collapse text-left text-sm text-[#1a1020]">
           <thead>
             <tr className="border-b-2 border-[#2b062f]">
-              <th className="py-2 pr-3 font-black">Човек</th>
-              <th className="py-2 pr-3 font-black">Чернова</th>
-              <th className="py-2 font-black">Публикувана</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Човек</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Област</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Община</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Населено място</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Район</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Избран адрес</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Обхват</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Чернова</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Къде е секцията</th>
+              <th className="whitespace-nowrap py-2 pr-3 font-black">Публикувана</th>
+              <th className="whitespace-nowrap py-2 font-black">Къде е публикуваната</th>
             </tr>
           </thead>
           <tbody>
@@ -245,6 +281,7 @@ export function SectionsPage() {
                 canPublish={canPublish}
                 publishOne={(id) => adminPublishOne({ data: { id } })}
                 notifyAgain={(id) => adminNotifyAssignment({ data: { id } })}
+                spots={spots}
               />
             ))}
           </tbody>

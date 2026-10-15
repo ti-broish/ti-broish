@@ -29,6 +29,15 @@ export interface RosterFields {
   staffCalledBy: string
   radius?: string
   travelLabel?: string
+  /** Oblast name from the signup, when it was stored. */
+  regionName?: string
+  municipality?: string
+  cityRegion?: string
+  countryName?: string
+  townId?: number | null
+  extraCityRegions?: Array<{ code: string; name: string }>
+  distantRegionCodes?: string[]
+  travelMunicipalities?: Array<{ regionCode: string; regionName: string; code: string; name: string }>
   roundsFirst?: boolean
   roundsRunoff?: boolean
   paperCount?: number | null

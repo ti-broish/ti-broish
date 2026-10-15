@@ -131,10 +131,7 @@ export function scoreSectionSuggestions(
       reasons.push('община')
     }
 
-    if (person.radius) {
-      score += 2
-      reasons.push(`радиус ${person.radius}`)
-    }
+    if (person.radius) score += 2
 
     if (travelNames.some((name) => name && sectionPlace.includes(name))) {
       score += 15

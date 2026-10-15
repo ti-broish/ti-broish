@@ -64,6 +64,13 @@ interface RawPerson {
   call_message: string
   radius: string
   travel_municipalities: string
+  region_name: string
+  municipality_name: string
+  city_region_name: string
+  country_name: string
+  town_id: number | string | null
+  extra_city_regions: string
+  distant_region_codes: string
   rounds_first: number
   rounds_runoff: number
   paper_count: number | null
@@ -125,6 +132,32 @@ function sixDigit() {
   return String((crypto.getRandomValues(new Uint32Array(1))[0] ?? 0) % 1_000_000).padStart(6, '0')
 }
 
+function parsedJson(value: unknown) {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as unknown
+    } catch {
+      return []
+    }
+  }
+  return value ?? []
+}
+
+function asJsonText(value: unknown) {
+  if (typeof value === 'string') return value
+  if (value == null) return '[]'
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return '[]'
+  }
+}
+
+function townIdOf(value: number | string | null | undefined) {
+  const id = typeof value === 'number' ? value : Number(value)
+  return Number.isInteger(id) && id > 0 ? id : null
+}
+
 function fieldsOf(row: RawPerson): RosterFields {
   return {
     id: row.id,
@@ -148,7 +181,15 @@ function fieldsOf(row: RawPerson): RosterFields {
     egn: row.egn ?? '',
     ...notesFromRow(row),
     radius: row.radius ?? '',
-    travelLabel: travelLabelOf(row.travel_municipalities ?? '', row.radius ?? ''),
+    travelLabel: travelLabelOf(asJsonText(row.travel_municipalities), row.radius ?? ''),
+    regionName: row.region_name ?? '',
+    municipality: row.municipality_name ?? '',
+    cityRegion: row.city_region_name ?? '',
+    countryName: row.country_name ?? '',
+    townId: townIdOf(row.town_id),
+    extraCityRegions: clipNamedPlaces(parsedJson(row.extra_city_regions)),
+    distantRegionCodes: clipRegionCodes(parsedJson(row.distant_region_codes)),
+    travelMunicipalities: clipTravelStops(parsedJson(row.travel_municipalities)),
     roundsFirst: row.rounds_first === 1,
     roundsRunoff: row.rounds_runoff === 1,
     paperCount: typeof row.paper_count === 'number' ? row.paper_count : null,
@@ -157,8 +198,24 @@ function fieldsOf(row: RawPerson): RosterFields {
 }
 
 const PERSON_SQL = `${PERSON_SQL_BASE}${NOTES_SQL},
-  COALESCE(radius, '') AS radius,
-  COALESCE(travel_municipalities, '[]') AS travel_municipalities,
+  COALESCE(NULLIF(radius, ''), json_extract(payload, '$.radius'), '') AS radius,
+  CASE
+    WHEN COALESCE(travel_municipalities, '') NOT IN ('', '[]') THEN travel_municipalities
+    ELSE COALESCE(json_extract(payload, '$.travelMunicipalities'), '[]')
+  END AS travel_municipalities,
+  COALESCE(json_extract(payload, '$.place.regionName'), '') AS region_name,
+  COALESCE(NULLIF(municipality_name, ''), json_extract(payload, '$.place.municipalityName'), '') AS municipality_name,
+  COALESCE(NULLIF(city_region_name, ''), json_extract(payload, '$.place.cityRegionName'), '') AS city_region_name,
+  COALESCE(json_extract(payload, '$.place.countryName'), '') AS country_name,
+  json_extract(payload, '$.place.townId') AS town_id,
+  CASE
+    WHEN COALESCE(extra_city_regions, '') NOT IN ('', '[]') THEN extra_city_regions
+    ELSE COALESCE(json_extract(payload, '$.extraCityRegions'), '[]')
+  END AS extra_city_regions,
+  CASE
+    WHEN COALESCE(distant_region_codes, '') NOT IN ('', '[]') THEN distant_region_codes
+    ELSE COALESCE(json_extract(payload, '$.distantRegionCodes'), '[]')
+  END AS distant_region_codes,
   CASE WHEN rounds_first = 1 OR json_extract(payload, '$.rounds.first') = 1 THEN 1 ELSE 0 END AS rounds_first,
   CASE WHEN rounds_runoff = 1 OR json_extract(payload, '$.rounds.runoff') = 1 THEN 1 ELSE 0 END AS rounds_runoff,
   paper_count,

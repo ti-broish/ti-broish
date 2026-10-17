@@ -8,6 +8,7 @@ import type { RosterFields } from '../../signup/admin-csv'
 import { daysLabel, formatStaffWhen } from '../../signup/admin-progress'
 import { parseQueueSearch, type QueueSearch } from '../../signup/admin-search'
 import { toggleSelected } from '../../signup/admin-bulk'
+import { cantReachBadgeLabel } from '../../signup/cant-reach'
 import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
 import { useDebouncedQuery } from './-debounced-query'
 
@@ -301,8 +302,13 @@ function queueColumns(select: RowSelect | null) {
       id: 'flagged',
       header: 'Поискано',
       cell: ({ row }) => (
-        <div>
+        <div className="grid gap-1">
           <p>{row.original.callRequestedAt ? formatStaffWhen(row.original.callRequestedAt) : '—'}</p>
+          {row.original.cantReachSection ? (
+            <span className="inline-flex w-fit max-w-full items-center rounded-full bg-[#7a1f4b] px-2 py-0.5 text-xs font-bold text-white">
+              {cantReachBadgeLabel(row.original.cantReachSection)}
+            </span>
+          ) : null}
           {row.original.callMessage ? <p className="line-clamp-2">{row.original.callMessage}</p> : null}
         </div>
       ),
@@ -335,6 +341,11 @@ function QueueCards({ people, select }: { people: RosterFields[]; select: RowSel
           <p>{daysLabel(person.roundsFirst === true, person.roundsRunoff === true)}</p>
           <p className="whitespace-pre-wrap">{person.staffNote || '—'}</p>
           <p>{person.callRequestedAt ? formatStaffWhen(person.callRequestedAt) : '—'}</p>
+          {person.cantReachSection ? (
+            <span className="inline-flex w-fit max-w-full items-center rounded-full bg-[#7a1f4b] px-2 py-0.5 text-xs font-bold text-white">
+              {cantReachBadgeLabel(person.cantReachSection)}
+            </span>
+          ) : null}
         </li>
       ))}
     </ul>

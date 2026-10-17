@@ -30,7 +30,7 @@ export function StaffNote() {
           onChange={(event) => {
             if (!event.target.checked) {
               setAsking(false)
-              updateProfile({ callRequestedAt: null, callMessage: '' })
+              updateProfile({ callRequestedAt: null, callMessage: '', cantReachSection: null })
               return
             }
             setAsking(true)
@@ -46,7 +46,7 @@ export function StaffNote() {
           За какво е обаждането
           <input
             className={field}
-            maxLength={300}
+            maxLength={500}
             required
             aria-required="true"
             aria-invalid={missing}

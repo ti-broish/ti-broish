@@ -268,6 +268,27 @@ test('an assigned profile leads with the section and the badge', async ({ page }
   await expect(page.getByRole('heading', { name: nextWaveLabel() })).toHaveCount(0)
 })
 
+test('cannot reach the assigned section appends to an open call request', async ({ page }) => {
+  await seedProfile(
+    page,
+    registered({
+      assignedSection: '234600101',
+      callRequestedAt: '2026-10-02T08:00:00.000Z',
+      callMessage: 'За секцията',
+    }),
+  )
+  await page.goto('/profil')
+  await expect(page.getByRole('heading', { name: '234600101' })).toBeVisible()
+  await page.getByRole('button', { name: 'Няма да мога да стигна до секцията' }).click()
+  await page.getByLabel('Какво се случи? (по желание)').fill('Няма транспорт')
+  await page.getByRole('button', { name: 'Изпрати на екипа' }).click()
+  await expect(page.getByText('Получихме го. Екипът ще ти звънне на 0888123456, за да намерим решение.')).toBeVisible()
+  await expect(page.getByLabel('За какво е обаждането')).toHaveValue(
+    'За секцията · Не мога да стигна до секция 234600101: Няма транспорт',
+  )
+  await expect(page.getByRole('checkbox', { name: /Поискай обаждане/ })).toBeChecked()
+})
+
 test('withdrawing a signup can be undone from the profile', async ({ page }) => {
   await seedProfile(page, registered())
   await page.goto('/profil')

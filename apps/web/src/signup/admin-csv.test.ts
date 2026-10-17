@@ -23,6 +23,8 @@ const person: RosterFields = {
   notes: 'Имам кола',
   callRequestedAt: '2026-09-20T10:00:00.000Z',
   callMessage: 'За секцията',
+  cantReachSection: '',
+  cantReachAt: '',
   staffNote: 'Ще дойде и на двата дни.',
   staffCalledAt: '2026-09-21T10:00:00.000Z',
   staffCalledBy: 'ada@example.com',
@@ -52,6 +54,9 @@ describe('assignment visibility', () => {
     expect(internal).toContain('Ще дойде и на двата дни.')
     expect(campaign).not.toContain('Ще дойде и на двата дни.')
     expect(internal).toContain(',1,')
+    expect(internal).toContain('cant_reach_section')
+    const withReach = { ...person, cantReachSection: '234600101', cantReachAt: '2026-10-17T12:00:00.000Z' }
+    expect(internalCsv([withReach])).toContain('234600101')
   })
 })
 

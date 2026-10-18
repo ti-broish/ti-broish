@@ -1,4 +1,11 @@
 import { env } from 'cloudflare:workers'
+import {
+  checkBrevoAttributes,
+  checkBrevoSender,
+  mapBrevoHttpError,
+  type BrevoAttrDescriptor,
+  type BrevoImportContact,
+} from './brevo-sync'
 
 const API = 'https://api.brevo.com/v3'
 
@@ -8,6 +15,18 @@ export type BrevoConfig = {
   templateId: number | null
   senderEmail: string
   senderName: string
+}
+
+export class BrevoApiError extends Error {
+  readonly status: number
+  readonly code: string
+
+  constructor(status: number, code: string, message: string) {
+    super(message)
+    this.name = 'BrevoApiError'
+    this.status = status
+    this.code = code
+  }
 }
 
 export function readBrevoConfig(): BrevoConfig | { missing: string } {
@@ -24,28 +43,35 @@ export function readBrevoConfig(): BrevoConfig | { missing: string } {
     apiKey,
     listId: parsePositiveInt(bag.BREVO_LIST_ID),
     templateId: parsePositiveInt(bag.BREVO_TEMPLATE_ID),
-    senderEmail: (bag.BREVO_SENDER_EMAIL ?? 'noreply@tibroish.bg').trim(),
-    senderName: (bag.BREVO_SENDER_NAME ?? 'Ти Броиш').trim(),
+    senderEmail: (bag.BREVO_SENDER_EMAIL ?? 'team@tibroish.bg').trim(),
+    senderName: (bag.BREVO_SENDER_NAME ?? 'Ти броиш').trim(),
   }
 }
 
 export async function importContactsToList(
   config: BrevoConfig,
-  contacts: Array<{ email: string; attributes?: Record<string, string> }>,
+  contacts: BrevoImportContact[],
   listId: number,
+  fetchImpl: typeof fetch = fetch,
 ) {
-  return brevoFetch(config.apiKey, '/contacts/import', {
-    method: 'POST',
-    body: JSON.stringify({
-      jsonBody: contacts.map((contact) => ({
-        email: contact.email,
-        attributes: contact.attributes ?? {},
-      })),
-      listIds: [listId],
-      updateExistingContacts: true,
-      emptyContactsAttributes: false,
-    }),
-  })
+  return brevoFetch(
+    config.apiKey,
+    '/contacts/import',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        jsonBody: contacts.map((contact) => ({
+          email: contact.email,
+          attributes: contact.attributes ?? {},
+        })),
+        listIds: [listId],
+        updateExistingContacts: true,
+        emptyContactsAttributes: false,
+        disableNotification: true,
+      }),
+    },
+    fetchImpl,
+  )
 }
 
 export async function createEmailCampaign(
@@ -57,6 +83,7 @@ export async function createEmailCampaign(
     htmlContent?: string
     templateId?: number
   },
+  fetchImpl: typeof fetch = fetch,
 ) {
   const body: Record<string, unknown> = {
     name: input.name,
@@ -66,22 +93,66 @@ export async function createEmailCampaign(
   }
   if (input.templateId) body.templateId = input.templateId
   else body.htmlContent = input.htmlContent ?? defaultCampaignHtml()
-  const created = await brevoFetch(config.apiKey, '/emailCampaigns', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  const created = await brevoFetch(
+    config.apiKey,
+    '/emailCampaigns',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+    fetchImpl,
+  )
   if (typeof created === 'object' && created && 'id' in created && typeof created.id === 'number') return { id: created.id }
   throw new Error('Brevo не върна номер на кампанията.')
 }
 
-export async function sendEmailCampaignNow(config: BrevoConfig, campaignId: number) {
-  return brevoFetch(config.apiKey, `/emailCampaigns/${campaignId}/sendNow`, {
-    method: 'POST',
-  })
+export async function sendEmailCampaignNow(config: BrevoConfig, campaignId: number, fetchImpl: typeof fetch = fetch) {
+  return brevoFetch(
+    config.apiKey,
+    `/emailCampaigns/${campaignId}/sendNow`,
+    {
+      method: 'POST',
+    },
+    fetchImpl,
+  )
 }
 
-async function brevoFetch(apiKey: string, path: string, init: RequestInit) {
-  const response = await fetch(`${API}${path}`, {
+export type BrevoHealthReport = {
+  account: { ok: boolean; companyName?: string; email?: string; plan?: string; credits?: number; error?: string }
+  list: { ok: boolean; id: number | null; name?: string; totalSubscribers?: number; error?: string }
+  attributes: {
+    ok: boolean
+    missing: string[]
+    wrongType: Array<{ name: string; expected: string[]; actual: string }>
+    roleLabelGaps: string[]
+    error?: string
+  }
+  sender: { ok: boolean; email: string; message: string; error?: string }
+}
+
+export async function fetchBrevoHealth(config: BrevoConfig, fetchImpl: typeof fetch = fetch): Promise<BrevoHealthReport> {
+  const account = await checkAccount(config, fetchImpl)
+  const list = await checkList(config, fetchImpl)
+  const attributes = await checkAttributes(config, fetchImpl)
+  const sender = await checkSender(config, fetchImpl)
+  return { account, list, attributes, sender }
+}
+
+export async function fetchBrevoAttributeDescriptors(
+  config: BrevoConfig,
+  fetchImpl: typeof fetch = fetch,
+): Promise<BrevoAttrDescriptor[]> {
+  const json = await brevoFetch(config.apiKey, '/contacts/attributes', { method: 'GET' }, fetchImpl)
+  return parseAttributeList(json)
+}
+
+export async function brevoFetch(
+  apiKey: string,
+  path: string,
+  init: RequestInit = {},
+  fetchImpl: typeof fetch = fetch,
+) {
+  const response = await fetchImpl(`${API}${path}`, {
     ...init,
     headers: {
       Accept: 'application/json',
@@ -102,9 +173,145 @@ async function brevoFetch(apiKey: string, path: string, init: RequestInit) {
       typeof json === 'object' && json && 'message' in json
         ? String((json as { message: unknown }).message)
         : `Brevo HTTP ${response.status}`
-    throw new Error(message)
+    const code =
+      typeof json === 'object' && json && 'code' in json ? String((json as { code: unknown }).code) : ''
+    throw new BrevoApiError(response.status, code, mapBrevoHttpError(response.status, message, code))
   }
   return json
+}
+
+async function checkAccount(config: BrevoConfig, fetchImpl: typeof fetch) {
+  try {
+    const json = (await brevoFetch(config.apiKey, '/account', { method: 'GET' }, fetchImpl)) as {
+      companyName?: string
+      email?: string
+      plan?: Array<{ type?: string; credits?: number }> | { type?: string; credits?: number }
+    }
+    const planParts = Array.isArray(json.plan) ? json.plan : json.plan ? [json.plan] : []
+    const plan = planParts.map((item) => item.type).filter(Boolean).join(', ')
+    const credits = planParts.reduce((sum, item) => sum + (typeof item.credits === 'number' ? item.credits : 0), 0)
+    return {
+      ok: true as const,
+      companyName: json.companyName,
+      email: json.email,
+      plan: plan || undefined,
+      credits: credits || undefined,
+    }
+  } catch (error) {
+    return { ok: false as const, error: errorMessage(error) }
+  }
+}
+
+async function checkList(config: BrevoConfig, fetchImpl: typeof fetch) {
+  if (!config.listId) {
+    return {
+      ok: false as const,
+      id: null,
+      error: 'Липсва BREVO_LIST_ID. Задай числовия ID на списъка в Brevo.',
+    }
+  }
+  try {
+    const json = (await brevoFetch(config.apiKey, `/contacts/lists/${config.listId}`, { method: 'GET' }, fetchImpl)) as {
+      name?: string
+      uniqueSubscribers?: number
+      totalSubscribers?: number
+    }
+    return {
+      ok: true as const,
+      id: config.listId,
+      name: json.name,
+      totalSubscribers: json.uniqueSubscribers ?? json.totalSubscribers,
+    }
+  } catch (error) {
+    if (error instanceof BrevoApiError && error.status === 404) {
+      return {
+        ok: false as const,
+        id: config.listId,
+        error: `Списък ${config.listId} не съществува в Brevo (404). Провери BREVO_LIST_ID.`,
+      }
+    }
+    return { ok: false as const, id: config.listId, error: errorMessage(error) }
+  }
+}
+
+async function checkAttributes(config: BrevoConfig, fetchImpl: typeof fetch) {
+  try {
+    const attrs = await fetchBrevoAttributeDescriptors(config, fetchImpl)
+    const result = checkBrevoAttributes(attrs)
+    return {
+      ok: result.ok,
+      missing: result.missing,
+      wrongType: result.wrongType,
+      roleLabelGaps: result.roleLabelGaps,
+    }
+  } catch (error) {
+    return {
+      ok: false as const,
+      missing: [] as string[],
+      wrongType: [] as Array<{ name: string; expected: string[]; actual: string }>,
+      roleLabelGaps: [] as string[],
+      error: errorMessage(error),
+    }
+  }
+}
+
+async function checkSender(config: BrevoConfig, fetchImpl: typeof fetch) {
+  try {
+    const json = (await brevoFetch(config.apiKey, '/senders', { method: 'GET' }, fetchImpl)) as {
+      senders?: Array<{ email?: string; active?: boolean; verified?: boolean }>
+    }
+    const report = checkBrevoSender(json.senders ?? [], config.senderEmail)
+    return {
+      ok: report.found && report.active,
+      email: report.email,
+      message: report.message,
+    }
+  } catch (error) {
+    return {
+      ok: false as const,
+      email: config.senderEmail,
+      message: '',
+      error: errorMessage(error),
+    }
+  }
+}
+
+function parseAttributeList(json: unknown): BrevoAttrDescriptor[] {
+  if (!json || typeof json !== 'object') return []
+  const bag = json as { attributes?: unknown[]; data?: unknown[] }
+  const list = Array.isArray(bag.attributes) ? bag.attributes : Array.isArray(bag.data) ? bag.data : []
+  const parsed: BrevoAttrDescriptor[] = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as {
+      name?: string
+      type?: string
+      category?: string
+      enumeration?: Array<{ value?: number; label?: string }>
+      multiCategoryOptions?: unknown[]
+    }
+    if (!row.name) continue
+    parsed.push({
+      name: row.name,
+      type: row.type,
+      category: row.category,
+      enumeration: (row.enumeration ?? [])
+        .filter((entry) => typeof entry.value === 'number' && typeof entry.label === 'string')
+        .map((entry) => ({ value: entry.value as number, label: entry.label as string })),
+      multiCategoryOptions: (row.multiCategoryOptions ?? []).flatMap((option) => {
+        if (typeof option === 'string') return [option]
+        if (option && typeof option === 'object' && 'value' in option) return [String((option as { value: unknown }).value)]
+        return []
+      }),
+    })
+  }
+  return parsed
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof BrevoApiError) return error.message
+  if (error instanceof Error) return error.message
+  return 'Brevo повикването се провали.'
 }
 
 function parsePositiveInt(value: string | undefined) {

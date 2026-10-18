@@ -1,3 +1,7 @@
+import { BREVO_SECTIONS_HEADERS, buildBrevoContact, brevoContactCsvCells, normalizeBrevoSms } from './brevo-contact'
+
+export { BREVO_SECTIONS_HEADERS, normalizeBrevoSms }
+
 export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls' | 'queue'
 
 export interface RosterFields {
@@ -158,20 +162,6 @@ export function internalCsv(people: RosterFields[]) {
   return toCsv(INTERNAL_HEADERS, people.map(internalCells))
 }
 
-/** Brevo import headers for updating SECTION / address attributes on existing contacts. */
-export const BREVO_SECTIONS_HEADERS = [
-  'EMAIL',
-  'FIRSTNAME',
-  'LASTNAME',
-  'SMS',
-  'MIR',
-  'SECTION',
-  'SECTION_ADDRESS',
-  'SECTION_PLACE',
-  'ROLE',
-  'SECTION_PUBLISHED',
-] as const
-
 export interface BrevoSectionFields {
   email: string
   firstName: string
@@ -186,42 +176,25 @@ export interface BrevoSectionFields {
   sectionPublished?: boolean
 }
 
-/**
- * Normalize a phone to Brevo SMS / E.164: leading +, country code, digits only.
- * Bulgarian national numbers (0… / 8… / 9…) become +359…. Empty when not plausibly valid.
- */
-export function normalizeBrevoSms(value: string) {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  let digits = trimmed.replace(/\D/g, '')
-  if (digits.startsWith('00') && digits.length > 2) digits = digits.slice(2)
-  if (/^0[1-9]\d{7,8}$/.test(digits)) digits = `359${digits.slice(1)}`
-  else if (/^[89]\d{8}$/.test(digits)) digits = `359${digits}`
-  if (!/^\d{6,15}$/.test(digits) || digits.startsWith('0')) return ''
-  return `+${digits}`
-}
-
 export function brevoSectionsCsv(rows: BrevoSectionFields[]) {
   return toCsv([...BREVO_SECTIONS_HEADERS], rows.map(brevoSectionCells))
 }
 
 function brevoSectionCells(row: BrevoSectionFields) {
-  const digits = normalizeSection(row.publishedSection).replace(/\D/g, '')
-  const published = row.sectionPublished !== false && /^\d{9}$/.test(digits)
-  const mirRaw = row.mir.trim() || mirFromSection(digits)
-  const mir = mirRaw ? mirRaw.padStart(2, '0').slice(-2) : ''
-  return [
-    row.email.trim().toLowerCase(),
-    row.firstName,
-    row.lastName,
-    normalizeBrevoSms(row.phone),
-    mir,
-    published ? digits : '',
-    row.sectionAddress,
-    row.sectionPlace,
-    row.role,
-    published ? 'true' : 'false',
-  ]
+  return brevoContactCsvCells(
+    buildBrevoContact({
+      email: row.email,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      phone: row.phone,
+      mir: row.mir,
+      publishedSection: row.publishedSection,
+      sectionAddress: row.sectionAddress,
+      sectionPlace: row.sectionPlace,
+      role: row.role,
+      sectionPublished: row.sectionPublished !== false,
+    }),
+  )
 }
 
 export function parseTakenCsv(text: string): { rows: TakenImport[]; errors: string[] } {

@@ -1,9 +1,8 @@
-import type { SectionSearch } from './admin-search'
+import { BREVO_SECTIONS_HEADERS } from './brevo-contact'
 
 export const BREVO_SECTIONS_BUTTON = 'CSV за Brevo: секции и адреси'
 
-export const BREVO_SECTIONS_HINT =
-  'Обновява съществуващи контакти в Brevo по EMAIL с атрибути FIRSTNAME, LASTNAME, SMS, MIR, SECTION, SECTION_ADDRESS, SECTION_PLACE, ROLE, SECTION_PUBLISHED. Само хора с публикувана секция, които не са се отказали.'
+export const BREVO_SECTIONS_HINT = `Обновява съществуващи контакти в Brevo по EMAIL с атрибути ${BREVO_SECTIONS_HEADERS.filter((h) => h !== 'EMAIL').join(', ')}. Само хора с публикувана секция, които не са се отказали.`
 
 export type BrevoSectionsScope = {
   view: 'assigned' | 'abroad' | 'mir'
@@ -17,7 +16,7 @@ export type BrevoSectionsScope = {
  * „Без секция“ and „Чернова“ tabs would export nothing useful, so they widen to
  * every published section. МИР, Чужбина and the search box narrow the file.
  */
-export function brevoSectionsScope(search: Pick<SectionSearch, 'view' | 'mir' | 'q'>): BrevoSectionsScope {
+export function brevoSectionsScope(search: { view: string; mir: string; q: string }): BrevoSectionsScope {
   const q = search.q.trim()
   const mir = search.mir.trim()
   const view = search.view === 'mir' ? 'mir' : search.view === 'abroad' ? 'abroad' : 'assigned'

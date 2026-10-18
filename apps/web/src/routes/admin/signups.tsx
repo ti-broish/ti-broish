@@ -353,12 +353,22 @@ function SignupsPage() {
                 CSV за Brevo
               </button>
             ) : null}
+            {canExport ? (
+              <button type="button" className={adminGhost} onClick={() => void exportCsv('brevo-sections', search, setMessage)}>
+                CSV за Brevo: секции и адреси
+              </button>
+            ) : null}
             {canInternal ? (
               <button type="button" className={adminGhost} onClick={() => void exportCsv('internal', search, setMessage)}>
                 CSV за екипа
               </button>
             ) : null}
           </div>
+          {canExport ? (
+            <p className="text-sm text-[#333]">
+              „Секции и адреси“ обновява съществуващи контакти в Brevo по EMAIL с атрибути FIRSTNAME, LASTNAME, SMS, MIR, SECTION, SECTION_ADDRESS, SECTION_PLACE, ROLE, SECTION_PUBLISHED.
+            </p>
+          ) : null}
           <BrevoCampaignPanel enabled={canExport} view={search.view} mir={search.mir} setMessage={setMessage} />
           {canEdit ? (
             <section className="grid gap-3">
@@ -544,7 +554,7 @@ function roleText(role: string) {
   return role || '—'
 }
 
-function exportCsv(kind: 'campaign' | 'internal', search: SignupSearch, setMessage: (message: string) => void) {
+function exportCsv(kind: 'campaign' | 'internal' | 'brevo-sections', search: SignupSearch, setMessage: (message: string) => void) {
   return adminExport({ data: { view: search.view, mir: search.mir, kind, q: search.q } }).then((result) => {
     if (!result.ok) setMessage(result.message)
     else download(result.filename, result.csv)

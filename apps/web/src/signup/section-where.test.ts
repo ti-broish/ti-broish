@@ -4,6 +4,7 @@ import {
   assembleDirectory,
   readSectionPlaces,
   readTownRefs,
+  sectionPlaceOf,
   sectionSpot,
   signupSpot,
   splitSection,
@@ -122,12 +123,25 @@ describe('where a section id is', () => {
   })
 
   it('still names the oblast when the directory is empty', () => {
-    expect(sectionSpot('162206075', { regions: {}, municipalities: {}, districts: {}, addresses: {} }).area).toBe('Пловдив')
+    expect(sectionSpot('162206075', { regions: {}, municipalities: {}, districts: {}, addresses: {}, towns: {} }).area).toBe('Пловдив')
   })
 
   it('ignores a short code', () => {
     expect(splitSection('16')).toBeNull()
     expect(sectionSpot('16', directory)).toEqual({ address: '', area: '' })
+  })
+
+  it('names the settlement when the directory has a town', () => {
+    const withTown = assembleDirectory({
+      regions: [{ code: '23', name: 'София 23 МИР', municipalities: [{ code: '46', name: 'Столична' }] }],
+      towns: [],
+      sections: [{ id: '234602012', place: '19 СОУ Елиас Канети, ул.КАЗБЕК № 16', town: 'гр.София' }],
+    })
+    expect(sectionSpot('234602012', withTown)).toEqual({
+      address: '19 СОУ Елиас Канети, ул.КАЗБЕК № 16',
+      area: 'София-град, община Столична',
+      town: 'гр.София',
+    })
   })
 })
 
@@ -160,5 +174,27 @@ describe('which town list can name the section', () => {
     expect(readSectionPlaces([{ id: 162206075, place: 'СУ Свети Седмочисленици' }, { id: 'nope', place: 'x' }])).toEqual([
       { id: '162206075', place: 'СУ Свети Седмочисленици' },
     ])
+  })
+
+  it('reads the settlement name from sections?town payload', () => {
+    expect(
+      readSectionPlaces([
+        { id: '234602012', place: '19 СОУ Елиас Канети, ул.КАЗБЕК № 16', town: { id: 68134, name: 'гр.София' } },
+        { id: '261000008', place: 'Читалище', town: { id: 1, name: 'с. Владая' } },
+        { id: '143600022', place: 'Училище без град' },
+      ]),
+    ).toEqual([
+      { id: '234602012', place: '19 СОУ Елиас Канети, ул.КАЗБЕК № 16', town: 'гр.София' },
+      { id: '261000008', place: 'Читалище', town: 'с. Владая' },
+      { id: '143600022', place: 'Училище без град' },
+    ])
+  })
+})
+
+describe('section place for Brevo', () => {
+  it('prefers the settlement and falls back to the area', () => {
+    expect(sectionPlaceOf({ town: 'гр.София', area: 'София-град, община Столична' })).toBe('гр.София')
+    expect(sectionPlaceOf({ town: '  ', area: 'Перник, община Радомир' })).toBe('Перник, община Радомир')
+    expect(sectionPlaceOf({ area: 'София област, община Елин Пелин' })).toBe('София област, община Елин Пелин')
   })
 })

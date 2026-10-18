@@ -1,19 +1,37 @@
-const REGULAR_URL = new URL('./fonts/Tinos-Regular.ttf', import.meta.url)
-const BOLD_URL = new URL('./fonts/Tinos-Bold.ttf', import.meta.url)
-
-export async function loadDesignationFonts() {
-  return {
-    regular: await readFontBytes(REGULAR_URL),
-    bold: await readFontBytes(BOLD_URL),
-  }
+export interface DesignationFontBytes {
+  regular: Uint8Array
+  bold: Uint8Array
 }
 
-async function readFontBytes(url: URL) {
-  if (url.protocol === 'file:') {
-    const { readFile } = await import('node:fs/promises')
-    return new Uint8Array(await readFile(url))
-  }
-  const response = await fetch(url)
-  if (!response.ok) throw new Error(`Не се зареди шрифтът (${response.status}).`)
-  return new Uint8Array(await response.arrayBuffer())
+type FontProvider = () => Promise<DesignationFontBytes>
+
+let provider: FontProvider | null = null
+
+/**
+ * The Worker has no file system and no usable import.meta.url, so it registers
+ * fonts bundled inline (see designation-fonts-worker.ts). Node reads the TTFs.
+ */
+export function useDesignationFonts(next: FontProvider | null) {
+  provider = next
+}
+
+export async function loadDesignationFonts(): Promise<DesignationFontBytes> {
+  if (provider) return provider()
+  return loadFontsFromFiles()
+}
+
+async function loadFontsFromFiles(): Promise<DesignationFontBytes> {
+  const { readFile } = await import('node:fs/promises')
+  const read = async (name: string) =>
+    new Uint8Array(await readFile(new URL(/* @vite-ignore */ `./fonts/${name}`, import.meta.url)))
+  return { regular: await read('Tinos-Regular.ttf'), bold: await read('Tinos-Bold.ttf') }
+}
+
+export function dataUrlBytes(dataUrl: string) {
+  const comma = dataUrl.indexOf(',')
+  const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
 }

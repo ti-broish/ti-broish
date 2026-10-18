@@ -11,7 +11,10 @@ import {
   type StaffDenialState,
 } from './designation-preview'
 import { todayInSofia } from './designation-config'
+import { registerWorkerDesignationFonts } from './designation-fonts-worker'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
+
+registerWorkerDesignationFonts()
 
 type Database = SignupD1
 type Denial = { ok: false; state: StaffDenialState; email: string; message: string }

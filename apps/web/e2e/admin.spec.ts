@@ -238,6 +238,14 @@ test.describe('staff admin', () => {
     await expect(page.getByRole('heading', { name: 'Петър Петров Петров' })).toBeVisible()
   })
 
+  test('staff downloads the power of attorney PDF for a person with a published section', async ({ page }) => {
+    await signIn(page)
+    const response = await page.request.get('/admin/signups/e2e-maria/palnomoshtno.pdf')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('application/pdf')
+    expect((await response.body()).subarray(0, 5).toString('latin1')).toBe('%PDF-')
+  })
+
   test('Brevo sections CSV export is available and downloads the attribute header', async ({ page }) => {
     await signIn(page)
     await page.goto('/admin/signups')

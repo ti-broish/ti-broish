@@ -291,6 +291,53 @@ test.describe('staff admin', () => {
     expect(emails).not.toContain('call.admin-e2e@example.com')
   })
 
+  test('the Brevo list picker searches lists by typing and drives the dry run', async ({ page }) => {
+    const syncRequests: string[] = []
+    await mockBrevoServerFns(page, syncRequests)
+    await signIn(page)
+    await page.goto('/admin/sections?view=mir&mir=23')
+    const syncPanel = page.getByRole('region', { name: 'Brevo: директна синхронизация' })
+    const combobox = syncPanel.getByRole('combobox', { name: 'Списък в Brevo' })
+    const listbox = syncPanel.getByRole('listbox', { name: 'Списъци в Brevo' })
+
+    // Defaults to the configured list (95), not the newest one.
+    await expect(combobox).toHaveValue('Представители със секция ПВР 2026 (120 контакта)')
+    await expect(listbox).toBeHidden()
+
+    await combobox.click()
+    await expect(combobox).toHaveAttribute('aria-expanded', 'true')
+    await expect(listbox.getByRole('option')).toHaveCount(5)
+    await expect(listbox.getByRole('option', { selected: true })).toHaveText('Представители със секция ПВР 2026 (120 контакта)')
+
+    // Case-insensitive Cyrillic filter; duplicate names carry „ · #id“.
+    await combobox.fill('ДОБРО')
+    await expect(listbox.getByRole('option')).toHaveText(['Доброволци · #101 (12 контакта)', 'доброволци · #12 (1 контакт)'])
+    await combobox.press('ArrowDown')
+    await combobox.press('Enter')
+    await expect(listbox).toBeHidden()
+    await expect(combobox).toHaveValue('доброволци · #12 (1 контакт)')
+
+    // Escape closes without changing the selection.
+    await combobox.fill('несъществуващ')
+    await expect(listbox.getByText('Няма такъв списък.')).toBeVisible()
+    await combobox.press('Escape')
+    await expect(listbox).toBeHidden()
+    await expect(combobox).toHaveValue('доброволци · #12 (1 контакт)')
+
+    // The id matches too.
+    await combobox.fill('94')
+    await expect(listbox.getByRole('option')).toHaveText(['ТЕСТ ti-broish staging (0 контакта)'])
+    await combobox.press('Enter')
+    await expect(combobox).toHaveValue('ТЕСТ ti-broish staging (0 контакта)')
+
+    await syncPanel.getByRole('button', { name: 'Провери колко' }).click()
+    await expect(syncPanel.getByRole('status')).toHaveText('Ще се синхронизира 1 контакт към списък „ТЕСТ ti-broish staging“.')
+    await expect(syncPanel.getByRole('button', { name: 'Синхронизирай 1 контакт към „ТЕСТ ti-broish staging“' })).toBeVisible()
+    expect(syncRequests).toHaveLength(1)
+    expect(syncRequests[0]).toContain('94')
+    expect(syncRequests[0]).toContain('dryRun')
+  })
+
   test('distribution lists only finished signups and marks paper against machine', async ({ page }) => {
     test.setTimeout(120_000)
     await signIn(page)
@@ -323,6 +370,54 @@ test.describe('staff admin', () => {
     await expect(page.getByRole('table').getByText(STAFF_EMAIL)).toBeVisible()
   })
 })
+
+const MOCK_BREVO_LISTS = [
+  { id: 101, name: 'Доброволци', subscribers: 12 },
+  { id: 95, name: 'Представители със секция ПВР 2026', subscribers: 120 },
+  { id: 94, name: 'ТЕСТ ti-broish staging', subscribers: 0 },
+  { id: 12, name: 'доброволци', subscribers: 1 },
+  { id: 7, name: 'Newsletter', subscribers: 3 },
+]
+
+/** Answer the Brevo admin server functions with plain JSON so no Brevo key or network is needed. */
+async function mockBrevoServerFns(page: Page, syncRequests: string[]) {
+  await page.route('**/_serverFn/**', async (route) => {
+    const segment = new URL(route.request().url()).pathname.split('/').pop() ?? ''
+    let exported = ''
+    try {
+      exported = (JSON.parse(Buffer.from(segment, 'base64url').toString('utf8')) as { export?: string }).export ?? ''
+    } catch {
+      exported = ''
+    }
+    // Plain (non-seroval) JSON is accepted by the client fetcher; it unwraps `.result`.
+    const reply = (body: unknown) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: body }) })
+    if (exported.startsWith('adminBrevoStatus_')) {
+      return reply({ ok: true, configured: true, listId: 95, templateId: null, senderEmail: 'team@tibroish.bg', senderName: 'Ти броиш' })
+    }
+    if (exported.startsWith('adminBrevoHealth_')) {
+      return reply({ ok: false, message: 'Проверката на Brevo е изключена в теста.' })
+    }
+    if (exported.startsWith('adminBrevoLists_')) {
+      return reply({ ok: true, configured: true, lists: MOCK_BREVO_LISTS, defaultListId: 95 })
+    }
+    if (exported.startsWith('adminBrevoSyncSections_')) {
+      syncRequests.push(route.request().postData() ?? '')
+      return reply({
+        ok: true,
+        dryRun: true,
+        total: 1,
+        listId: 94,
+        listName: 'ТЕСТ ti-broish staging',
+        samples: ['m***@example.com'],
+        lackingSection: 0,
+        lackingSms: 0,
+        message: 'Ще се синхронизира 1 контакт към списък „ТЕСТ ti-broish staging“.',
+      })
+    }
+    return route.continue()
+  })
+}
 
 async function signIn(page: Page) {
   await page.context().addCookies([

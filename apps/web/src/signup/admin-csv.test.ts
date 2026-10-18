@@ -154,12 +154,15 @@ describe('brevoSectionsCsv', () => {
     expect(csv.startsWith('\uFEFF')).toBe(true)
     const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\n')
     expect(lines[0]).toBe(BREVO_SECTIONS_HEADERS.join(','))
-    expect(lines[0]).toBe('EMAIL,FIRSTNAME,LASTNAME,SMS,MIR,SECTION,SECTION_ADDRESS,SECTION_PLACE,ROLE,SECTION_PUBLISHED')
+    expect(lines[0]).toBe(
+      'EMAIL,FIRSTNAME,LASTNAME,SMS,MIR,SECTION_ID,SECTION_CODE,SECTION_ID_TEXT,SECTION_ADDRESS,SECTION_PLACE,ROLE,SECTION_PUBLISHED',
+    )
     expect(csv).toContain('ivan@example.com')
     expect(csv).toContain('+359888123456')
     expect(csv).toContain('234600101')
     expect(csv).not.toContain('234600199')
     expect(csv).toContain('true')
+    expect(csv).toContain('Представител')
     expect(csv).toContain('"СУ Пример, ул. ""Витоша"", ж.к. Младост"')
     expect(csv).toContain('гр.София')
   })

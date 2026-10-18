@@ -14,8 +14,9 @@ import { progressLabel, signupProgress } from '../../signup/admin-progress'
 import { parseSignupSearch, type SignupSearch } from '../../signup/admin-search'
 import type { RosterFields } from '../../signup/admin-csv'
 import { toggleSelected } from '../../signup/admin-bulk'
-import { BREVO_SECTIONS_BUTTON } from '../../signup/brevo-sections-export'
+import { BREVO_SECTIONS_BUTTON, BREVO_SECTIONS_HINT, brevoSectionsScope } from '../../signup/brevo-sections-export'
 import { BrevoCampaignPanel } from './-brevo-campaign-panel'
+import { BrevoSyncPanel } from './-brevo-sync-panel'
 import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
 import { useDebouncedQuery } from './-debounced-query'
 import { downloadCsv } from './-brevo-sections-export'
@@ -203,6 +204,7 @@ function SignupsPage() {
   const canExport = access.permissions.exportCampaign
   const canInternal = access.permissions.exportInternal
   const canEdit = access.permissions.edit
+  const brevoScope = brevoSectionsScope(search)
 
   return (
     <div className="grid gap-5">
@@ -366,12 +368,15 @@ function SignupsPage() {
               </button>
             ) : null}
           </div>
+          {canExport ? <p className="text-sm text-[#333]">{BREVO_SECTIONS_HINT}</p> : null}
           {canExport ? (
-            <p className="text-sm text-[#333]">
-              „Секции и адреси“ обновява съществуващи контакти в Brevo по EMAIL с атрибути FIRSTNAME, LASTNAME, SMS, MIR, SECTION, SECTION_ADDRESS, SECTION_PLACE, ROLE, SECTION_PUBLISHED.
-            </p>
+            <BrevoSyncPanel
+              filters={{ view: brevoScope.view, mir: brevoScope.mir, q: brevoScope.q }}
+              scopeLabel={brevoScope.label}
+              setMessage={setMessage}
+            />
           ) : null}
-          <BrevoCampaignPanel enabled={canExport} view={search.view} mir={search.mir} setMessage={setMessage} />
+          <BrevoCampaignPanel enabled={canExport} view={search.view} mir={search.mir} q={search.q} setMessage={setMessage} />
           {canEdit ? (
             <section className="grid gap-3">
               <h2 className="text-lg font-black text-[#1a1020]">Хора, въведени от екипа</h2>

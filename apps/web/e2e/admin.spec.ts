@@ -252,7 +252,7 @@ test.describe('staff admin', () => {
     await page.getByText('Инструменти').click()
     const button = page.getByRole('button', { name: 'CSV за Brevo: секции и адреси' })
     await expect(button).toBeVisible()
-    await expect(page.getByText(/обновява съществуващи контакти в Brevo по EMAIL/)).toBeVisible()
+    await expect(page.getByText(/обновява съществуващи контакти в Brevo по EMAIL/i)).toBeVisible()
     const downloadPromise = page.waitForEvent('download')
     await button.click()
     const download = await downloadPromise
@@ -261,7 +261,7 @@ test.describe('staff admin', () => {
     await download.saveAs(file)
     const text = readFileSync(file, 'utf8')
     expect(text.replace(/^\uFEFF/, '').split('\n')[0]).toBe(
-      'EMAIL,FIRSTNAME,LASTNAME,SMS,MIR,SECTION,SECTION_ADDRESS,SECTION_PLACE,ROLE,SECTION_PUBLISHED',
+      'EMAIL,FIRSTNAME,LASTNAME,SMS,MIR,SECTION_ID,SECTION_CODE,SECTION_ID_TEXT,SECTION_ADDRESS,SECTION_PLACE,ROLE,SECTION_PUBLISHED',
     )
   })
 
@@ -270,7 +270,11 @@ test.describe('staff admin', () => {
     await signIn(page)
     await page.goto('/admin/sections?view=mir&mir=23&q=' + encodeURIComponent('Мария'))
     await expect(page.getByRole('heading', { name: 'Brevo: секции и адреси' })).toBeVisible()
-    await expect(page.getByText('Обхват: всички публикувани секции, МИР 23, търсене „Мария“.')).toBeVisible()
+    const exportPanel = page.getByRole('region', { name: 'Brevo: секции и адреси' })
+    await expect(exportPanel.getByText('Обхват: всички публикувани секции, МИР 23, търсене „Мария“.')).toBeVisible()
+    const syncPanel = page.getByRole('region', { name: 'Brevo: директна синхронизация' })
+    await expect(syncPanel).toBeVisible()
+    await expect(syncPanel.getByText('Не създава кампании и не праща имейли.', { exact: false })).toBeVisible()
     const button = page.getByRole('button', { name: 'CSV за Brevo: секции и адреси' })
     await expect(button).toBeVisible()
     const downloadPromise = page.waitForEvent('download')
@@ -280,7 +284,7 @@ test.describe('staff admin', () => {
     const file = join(tmpdir(), `ti-broish-brevo-sekcii-sections-e2e-${Date.now()}.csv`)
     await download.saveAs(file)
     const lines = readFileSync(file, 'utf8').replace(/^\uFEFF/, '').trim().split('\n')
-    expect(lines[0]).toBe('EMAIL,FIRSTNAME,LASTNAME,SMS,MIR,SECTION,SECTION_ADDRESS,SECTION_PLACE,ROLE,SECTION_PUBLISHED')
+    expect(lines[0]).toBe('EMAIL,FIRSTNAME,LASTNAME,SMS,MIR,SECTION_ID,SECTION_CODE,SECTION_ID_TEXT,SECTION_ADDRESS,SECTION_PLACE,ROLE,SECTION_PUBLISHED')
     const emails = lines.slice(1).map((line) => line.split(',')[0])
     expect(emails).toContain(STAFF_EMAIL)
     expect(emails).not.toContain('ivan.admin-e2e@example.com')

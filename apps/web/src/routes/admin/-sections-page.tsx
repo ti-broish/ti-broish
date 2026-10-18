@@ -14,6 +14,7 @@ import { TakenSectionsPanel } from './-taken-sections-panel'
 import { DeskBadge, SectionPersonRow } from './-section-person-row'
 import { useDebouncedQuery } from './-debounced-query'
 import { BrevoSectionsExportPanel } from './-brevo-sections-export'
+import { BrevoSyncPanel } from './-brevo-sync-panel'
 import { brevoSectionsScope } from '../../signup/brevo-sections-export'
 
 const sectionsRoute = getRouteApi('/admin/sections')
@@ -151,11 +152,18 @@ export function SectionsPage() {
         </button>
       </form>
       {canExport ? (
-        <BrevoSectionsExportPanel
-          filters={{ view: brevoScope.view, mir: brevoScope.mir, q: brevoScope.q }}
-          scopeLabel={brevoScope.label}
-          setMessage={setMessage}
-        />
+        <>
+          <BrevoSectionsExportPanel
+            filters={{ view: brevoScope.view, mir: brevoScope.mir, q: brevoScope.q }}
+            scopeLabel={brevoScope.label}
+            setMessage={setMessage}
+          />
+          <BrevoSyncPanel
+            filters={{ view: brevoScope.view, mir: brevoScope.mir, q: brevoScope.q }}
+            scopeLabel={brevoScope.label}
+            setMessage={setMessage}
+          />
+        </>
       ) : null}
       {canEdit ? (
         <div className="flex flex-wrap gap-2">

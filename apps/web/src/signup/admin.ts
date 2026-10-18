@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
-import { brevoSectionsCsv, campaignCsv, distributionWhere, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
+import { brevoSectionsCsv, campaignCsv, distributionWhere, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
 import { lookupSectionPlaces } from './section-places-lookup'
 import { sectionPlaceOf } from './section-where'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
@@ -472,6 +472,77 @@ export const adminBulkCallback = createServerFn({ method: 'POST' })
     return { ok: true as const, updated: targets.ids.length, capped: targets.capped, message: `${message}${limitNote}` }
   })
 
+/** Load roster people + section places as BrevoSectionFields (shared by CSV, campaign, sync). */
+export async function loadBrevoSectionFields(
+  db: Database,
+  input: { view: string; mir: string; q: string; publishedOnly: boolean; finishedOnly?: boolean; limit?: number },
+): Promise<BrevoSectionFields[] | { error: string }> {
+  const people: RosterFields[] = []
+  const cap = input.limit ?? 5000
+  for (let offset = 0; people.length < cap; offset += 400) {
+    const chunk = await queryPeople(
+      db,
+      input.view,
+      input.mir,
+      input.q,
+      Math.min(400, cap - people.length),
+      offset,
+      false,
+      'updated',
+      'desc',
+      input.finishedOnly === true,
+      input.publishedOnly,
+    )
+    if ('error' in chunk) return { error: chunk.error }
+    people.push(...chunk.rows.map(fieldsOf))
+    if (chunk.rows.length < 400) break
+  }
+  const codes = [...new Set(people.map((person) => normalizeSection(person.publishedSection)).filter((code) => /^\d{9}$/.test(code)))]
+  const townIdsByCode: Record<string, number[]> = {}
+  for (const person of people) {
+    const section = normalizeSection(person.publishedSection)
+    if (!/^\d{9}$/.test(section) || !person.townId) continue
+    const list = townIdsByCode[section] ?? []
+    if (!list.includes(person.townId)) list.push(person.townId)
+    townIdsByCode[section] = list
+  }
+  const places = await lookupSectionPlaces(codes, townIdsByCode)
+  const links = await designationLinks(db, people.map((person) => person.id))
+  return people.map((person) => {
+    const section = normalizeSection(person.publishedSection)
+    const spot = places[section] ?? { address: '', area: '', town: '' }
+    const published = /^\d{9}$/.test(section)
+    return {
+      email: person.email,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      phone: person.phone,
+      mir: person.mir || mirFromSection(section),
+      publishedSection: section,
+      sectionAddress: spot.address,
+      sectionPlace: sectionPlaceOf(spot),
+      role: person.role,
+      sectionPublished: published,
+      palnomoshtnoUrl: links.get(person.id) ?? '',
+    }
+  })
+}
+
+/** Stored power of attorney links by signup id, in chunks under D1's bound-parameter limit. */
+async function designationLinks(db: Database, ids: string[]) {
+  const links = new Map<string, string>()
+  for (let index = 0; index < ids.length; index += 90) {
+    const chunk = ids.slice(index, index + 90)
+    if (chunk.length === 0) continue
+    const rows = await db
+      .prepare(`SELECT id, COALESCE(designation_pdf_url, '') AS url FROM signups WHERE id IN (${chunk.map(() => '?').join(', ')}) AND COALESCE(designation_pdf_url, '') != ''`)
+      .bind(...chunk)
+      .all<{ id: string; url: string }>()
+    for (const row of rows.results ?? []) links.set(row.id, row.url)
+  }
+  return links
+}
+
 export const adminExport = createServerFn({ method: 'POST' })
   .validator((input: { view: string; mir: string; kind: string; q?: string }) => ({
     view: input.view,
@@ -485,6 +556,17 @@ export const adminExport = createServerFn({ method: 'POST' })
     const access = await gate(campaign || sections ? 'exportCampaign' : 'exportInternal')
     if (!access.ok) return access
     const db = access.db
+    const stamp = new Date().toISOString().slice(0, 10)
+    if (sections) {
+      const rows = await loadBrevoSectionFields(db, {
+        view: data.view,
+        mir: data.mir,
+        q: data.q,
+        publishedOnly: true,
+      })
+      if ('error' in rows) return { ok: false as const, message: rows.error }
+      return { ok: true as const, csv: brevoSectionsCsv(rows), filename: `ti-broish-brevo-sekcii-${stamp}.csv` }
+    }
     const people: RosterFields[] = []
     for (let offset = 0; people.length < 5000; offset += 400) {
       const chunk = await queryPeople(
@@ -494,47 +576,15 @@ export const adminExport = createServerFn({ method: 'POST' })
         data.q,
         400,
         offset,
-        !campaign && !sections,
+        !campaign,
         'updated',
         'desc',
         false,
-        sections,
+        false,
       )
       if ('error' in chunk) return { ok: false as const, message: chunk.error }
       people.push(...chunk.rows.map(fieldsOf))
       if (chunk.rows.length < 400) break
-    }
-    const stamp = new Date().toISOString().slice(0, 10)
-    if (sections) {
-      const codes = [...new Set(people.map((person) => normalizeSection(person.publishedSection)).filter((code) => /^\d{9}$/.test(code)))]
-      const townIdsByCode: Record<string, number[]> = {}
-      for (const person of people) {
-        const section = normalizeSection(person.publishedSection)
-        if (!/^\d{9}$/.test(section) || !person.townId) continue
-        const list = townIdsByCode[section] ?? []
-        if (!list.includes(person.townId)) list.push(person.townId)
-        townIdsByCode[section] = list
-      }
-      const places = await lookupSectionPlaces(codes, townIdsByCode)
-      const csv = brevoSectionsCsv(
-        people.map((person) => {
-          const section = normalizeSection(person.publishedSection)
-          const spot = places[section] ?? { address: '', area: '' }
-          return {
-            email: person.email,
-            firstName: person.firstName,
-            lastName: person.lastName,
-            phone: person.phone,
-            mir: person.mir || mirFromSection(section),
-            publishedSection: section,
-            sectionAddress: spot.address,
-            sectionPlace: sectionPlaceOf(spot),
-            role: person.role,
-            sectionPublished: true,
-          }
-        }),
-      )
-      return { ok: true as const, csv, filename: `ti-broish-brevo-sekcii-${stamp}.csv` }
     }
     const exported = campaign ? people.map((person) => ({ ...person, egn: '', draftSection: '' })) : people
     const csv = campaign ? campaignCsv(exported) : internalCsv(exported)

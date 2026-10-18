@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('cloudflare:workers', () => ({ env: {} }))
 
-import { BrevoApiError, brevoFetch, fetchBrevoHealth, importContactsToList, type BrevoConfig } from './brevo'
+import { BrevoApiError, brevoFetch, createEmailCampaign, fetchBrevoHealth, importContactsToList, type BrevoConfig } from './brevo'
 
 const config: BrevoConfig = {
   apiKey: 'test-key',
@@ -105,5 +105,24 @@ describe('fetchBrevoHealth', () => {
     expect(health.list.error).toContain('404')
     expect(health.attributes.ok).toBe(true)
     expect(health.sender.ok).toBe(true)
+  })
+})
+
+describe('createEmailCampaign', () => {
+  it('creates a draft with the sender as reply-to and never sends', async () => {
+    const calls: Array<{ url: string; body: string }> = []
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: String(init?.body ?? '') })
+      return new Response(JSON.stringify({ id: 104 }), { status: 201 })
+    }) as unknown as typeof fetch
+    const config = { apiKey: 'k', listId: 94, templateId: null, senderEmail: 'team@tibroish.bg', senderName: 'Ти броиш' }
+    const created = await createEmailCampaign(config, { name: 'n', subject: 's', listId: 94 }, fetchImpl)
+    expect(created).toEqual({ id: 104 })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.url).toBe('https://api.brevo.com/v3/emailCampaigns')
+    const body = JSON.parse(calls[0]!.body)
+    expect(body.replyTo).toBe('team@tibroish.bg')
+    expect(body.sender).toEqual({ name: 'Ти броиш', email: 'team@tibroish.bg' })
+    expect(body.recipients).toEqual({ listIds: [94] })
   })
 })

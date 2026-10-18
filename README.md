@@ -24,7 +24,13 @@ pnpm dev
 
 Per-person legal PDF «Пълномощно» for a committee representative (`представител`) on election day. This is a different document from the static ЦИК distinctive-sign (badge) at `/znachka` and `apps/web/public/oznachenie-predstavitel.pdf` — leave that page untouched.
 
-The generator lives in `apps/web/src/signup/designation-pdf.ts`. A local admin script uploads each PDF to a Google Drive folder (anyone-with-the-link viewer), stores the URL on the signup row, and copies it to the person's Brevo contact. Staff can preview one PDF at `GET /admin/signups/{id}/palnomoshtno.pdf`.
+The generator lives in `apps/web/src/signup/designation-pdf.ts`. Staff can preview one PDF at `GET /admin/signups/{id}/palnomoshtno.pdf`. Two ways to get the file onto Google Drive and store the link on the signup (and in Brevo):
+
+**A: service account upload.** The script uploads each PDF to a Drive folder (anyone-with-the-link viewer), writes `designation_pdf_url` / `designation_drive_file_id`, and copies the URL to the Brevo contact attribute (default `PALNOMOSHTNO_URL`). Needs `DRIVE_FOLDER_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` (or the OAuth triple).
+
+**B: manual upload + `--import`.** Generate with `--local-only` (no Google credentials). An admin — or an assistant with its own Drive connector — uploads the PDFs, fills `driveUrl` in the manifest, and the script writes the links back to D1 and Brevo.
+
+`--local-only` still saves `designation_number` / `designation_issued_at` to D1 so the PDF numbers stay stable. `--dry-run` writes nothing.
 
 ### How to run
 
@@ -37,15 +43,63 @@ pnpm designation-pdfs --sample --out /tmp/designation-sample.pdf
 # Plan only: who would get a number, no files, no D1, no Drive, no Brevo.
 pnpm designation-pdfs --env local --dry-run
 
-# Generate PDFs from the local D1 and write numbers back. No Drive/Brevo.
+# B: generate PDFs from local D1, write numbers, write manifest.csv + manifest.json. No Drive/Brevo.
 pnpm designation-pdfs --env local --local-only --out ./designation-pdfs
 
-# Staging remote D1 + Drive + Brevo (needs secrets). --person and --limit narrow the set.
+# B: after the PDFs are on Drive, import the filled manifest (D1 + Brevo).
+pnpm designation-pdfs --import ./designation-pdfs/manifest.csv --env local
+pnpm designation-pdfs --import ./links.json --env local --dry-run
+pnpm designation-pdfs --import ./links.csv --env local --skip-brevo
+
+# A: staging remote D1 + Drive + Brevo (needs secrets). --person and --limit narrow the set.
 pnpm designation-pdfs --env staging --person <id>
 pnpm designation-pdfs --env staging --limit 5 --force
 ```
 
 `--env production` talks to production D1 with `--remote`. Do not run that from a laptop unless you mean it. `--force` re-renders and updates the existing Drive file in place so the URL stays stable. Already numbered people keep their number.
+
+### Manifest (`--local-only`, not `--dry-run`)
+
+`manifest.csv` (UTF-8 with BOM, header row, RFC4180 quoting) and `manifest.json` (array of objects) in `--out`, sorted by designation number. No ЕГН. Columns, in this order:
+
+`personId,email,name,number,issuedAt,section,fileName,driveUrl,driveFileId`
+
+`driveUrl` and `driveFileId` are copied from D1 when the person already has them, otherwise empty. Fill `driveUrl` after a manual Drive upload and pass the same file to `--import`. Extra columns are ignored on import.
+
+### Import format
+
+```bash
+pnpm designation-pdfs --import <file.csv|file.json> --env local|staging|production [--dry-run] [--skip-brevo]
+```
+
+CSV (header row) or JSON (an array of objects, or `{ "rows": [...] }`). Fields: `personId` and/or `email` (at least one), `driveUrl` (required), `driveFileId` (optional). Header matching is case-insensitive and also accepts `person_id` / `id`, `drive_url` / `url`, `drive_file_id` / `fileId`.
+
+`driveUrl` must be `https` on `drive.google.com` or `docs.google.com`. If `driveFileId` is missing, it is derived from `/file/d/<id>/`, `/document/d/<id>/`, or `?id=<id>`. Rows with an empty `driveUrl` count as «без линк» so a partially filled manifest works. People without a published section are skipped with a warning. `--skip-brevo` or an unset `BREVO_API_KEY` skips the Brevo attribute update (the latter prints a warning). `--dry-run` does not write D1 or Brevo.
+
+CSV example:
+
+```csv
+personId,email,name,number,issuedAt,section,fileName,driveUrl,driveFileId
+p1,ivan@example.com,Иван Петров Иванов,1,18.10.2026,234600001,Пълномощно 1 – Иван Петров Иванов.pdf,https://drive.google.com/file/d/abc123/view,abc123
+p2,maria@example.com,Мария Георгиева,2,18.10.2026,234600002,Пълномощно 2 – Мария Георгиева.pdf,https://drive.google.com/file/d/def456/view,
+```
+
+JSON example:
+
+```json
+[
+  {
+    "personId": "p1",
+    "email": "ivan@example.com",
+    "driveUrl": "https://drive.google.com/file/d/abc123/view",
+    "driveFileId": "abc123"
+  },
+  {
+    "email": "maria@example.com",
+    "driveUrl": "https://docs.google.com/document/d/def456/edit"
+  }
+]
+```
 
 ### Secrets and config
 
@@ -69,7 +123,7 @@ The упълномощител is **Мими Андреева** (Мирела В
 | `DESIGNATION_NUMBER_PREFIX` | Optional prefix in front of the sequential integer |
 | `DESIGNATION_SECTION_INFO` | Set to `0` to omit the non-operative section info line |
 
-Service accounts have no My Drive quota. Put `DRIVE_FOLDER_ID` in a Shared Drive and add the service account as Content manager. Create the Brevo contact attribute `PALNOMOSHTNO_URL` (text) before the first sync.
+Option A: service accounts have no My Drive quota. Put `DRIVE_FOLDER_ID` in a Shared Drive and add the service account as Content manager. Option B (manual upload + `--import`) does not need a service account. Create the Brevo contact attribute `PALNOMOSHTNO_URL` (text) before the first sync.
 
 The Worker preview route reads the same `DESIGNATION_GRANTOR_*` values from wrangler secrets/vars so the downloaded PDF matches the batch.
 

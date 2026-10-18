@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -11,8 +11,22 @@ import {
   type DesignationPersonRow,
 } from '../src/signup/designation-job'
 import { createDriveClient, readDriveAuth } from '../src/signup/designation-drive'
+import {
+  IMPORT_LOOKUP_BATCH,
+  IMPORT_SAVE_BATCH,
+  formatImportSummary,
+  parseImportSource,
+  runDesignationImport,
+  type DesignationImportDataSource,
+  type DesignationImportPerson,
+} from '../src/signup/designation-import'
 import { parseStoredNumber } from '../src/signup/designation-number'
-import { sqlLiteral } from '../src/signup/designation-sql'
+import {
+  designationImportLookupSql,
+  designationLinkUpdateBatchSql,
+  sqlBatches,
+  sqlLiteral,
+} from '../src/signup/designation-sql'
 import { todayInSofia } from '../src/signup/designation-config'
 
 const WEB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -27,6 +41,8 @@ interface CliArgs {
   force: boolean
   sample: boolean
   concurrency: number
+  importFile: string
+  skipBrevo: boolean
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -40,6 +56,8 @@ function parseArgs(argv: string[]): CliArgs {
     force: false,
     sample: false,
     concurrency: 3,
+    importFile: '',
+    skipBrevo: false,
   }
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i] ?? ''
@@ -53,6 +71,8 @@ function parseArgs(argv: string[]): CliArgs {
     else if (flag === '--force') args.force = true
     else if (flag === '--sample') args.sample = true
     else if (flag === '--concurrency') args.concurrency = Math.max(1, Number(next()) || 3)
+    else if (flag === '--import') args.importFile = next()
+    else if (flag === '--skip-brevo') args.skipBrevo = true
     else if (flag === '--help' || flag === '-h') {
       printHelp()
       process.exit(0)
@@ -60,6 +80,8 @@ function parseArgs(argv: string[]): CliArgs {
       throw new Error(`Непознат флаг ${flag}`)
     }
   }
+  if (args.importFile && args.sample) throw new Error('--import не се комбинира с --sample.')
+  if (args.importFile === '' && argv.includes('--import')) throw new Error('--import иска път до CSV или JSON.')
   return args
 }
 
@@ -73,10 +95,28 @@ function printHelp() {
 
   pnpm designation-pdfs --sample --out ./designation-sample.pdf
   pnpm designation-pdfs --env local --local-only --dry-run
+  pnpm designation-pdfs --env local --local-only --out ./designation-pdfs
+  pnpm designation-pdfs --import ./designation-pdfs/manifest.csv --env local
   pnpm designation-pdfs --env staging --person <id>
 
+Drive:
+  A) service account upload — generate without --local-only (DRIVE_FOLDER_ID +
+     GOOGLE_SERVICE_ACCOUNT_JSON). Writes designation_pdf_url and syncs Brevo.
+  B) manual upload + --import — generate with --local-only, upload the PDFs
+     yourself, fill driveUrl in manifest.csv / manifest.json, then --import.
+
+Манифест (--local-only, not --dry-run): manifest.csv and manifest.json in --out.
+  Columns: personId,email,name,number,issuedAt,section,fileName,driveUrl,driveFileId
+  No ЕГН. driveUrl / driveFileId are copied from D1 when already stored.
+
+Import: --import <file.csv|file.json> --env local|staging|production
+  [--dry-run] [--skip-brevo]
+  personId and/or email (at least one), driveUrl required, driveFileId optional.
+  Extra columns are ignored. Empty driveUrl rows count as „без линк“.
+
 Флагове: --env staging|production|local, --out <dir|file>, --dry-run,
-  --local-only, --person <id>, --limit N, --force, --sample, --concurrency N
+  --local-only, --person <id>, --limit N, --force, --sample, --concurrency N,
+  --import <file>, --skip-brevo
 `)
 }
 
@@ -96,6 +136,11 @@ async function main() {
     await mkdir(dirname(outPath), { recursive: true })
     await runSamplePdf({ outPath, config, grantor, issuedOn })
     logLine(`записан образец ${outPath}`)
+    return
+  }
+
+  if (args.importFile) {
+    await runImport(args, config)
     return
   }
 
@@ -136,6 +181,66 @@ async function main() {
 function sampleOutPath(out: string) {
   if (out.endsWith('.pdf')) return resolve(out)
   return resolve(out, 'designation-sample.pdf')
+}
+
+async function runImport(args: CliArgs, config: ReturnType<typeof configFromEnv>) {
+  if (!args.importFile || args.importFile.startsWith('--')) {
+    throw new Error('--import иска път до CSV или JSON.')
+  }
+  const path = resolve(args.importFile)
+  const text = await readFile(path, 'utf8')
+  const parsed = parseImportSource(text, path)
+  const brevoApiKey = (process.env.BREVO_API_KEY ?? '').trim()
+  const summary = await runDesignationImport(
+    { dryRun: args.dryRun, skipBrevo: args.skipBrevo },
+    {
+      data: wranglerImportDataSource(args.env),
+      parsed,
+      config,
+      brevoApiKey: args.dryRun || args.skipBrevo ? undefined : brevoApiKey || undefined,
+      log: logLine,
+    },
+  )
+  for (const line of formatImportSummary(summary)) logLine(line)
+  if (summary.invalid + summary.notFound + summary.unpublished + summary.errors.length > 0) process.exitCode = 1
+}
+
+function wranglerImportDataSource(envName: CliArgs['env']): DesignationImportDataSource {
+  return {
+    async findPeople(keys) {
+      await ensureColumns(envName)
+      const ids = [...new Set(keys.ids.filter(Boolean))]
+      const emails = [...new Set(keys.emails.map((email) => email.trim().toLowerCase()).filter(Boolean))]
+      const found = new Map<string, DesignationImportPerson>()
+      for (const batch of sqlBatches(ids, IMPORT_LOOKUP_BATCH)) {
+        const sql = designationImportLookupSql(batch, [])
+        if (!sql) continue
+        for (const row of await d1Query<ImportRawRow>(envName, sql)) found.set(row.id, fromImportRaw(row))
+      }
+      for (const batch of sqlBatches(emails, IMPORT_LOOKUP_BATCH)) {
+        const sql = designationImportLookupSql([], batch)
+        if (!sql) continue
+        for (const row of await d1Query<ImportRawRow>(envName, sql)) found.set(row.id, fromImportRaw(row))
+      }
+      return [...found.values()]
+    },
+    async saveLinks(rows) {
+      const updatedAt = new Date().toISOString()
+      for (const batch of sqlBatches(rows, IMPORT_SAVE_BATCH)) {
+        await d1Execute(envName, designationLinkUpdateBatchSql(batch, updatedAt))
+      }
+    },
+  }
+}
+
+interface ImportRawRow {
+  id: string
+  email: string
+  published_section: string
+}
+
+function fromImportRaw(row: ImportRawRow): DesignationImportPerson {
+  return { id: row.id, email: row.email, publishedSection: row.published_section }
 }
 
 function wranglerDataSource(envName: CliArgs['env']): DesignationDataSource {

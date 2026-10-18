@@ -11,6 +11,12 @@ import {
 } from './designation-config'
 import type { DriveClient } from './designation-drive'
 import { updateBrevoContactAttribute } from './designation-brevo'
+import {
+  serializeManifestCsv,
+  serializeManifestJson,
+  sortManifest,
+  type ManifestRow,
+} from './designation-import'
 import { parseStoredNumber } from './designation-number'
 import { renderDesignationPdf } from './designation-pdf'
 import type { DesignationGrantor, DesignationPersonInput } from './designation-text'
@@ -174,6 +180,12 @@ export async function runDesignationJob(opts: DesignationJobOptions, deps: Desig
     }
   })
   await Promise.all(workers)
+  if (!opts.dryRun && opts.localOnly) {
+    const rows = sortManifest(assigned.map((item) => manifestRow(item, deps.config)))
+    await writeFile(join(opts.outDir, 'manifest.csv'), serializeManifestCsv(rows))
+    await writeFile(join(opts.outDir, 'manifest.json'), serializeManifestJson(rows))
+    log(`записан манифест ${join(opts.outDir, 'manifest.csv')}`)
+  }
   return summary
 
   async function processPerson(item: AssignedPerson): Promise<'skipped' | 'generated' | 'uploaded'> {
@@ -241,5 +253,21 @@ export async function runDesignationJob(opts: DesignationJobOptions, deps: Desig
   async function syncBrevo(email: string, url: string) {
     if (!url || !deps.brevoApiKey || !email) return
     await updateBrevoContactAttribute(deps.brevoApiKey, email, { [deps.config.brevoAttribute]: url })
+  }
+}
+
+function manifestRow(item: AssignedPerson, config: DesignationConfig): ManifestRow {
+  const name = [item.person.firstName, item.person.middleName, item.person.lastName].filter(Boolean).join(' ')
+  const number = formatDesignationNumber(item.number, config.numberPrefix)
+  return {
+    personId: item.person.id,
+    email: item.person.email,
+    name,
+    number,
+    issuedAt: item.issuedAt,
+    section: item.person.sectionCode,
+    fileName: designationPdfFilename(number, name),
+    driveUrl: item.person.designationPdfUrl ?? '',
+    driveFileId: item.person.designationDriveFileId ?? '',
   }
 }

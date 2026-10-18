@@ -1,3 +1,5 @@
+import { withRetry } from './designation-drive'
+
 const API = 'https://api.brevo.com/v3'
 
 export async function updateBrevoContactAttribute(
@@ -6,15 +8,17 @@ export async function updateBrevoContactAttribute(
   attributes: Record<string, string>,
   fetchImpl: typeof fetch = fetch,
 ) {
-  const response = await fetchImpl(`${API}/contacts/${encodeURIComponent(email)}?identifierType=emailId`, {
-    method: 'PUT',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      'api-key': apiKey,
-    },
-    body: JSON.stringify({ attributes }),
-  })
+  const response = await withRetry(() =>
+    fetchImpl(`${API}/contacts/${encodeURIComponent(email)}?identifierType=emailId`, {
+      method: 'PUT',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'api-key': apiKey,
+      },
+      body: JSON.stringify({ attributes }),
+    }),
+  )
   if (response.status === 204 || response.ok) return
   const text = await response.text()
   let message = `Brevo HTTP ${response.status}`

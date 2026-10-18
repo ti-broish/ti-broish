@@ -9,3 +9,5 @@ apps/web/test-results/
 apps/web/playwright-report/
 # The designation sample is a site file. A global ignore skips every other PDF.
 !apps/web/public/oznachenie-predstavitel.pdf
+# Tinos faces for the representative power of attorney (a global ignore skips *.ttf).
+!apps/web/src/signup/fonts/*.ttf

@@ -84,6 +84,12 @@
 	//   wrangler secret put BREVO_API_KEY
 	// Optional vars after the key exists:
 	//   BREVO_LIST_ID, BREVO_TEMPLATE_ID, BREVO_SENDER_EMAIL, BREVO_SENDER_NAME
+	// Designation PDF preview (grantor is personal data — secrets, never vars in git):
+	//   wrangler secret put DESIGNATION_GRANTOR_NAME
+	//   wrangler secret put DESIGNATION_GRANTOR_EGN
+	// Optional: DESIGNATION_GRANTOR_AUTHORISATION, DESIGNATION_GRANTOR_CAPACITY,
+	//   DESIGNATION_VALID_UNTIL, DESIGNATION_SEAL_LINE, DESIGNATION_ISSUED_ON,
+	//   DESIGNATION_NUMBER_PREFIX, DESIGNATION_SECTION_INFO, BREVO_DESIGNATION_ATTRIBUTE
 	// "vars": {  "BREVO_LIST_ID": "123", "BREVO_TEMPLATE_ID": "456", "BREVO_SENDER_EMAIL": "noreply@tibroish.bg", "BREVO_SENDER_NAME": "Ти Броиш" }
 	/**
 	 * Static Assets

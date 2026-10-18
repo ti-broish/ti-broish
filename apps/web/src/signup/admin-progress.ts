@@ -298,6 +298,9 @@ export interface AdminPerson {
   staffCalledAt: string
   staffCalledBy: string
   gap: string | null
+  designationNumber: string
+  designationIssuedAt: string
+  designationPdfUrl: string
 }
 
 export function buildAdminPerson(
@@ -314,6 +317,9 @@ export function buildAdminPerson(
     staffNote: string
     staffCalledAt: string
     staffCalledBy: string
+    designationNumber?: string
+    designationIssuedAt?: string
+    designationPdfUrl?: string
   },
 ): AdminPerson {
   const radiusId = (profile.radius || extra.radius) as Radius | ''
@@ -353,6 +359,9 @@ export function buildAdminPerson(
     staffCalledAt: extra.staffCalledAt,
     staffCalledBy: extra.staffCalledBy,
     gap: staffGapText(profile),
+    designationNumber: extra.designationNumber ?? '',
+    designationIssuedAt: extra.designationIssuedAt ?? '',
+    designationPdfUrl: extra.designationPdfUrl ?? '',
   }
 }
 

@@ -14,9 +14,11 @@
 		"build": "vite build",
 		"preview": "pnpm run build && vite preview",
 		"deploy": "pnpm run build && wrangler deploy",
-		"cf-typegen": "wrangler types"
+		"cf-typegen": "wrangler types",
+		"designation-pdfs": "tsx scripts/designation-pdfs.ts"
 	},
 	"dependencies": {
+		"@pdf-lib/fontkit": "^1.1.1",
 		"@tailwindcss/vite": "^4.1.18",
 		"@tanstack/react-devtools": "latest",
 		"@tanstack/react-router": "latest",
@@ -24,6 +26,7 @@
 		"@tanstack/react-start": "latest",
 		"@tanstack/react-table": "8.21.3",
 		"leaflet": "^1.9.4",
+		"pdf-lib": "^1.17.1",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
 		"react-leaflet": "^5.0.0",
@@ -41,6 +44,7 @@
 		"@types/react": "^19.2.0",
 		"@types/react-dom": "^19.2.0",
 		"@vitejs/plugin-react": "^6.0.1",
+		"tsx": "^4.23.15",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.0",
 		"vitest": "^5.0.2",

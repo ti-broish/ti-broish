@@ -66,6 +66,10 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN staff_note TEXT',
   'ALTER TABLE signups ADD COLUMN staff_called_at TEXT',
   'ALTER TABLE signups ADD COLUMN staff_called_by TEXT',
+  'ALTER TABLE signups ADD COLUMN designation_number INTEGER',
+  'ALTER TABLE signups ADD COLUMN designation_issued_at TEXT',
+  'ALTER TABLE signups ADD COLUMN designation_pdf_url TEXT',
+  'ALTER TABLE signups ADD COLUMN designation_drive_file_id TEXT',
 ]
 
 const COMPANIONS = `

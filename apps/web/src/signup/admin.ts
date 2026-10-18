@@ -827,6 +827,9 @@ interface StoredPersonRow {
   town_name: string
   section_place: string
   radius: string
+  designation_number: number | string | null
+  designation_issued_at: string | null
+  designation_pdf_url: string | null
 }
 
 const PERSON_DETAIL_SQL = `SELECT id, email, payload,
@@ -846,7 +849,10 @@ const PERSON_DETAIL_SQL = `SELECT id, email, payload,
   COALESCE(experience, '') AS experience,
   COALESCE(town_name, '') AS town_name,
   COALESCE(section_place, '') AS section_place,
-  COALESCE(radius, '') AS radius
+  COALESCE(radius, '') AS radius,
+  designation_number,
+  COALESCE(designation_issued_at, '') AS designation_issued_at,
+  COALESCE(designation_pdf_url, '') AS designation_pdf_url
 FROM signups WHERE id = ?`
 
 function personIdOk(id: string) {
@@ -874,7 +880,16 @@ function openedPerson(row: StoredPersonRow): AdminPerson {
     roundsFirst: row.rounds_first,
     roundsRunoff: row.rounds_runoff,
   })
-  return buildAdminPerson(sealed, {
+  return buildAdminPerson(sealed, personExtra(row, row.staff_note, row.staff_called_at, row.staff_called_by))
+}
+
+function personExtra(
+  row: StoredPersonRow,
+  staffNote: string,
+  staffCalledAt: string,
+  staffCalledBy: string,
+) {
+  return {
     id: row.id,
     town: row.town_name,
     place: row.section_place,
@@ -883,10 +898,13 @@ function openedPerson(row: StoredPersonRow): AdminPerson {
     draftSection: row.draft_section,
     publishedSection: row.published_section ?? '',
     hasEgn: Boolean(row.egn?.replace(/\D/g, '')),
-    staffNote: row.staff_note,
-    staffCalledAt: row.staff_called_at,
-    staffCalledBy: row.staff_called_by,
-  })
+    staffNote,
+    staffCalledAt,
+    staffCalledBy,
+    designationNumber: row.designation_number == null || row.designation_number === '' ? '' : String(row.designation_number),
+    designationIssuedAt: row.designation_issued_at ?? '',
+    designationPdfUrl: row.designation_pdf_url ?? '',
+  }
 }
 
 async function loadStoredPerson(db: Database, id: string) {
@@ -1056,18 +1074,6 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
     return {
       ok: true as const,
       changes: await loadAudit(access.db, row.id),
-      person: buildAdminPerson(edited, {
-        id: row.id,
-        town: row.town_name,
-        place: row.section_place,
-        radius: row.radius,
-        imported: row.imported === 1,
-        draftSection: row.draft_section,
-        publishedSection: row.published_section ?? '',
-        hasEgn: Boolean(row.egn?.replace(/\D/g, '')),
-        staffNote: write.staffNote,
-        staffCalledAt: write.staffCalledAt,
-        staffCalledBy: write.staffCalledBy,
-      }),
+      person: buildAdminPerson(edited, personExtra(row, write.staffNote, write.staffCalledAt, write.staffCalledBy)),
     }
   })

@@ -38,6 +38,7 @@ import { Route as PostsIndexRouteImport } from './routes/posts.index'
 import { Route as PostsSlugRouteImport } from './routes/posts.$slug'
 import { Route as RCodeRouteImport } from './routes/r.$code'
 import { Route as AdminSignupsPersonIdRouteImport } from './routes/admin/signups_.$personId'
+import { Route as AdminSignupsPersonIdPalnomoshtnoDotpdfRouteImport } from './routes/admin/signups_.$personId_.palnomoshtno[.]pdf'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -184,6 +185,12 @@ const AdminSignupsPersonIdRoute = AdminSignupsPersonIdRouteImport.update({
   path: '/signups/$personId',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminSignupsPersonIdPalnomoshtnoDotpdfRoute =
+  AdminSignupsPersonIdPalnomoshtnoDotpdfRouteImport.update({
+    id: '/signups_/$personId_/palnomoshtno.pdf',
+    path: '/signups/$personId/palnomoshtno.pdf',
+    getParentRoute: () => AdminRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/posts/': typeof PostsIndexRoute
   '/admin/signups/$personId': typeof AdminSignupsPersonIdRoute
+  '/admin/signups/$personId/palnomoshtno.pdf': typeof AdminSignupsPersonIdPalnomoshtnoDotpdfRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -244,6 +252,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/posts': typeof PostsIndexRoute
   '/admin/signups/$personId': typeof AdminSignupsPersonIdRoute
+  '/admin/signups/$personId/palnomoshtno.pdf': typeof AdminSignupsPersonIdPalnomoshtnoDotpdfRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -276,6 +285,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/posts/': typeof PostsIndexRoute
   '/admin/signups_/$personId': typeof AdminSignupsPersonIdRoute
+  '/admin/signups_/$personId_/palnomoshtno.pdf': typeof AdminSignupsPersonIdPalnomoshtnoDotpdfRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -309,6 +319,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/posts/'
     | '/admin/signups/$personId'
+    | '/admin/signups/$personId/palnomoshtno.pdf'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -338,6 +349,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/posts'
     | '/admin/signups/$personId'
+    | '/admin/signups/$personId/palnomoshtno.pdf'
   id:
     | '__root__'
     | '/'
@@ -369,6 +381,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/posts/'
     | '/admin/signups_/$personId'
+    | '/admin/signups_/$personId_/palnomoshtno.pdf'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -599,6 +612,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSignupsPersonIdRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/signups_/$personId_/palnomoshtno.pdf': {
+      id: '/admin/signups_/$personId_/palnomoshtno.pdf'
+      path: '/signups/$personId/palnomoshtno.pdf'
+      fullPath: '/admin/signups/$personId/palnomoshtno.pdf'
+      preLoaderRoute: typeof AdminSignupsPersonIdPalnomoshtnoDotpdfRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
   }
 }
 
@@ -609,6 +629,7 @@ interface AdminRouteRouteChildren {
   AdminSignupsRoute: typeof AdminSignupsRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminSignupsPersonIdRoute: typeof AdminSignupsPersonIdRoute
+  AdminSignupsPersonIdPalnomoshtnoDotpdfRoute: typeof AdminSignupsPersonIdPalnomoshtnoDotpdfRoute
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
@@ -618,6 +639,8 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminSignupsRoute: AdminSignupsRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminSignupsPersonIdRoute: AdminSignupsPersonIdRoute,
+  AdminSignupsPersonIdPalnomoshtnoDotpdfRoute:
+    AdminSignupsPersonIdPalnomoshtnoDotpdfRoute,
 }
 
 const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
@@ -673,12 +696,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

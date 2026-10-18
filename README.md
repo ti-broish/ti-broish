@@ -19,3 +19,61 @@ cd apps/web
 pnpm install
 pnpm dev
 ```
+
+## Пълномощни (designation PDFs)
+
+Per-person legal PDF «Пълномощно» for a committee representative (`представител`) on election day. This is a different document from the static ЦИК distinctive-sign (badge) at `/znachka` and `apps/web/public/oznachenie-predstavitel.pdf` — leave that page untouched.
+
+The generator lives in `apps/web/src/signup/designation-pdf.ts`. A local admin script uploads each PDF to a Google Drive folder (anyone-with-the-link viewer), stores the URL on the signup row, and copies it to the person's Brevo contact. Staff can preview one PDF at `GET /admin/signups/{id}/palnomoshtno.pdf`.
+
+### How to run
+
+From `apps/web`:
+
+```bash
+# One fake PDF (no DB). Writes designation-sample.pdf under --out.
+pnpm designation-pdfs --sample --out /tmp/designation-sample.pdf
+
+# Plan only: who would get a number, no files, no D1, no Drive, no Brevo.
+pnpm designation-pdfs --env local --dry-run
+
+# Generate PDFs from the local D1 and write numbers back. No Drive/Brevo.
+pnpm designation-pdfs --env local --local-only --out ./designation-pdfs
+
+# Staging remote D1 + Drive + Brevo (needs secrets). --person and --limit narrow the set.
+pnpm designation-pdfs --env staging --person <id>
+pnpm designation-pdfs --env staging --limit 5 --force
+```
+
+`--env production` talks to production D1 with `--remote`. Do not run that from a laptop unless you mean it. `--force` re-renders and updates the existing Drive file in place so the URL stays stable. Already numbered people keep their number.
+
+### Secrets and config
+
+Never commit these. Grantor name and ЕГН are personal data — only env/CLI.
+
+| Variable | Purpose |
+| --- | --- |
+| `DRIVE_FOLDER_ID` | Shared Drive folder to upload into |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Service-account JSON (file path or inline). Scope defaults to `drive.file`; set `GOOGLE_DRIVE_SCOPE=https://www.googleapis.com/auth/drive` if the folder is on a Shared Drive |
+| `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` / `GOOGLE_OAUTH_REFRESH_TOKEN` | Optional alternative to the service account |
+| `BREVO_API_KEY` | Same key as signup mail. Attribute name defaults to `PALNOMOSHTNO_URL` (override with `BREVO_DESIGNATION_ATTRIBUTE`) |
+| `DESIGNATION_GRANTOR_NAME` | Full name of the упълномощител |
+| `DESIGNATION_GRANTOR_EGN` | ЕГН of the упълномощител |
+| `DESIGNATION_GRANTOR_AUTHORISATION` | Optional clause after the grantor, e.g. `упълномощен/а с пълномощно № … от …` |
+| `DESIGNATION_GRANTOR_CAPACITY` | `пълномощник` (default, verb ПРЕУПЪЛНОМОЩАВАМ) or `представляващ` (УПЪЛНОМОЩАВАМ) |
+| `DESIGNATION_ISSUED_ON` | Date of issue, `dd.mm.yyyy` or ISO. Default: today in Europe/Sofia |
+| `DESIGNATION_VALID_UNTIL` | Default `02.11.2026` |
+| `DESIGNATION_SEAL_LINE` | Default `Инициативният комитет не разполага с печат!` |
+| `DESIGNATION_NUMBER_PREFIX` | Optional prefix in front of the sequential integer |
+| `DESIGNATION_SECTION_INFO` | Set to `0` to omit the non-operative section info line |
+
+Service accounts have no My Drive quota. Put `DRIVE_FOLDER_ID` in a Shared Drive and add the service account as Content manager. Create the Brevo contact attribute `PALNOMOSHTNO_URL` (text) before the first sync.
+
+The Worker preview route reads the same `DESIGNATION_GRANTOR_*` values from wrangler secrets/vars so the downloaded PDF matches the batch.
+
+### Legal TODOs that still need confirmation
+
+- Seal line: confirm that the initiative committee has no seal, or set `DESIGNATION_SEAL_LINE`.
+- Grantor: who signs (Пендачанска / Вълков as representing, or a пълномощник with an authorisation clause), their names and ЕГН.
+- `DESIGNATION_VALID_UNTIL` (default the day after the possible runoff).
+- Distinctive sign is still the static `/znachka` PDF (ЦИК Решение № 61-ПВР); this script does not generate badges.

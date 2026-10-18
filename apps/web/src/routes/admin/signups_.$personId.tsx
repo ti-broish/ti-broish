@@ -98,6 +98,14 @@ function PersonPage() {
             ) : null}
           </div>
           <PersonFacts person={person} />
+          {person.publishedSection ? (
+            <p className="text-sm font-bold text-[#1a1020]">
+              <a className="text-[#2b062f] underline" href={`/admin/signups/${person.id}/palnomoshtno.pdf`}>
+                Свали пълномощното
+              </a>
+              {person.designationNumber ? ` · № ${person.designationNumber}` : ''}
+            </p>
+          ) : null}
           <form
             className="grid gap-4 rounded-2xl border-2 border-[#2b062f] bg-white p-4"
             onSubmit={(event) => {
@@ -278,6 +286,16 @@ function PersonFacts({ person }: { person: AdminPerson }) {
       <Fact label="Място" value={where || 'Няма избрано място'} />
       <Fact label="Докъде" value={person.radiusLabel || 'Не е избрано докъде може да стигне.'} />
       <Fact label="Секция" value={sectionLine(person)} />
+      {person.designationPdfUrl ? (
+        <div className="grid gap-1">
+          <dt className="font-bold">Пълномощно в Drive</dt>
+          <dd>
+            <a className="break-all font-bold text-[#2b062f] underline" href={person.designationPdfUrl} target="_blank" rel="noreferrer">
+              {person.designationPdfUrl}
+            </a>
+          </dd>
+        </div>
+      ) : null}
       {person.notes ? <Fact label="Бележка от човека" value={person.notes} /> : null}
       {person.callRequestedAt ? (
         <Fact label="Поискано обаждане" value={person.callMessage || 'Иска разговор с екипа.'} />

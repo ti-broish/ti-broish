@@ -13,6 +13,8 @@ import type { SectionSpot } from '../../signup/section-where'
 import { TakenSectionsPanel } from './-taken-sections-panel'
 import { DeskBadge, SectionPersonRow } from './-section-person-row'
 import { useDebouncedQuery } from './-debounced-query'
+import { BrevoSectionsExportPanel } from './-brevo-sections-export'
+import { brevoSectionsScope } from '../../signup/brevo-sections-export'
 
 const sectionsRoute = getRouteApi('/admin/sections')
 
@@ -46,6 +48,8 @@ export function SectionsPage() {
   const [mirDraft, setMirDraft] = useState(search.mir)
   const canEdit = access.permissions.edit
   const canPublish = access.permissions.publish
+  const canExport = access.permissions.exportCampaign
+  const brevoScope = brevoSectionsScope(search)
 
   const commitQuery = useCallback(
     (q: string) => {
@@ -146,6 +150,13 @@ export function SectionsPage() {
           Покажи МИР
         </button>
       </form>
+      {canExport ? (
+        <BrevoSectionsExportPanel
+          filters={{ view: brevoScope.view, mir: brevoScope.mir, q: brevoScope.q }}
+          scopeLabel={brevoScope.label}
+          setMessage={setMessage}
+        />
+      ) : null}
       {canEdit ? (
         <div className="flex flex-wrap gap-2">
           <button

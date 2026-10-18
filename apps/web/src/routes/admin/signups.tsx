@@ -14,9 +14,11 @@ import { progressLabel, signupProgress } from '../../signup/admin-progress'
 import { parseSignupSearch, type SignupSearch } from '../../signup/admin-search'
 import type { RosterFields } from '../../signup/admin-csv'
 import { toggleSelected } from '../../signup/admin-bulk'
+import { BREVO_SECTIONS_BUTTON } from '../../signup/brevo-sections-export'
 import { BrevoCampaignPanel } from './-brevo-campaign-panel'
 import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
 import { useDebouncedQuery } from './-debounced-query'
+import { downloadCsv } from './-brevo-sections-export'
 
 export const Route = createFileRoute('/admin/signups')({
   validateSearch: (search: Record<string, unknown>): SignupSearch => parseSignupSearch(search),
@@ -355,7 +357,7 @@ function SignupsPage() {
             ) : null}
             {canExport ? (
               <button type="button" className={adminGhost} onClick={() => void exportCsv('brevo-sections', search, setMessage)}>
-                CSV за Brevo: секции и адреси
+                {BREVO_SECTIONS_BUTTON}
               </button>
             ) : null}
             {canInternal ? (
@@ -557,15 +559,6 @@ function roleText(role: string) {
 function exportCsv(kind: 'campaign' | 'internal' | 'brevo-sections', search: SignupSearch, setMessage: (message: string) => void) {
   return adminExport({ data: { view: search.view, mir: search.mir, kind, q: search.q } }).then((result) => {
     if (!result.ok) setMessage(result.message)
-    else download(result.filename, result.csv)
+    else downloadCsv(result.filename, result.csv)
   })
-}
-
-function download(filename: string, csv: string) {
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(url)
 }

@@ -257,6 +257,28 @@ test.describe('staff admin', () => {
     )
   })
 
+  test('Секции offers the Brevo sections CSV for the current MIR and search', async ({ page }) => {
+    seedStaffRoster()
+    await signIn(page)
+    await page.goto('/admin/sections?view=mir&mir=23&q=' + encodeURIComponent('Мария'))
+    await expect(page.getByRole('heading', { name: 'Brevo: секции и адреси' })).toBeVisible()
+    await expect(page.getByText('Обхват: всички публикувани секции, МИР 23, търсене „Мария“.')).toBeVisible()
+    const button = page.getByRole('button', { name: 'CSV за Brevo: секции и адреси' })
+    await expect(button).toBeVisible()
+    const downloadPromise = page.waitForEvent('download')
+    await button.click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toMatch(/^ti-broish-brevo-sekcii-\d{4}-\d{2}-\d{2}\.csv$/)
+    const file = join(tmpdir(), `ti-broish-brevo-sekcii-sections-e2e-${Date.now()}.csv`)
+    await download.saveAs(file)
+    const lines = readFileSync(file, 'utf8').replace(/^\uFEFF/, '').trim().split('\n')
+    expect(lines[0]).toBe('EMAIL,FIRSTNAME,LASTNAME,SMS,MIR,SECTION,SECTION_ADDRESS,SECTION_PLACE,ROLE,SECTION_PUBLISHED')
+    const emails = lines.slice(1).map((line) => line.split(',')[0])
+    expect(emails).toContain(STAFF_EMAIL)
+    expect(emails).not.toContain('ivan.admin-e2e@example.com')
+    expect(emails).not.toContain('call.admin-e2e@example.com')
+  })
+
   test('distribution lists only finished signups and marks paper against machine', async ({ page }) => {
     test.setTimeout(120_000)
     await signIn(page)

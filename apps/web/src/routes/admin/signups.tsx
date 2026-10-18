@@ -485,9 +485,12 @@ function SectionCell({ person }: { person: RosterFields }) {
 }
 
 function NotesCell({ person }: { person: RosterFields }) {
-  if (!person.callRequestedAt && !person.notes && !person.staffNote) return <p>—</p>
+  if (!person.callRequestedAt && !person.notes && !person.staffNote && !person.cantReachSection) return <p>—</p>
   return (
     <div>
+      {person.cantReachSection ? (
+        <p className="font-bold text-[#7a1f4b]">Не може да стигне до секцията ({person.cantReachSection})</p>
+      ) : null}
       {person.callRequestedAt ? <p className="font-bold">Иска обаждане{person.callMessage ? `: ${person.callMessage}` : ''}</p> : null}
       {person.staffNote ? <p className="line-clamp-3 whitespace-pre-wrap">Екип: {person.staffNote}</p> : null}
       {person.notes ? <p className="whitespace-pre-wrap">{person.notes}</p> : null}
@@ -514,6 +517,9 @@ function StatusChips({ person }: { person: RosterFields }) {
     else chips.push({ label: 'Без секция', className: 'bg-[#efe8f2] text-[#1a1020]' })
   }
   if (person.callRequestedAt) chips.push({ label: 'Иска обаждане', className: 'bg-[#7a1f4b] text-white' })
+  if (person.cantReachSection) {
+    chips.push({ label: `Не може да стигне (${person.cantReachSection})`, className: 'bg-[#7a1f4b] text-white' })
+  }
   if (person.staffCalledAt) chips.push({ label: 'Обадени сме', className: 'bg-[#1f4d7a] text-white' })
   if (person.imported && !person.emailConfirmed) chips.push({ label: 'Чака имейл', className: 'bg-[#efe8f2] text-[#1a1020]' })
   return (

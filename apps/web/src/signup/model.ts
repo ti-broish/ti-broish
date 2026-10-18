@@ -1,3 +1,7 @@
+import { CALL_MESSAGE_MAX, type CantReachSection } from './cant-reach'
+
+export type { CantReachSection }
+
 export type Role = 'section' | 'mobile' | 'video'
 
 export type Radius = 'cityRegion' | 'nearby' | 'settlement' | 'municipality' | 'region' | 'distant'
@@ -83,6 +87,8 @@ export interface Profile {
   notes: string
   callRequestedAt: string | null
   callMessage: string
+  /** Structured can't-reach report for the published section. Cleared when that section changes. */
+  cantReachSection: CantReachSection | null
   consent: boolean
   submitted: boolean
   withdrawn: boolean
@@ -122,6 +128,7 @@ export const emptyProfile = (): Profile => ({
   notes: '',
   callRequestedAt: null,
   callMessage: '',
+  cantReachSection: null,
   consent: false,
   submitted: false,
   withdrawn: false,
@@ -195,7 +202,7 @@ export function profileView(profile: Profile): 'incomplete' | 'waiting' | 'assig
 
 /** A call request counts only with a reason. An empty reason drops the request. */
 export function normalizeCallRequest<T extends { callRequestedAt: string | null; callMessage: string }>(profile: T): T {
-  const message = profile.callMessage.trim().slice(0, 300)
+  const message = profile.callMessage.trim().slice(0, CALL_MESSAGE_MAX)
   if (!message) return { ...profile, callRequestedAt: null, callMessage: '' }
   return { ...profile, callMessage: message }
 }

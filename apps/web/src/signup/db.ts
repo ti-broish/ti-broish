@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestHost, getRequestUrl, setCookie } from '@tanstack/react-start/server'
+import { applyCantReachReport, normalizeCantReachSection, reopenCallQueueSql } from './cant-reach'
 import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupD1, type SignupRow } from './db-core'
 import { normalizeCallRequest, signupGap, type Profile } from './model'
 import { companionsForSignup, syncCompanions } from './companion-lifecycle'
@@ -71,7 +72,7 @@ export const saveSignup = createServerFn({ method: 'POST' })
     let data = input
     const db = await signupDatabase()
     if (!db || !data.email.trim()) return { ok: false as const, message: 'Липсва имейл.' }
-    data = normalizeCallRequest(data)
+    data = normalizeCantReachSection(normalizeCallRequest(data))
     const problem = egnProblem(data.egn)
     if (problem) return { ok: false as const, message: problem }
     const now = new Date().toISOString()
@@ -207,6 +208,55 @@ export const saveSignup = createServerFn({ method: 'POST' })
       referrerName: await referrerName(db, columns.referredBy),
       referralCount: countRow?.n ?? 0,
       pendingLinks: synced.pendingLinks,
+    }
+  })
+
+/**
+ * Volunteer reports they cannot travel to their published section.
+ * Reuses the call-request fields, stores cantReachSection, and clears staff_called_*
+ * so a previously closed callback returns to the open queue.
+ */
+export const reportCantReach = createServerFn({ method: 'POST' })
+  .validator((input: { note?: string }) => ({ note: String(input?.note ?? '').trim().slice(0, 400) }))
+  .handler(async ({ data }) => {
+    const db = await signupDatabase()
+    const token = getCookie(SESSION_COOKIE)
+    if (!db || !token) return { ok: false as const, message: 'Влез в профила си.' }
+    const row = await db
+      .prepare(
+        `SELECT id, payload, referral_code, referred_by, source, egn, published_section, COALESCE(withdrawn, 0) AS withdrawn
+         FROM signups WHERE session_token = ?`,
+      )
+      .bind(token)
+      .first<SignupRow & { withdrawn: number }>()
+    if (!row) return { ok: false as const, message: 'Влез в профила си.' }
+    if (row.withdrawn === 1) return { ok: false as const, message: 'Записването е оттеглено.' }
+    const profile = profileFrom(row)
+    const section = profile.assignedSection
+    if (!section) return { ok: false as const, message: 'Още няма публикувана секция.' }
+    const now = new Date().toISOString()
+    const next = applyCantReachReport({
+      callMessage: profile.callMessage,
+      callRequestedAt: profile.callRequestedAt,
+      section,
+      note: data.note,
+      now,
+    })
+    const saved = normalizeCantReachSection(
+      normalizeCallRequest({
+        ...profile,
+        callMessage: next.callMessage,
+        callRequestedAt: next.callRequestedAt,
+        cantReachSection: next.cantReachSection,
+      }),
+    )
+    const payload = signupColumns(saved).payload
+    await db.prepare(reopenCallQueueSql()).bind(payload, now, row.id, token).run()
+    return {
+      ok: true as const,
+      callMessage: saved.callMessage,
+      callRequestedAt: saved.callRequestedAt,
+      cantReachSection: saved.cantReachSection,
     }
   })
 

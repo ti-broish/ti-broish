@@ -2,6 +2,7 @@ import { migrateCompanionColumns } from './db-core-migrate-companions'
 import { ensureSearchIndex } from './db-search'
 import { env } from 'cloudflare:workers'
 import { visibleSection } from './admin-csv'
+import { normalizeCantReachSection } from './cant-reach'
 import { emptyProfile, type Profile } from './model'
 import { parseAdminEmails } from './staff'
 
@@ -180,7 +181,7 @@ export function profileFrom(row: SignupRow): Profile {
   delete parsed.draftSection
   delete parsed.assignedSection
   delete parsed.demoState
-  return {
+  const profile = {
     ...emptyProfile(),
     ...parsed,
     referralCode: row.referral_code ?? parsed.referralCode ?? '',
@@ -189,4 +190,6 @@ export function profileFrom(row: SignupRow): Profile {
     egn: row.egn || parsed.egn || '',
     assignedSection: visibleSection(row.published_section),
   }
+  // Drop a can't-reach flag that no longer matches the published section.
+  return normalizeCantReachSection(profile)
 }

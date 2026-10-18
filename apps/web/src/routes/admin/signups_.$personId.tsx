@@ -282,6 +282,9 @@ function PersonFacts({ person }: { person: AdminPerson }) {
       {person.callRequestedAt ? (
         <Fact label="Поискано обаждане" value={person.callMessage || 'Иска разговор с екипа.'} />
       ) : null}
+      {person.cantReachSection ? (
+        <Fact label="Не може да стигне" value={`Секция ${person.cantReachSection}`} />
+      ) : null}
     </dl>
   )
 }

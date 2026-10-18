@@ -6,7 +6,8 @@ import { PageIntro } from '../components/SiteChrome'
 import { ShareSignup } from '../components/ShareSignup'
 import { StaffNote } from '../components/StaffNote'
 import { checkEmailCode, requestSignInCode } from '../signup/confirm-mail'
-import { saveSignup } from '../signup/db'
+import { applyCantReachReport } from '../signup/cant-reach'
+import { reportCantReach, saveSignup } from '../signup/db'
 import { applyLoadedSession, beginSessionLoad, invalidateSessionLoad } from '../signup/use-registration'
 import { isProtocolDay } from '../signup/election'
 import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signupGap, validEmail, type Profile } from '../signup/model'
@@ -321,6 +322,99 @@ function assignedDays(profile: Profile) {
   return days.join(' и ') || 'Изборният ден'
 }
 
+const secondaryButton =
+  'flex min-h-12 w-full items-center justify-center rounded-[20px] border border-[#333] bg-white px-5 text-lg font-bold'
+
+function CantReachSection({ profile }: { profile: Profile }) {
+  const section = profile.assignedSection!
+  const reported = profile.cantReachSection?.section === section
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const field = 'min-h-11 w-full rounded-xl border border-[#ddd] bg-white px-3 py-2'
+
+  if (reported) {
+    return (
+      <p className="text-lg leading-7" role="status">
+        Получихме го. Екипът ще ти звънне{profile.phone ? ` на ${profile.phone}` : ''}, за да намерим решение.
+      </p>
+    )
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className={secondaryButton} onClick={() => setOpen(true)}>
+        Няма да мога да стигна до секцията
+      </button>
+    )
+  }
+
+  return (
+    <form
+      className="grid gap-3 rounded-2xl border border-[#ddd] bg-[#faf8fb] p-4"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (busy) return
+        setBusy(true)
+        const now = new Date().toISOString()
+        const next = applyCantReachReport({
+          callMessage: profile.callMessage,
+          callRequestedAt: profile.callRequestedAt,
+          section,
+          note,
+          now,
+        })
+        updateProfile({
+          callMessage: next.callMessage,
+          callRequestedAt: next.callRequestedAt,
+          cantReachSection: next.cantReachSection,
+        })
+        void reportCantReach({ data: { note } })
+          .then((result) => {
+            if (result.ok) {
+              updateProfile({
+                callMessage: result.callMessage,
+                callRequestedAt: result.callRequestedAt,
+                cantReachSection: result.cantReachSection,
+              })
+            }
+          })
+          .finally(() => {
+            setBusy(false)
+            setOpen(false)
+          })
+      }}
+    >
+      <label className="grid gap-1 text-sm font-semibold">
+        Какво се случи? (по желание)
+        <textarea
+          className={`${field} min-h-24`}
+          maxLength={400}
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Например няма транспорт или си болен."
+        />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" className="brand-button" disabled={busy}>
+          Изпрати на екипа
+        </button>
+        <button
+          type="button"
+          className={secondaryButton}
+          disabled={busy}
+          onClick={() => {
+            setOpen(false)
+            setNote('')
+          }}
+        >
+          Отказ
+        </button>
+      </div>
+    </form>
+  )
+}
+
 function NextStep({ profile }: { profile: Profile }) {
   const view = profileView(profile)
   if (view === 'incomplete') {
@@ -358,6 +452,7 @@ function NextStep({ profile }: { profile: Profile }) {
         <Link to="/znachka" className="brand-button">
           Отпечатай значката
         </Link>
+        {!profile.withdrawn && profile.assignedSection ? <CantReachSection profile={profile} /> : null}
       </section>
     )
   }

@@ -47,7 +47,7 @@ describe('signup flow', () => {
       callRequestedAt: null,
       callMessage: '',
     })
-    expect(normalizeCallRequest({ callRequestedAt: '2026-10-02T08:00:00.000Z', callMessage: 'а'.repeat(400) }).callMessage).toHaveLength(300)
+    expect(normalizeCallRequest({ callRequestedAt: '2026-10-02T08:00:00.000Z', callMessage: 'а'.repeat(600) }).callMessage).toHaveLength(500)
   })
 
   it('keeps the seats step for a mobile team or travel outside the city', () => {

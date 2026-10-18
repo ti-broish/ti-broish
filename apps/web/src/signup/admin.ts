@@ -62,6 +62,8 @@ interface RawPerson {
   notes: string
   call_requested_at: string
   call_message: string
+  cant_reach_section: string
+  cant_reach_at: string
   radius: string
   travel_municipalities: string
   region_name: string

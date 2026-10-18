@@ -24,6 +24,9 @@ export interface RosterFields {
   notes: string
   callRequestedAt: string
   callMessage: string
+  /** Published section the volunteer said they cannot reach, from payload.cantReachSection. */
+  cantReachSection: string
+  cantReachAt: string
   staffNote: string
   staffCalledAt: string
   staffCalledBy: string
@@ -86,6 +89,7 @@ const INTERNAL_HEADERS = [
   'notes',
   'call_requested',
   'call_message',
+  'cant_reach_section',
   'staff_called',
   'staff_note',
 ]
@@ -246,6 +250,7 @@ function internalCells(person: RosterFields) {
     person.notes,
     person.callRequestedAt ? '1' : '0',
     person.callMessage,
+    person.cantReachSection,
     person.staffCalledAt ? '1' : '0',
     person.staffNote,
   ]

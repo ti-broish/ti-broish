@@ -292,6 +292,8 @@ export interface AdminPerson {
   notes: string
   callRequestedAt: string
   callMessage: string
+  cantReachSection: string
+  cantReachAt: string
   staffNote: string
   staffCalledAt: string
   staffCalledBy: string
@@ -345,6 +347,8 @@ export function buildAdminPerson(
     notes: profile.notes,
     callRequestedAt: profile.callRequestedAt ?? '',
     callMessage: profile.callMessage,
+    cantReachSection: profile.cantReachSection?.section ?? '',
+    cantReachAt: profile.cantReachSection?.at ?? '',
     staffNote: extra.staffNote,
     staffCalledAt: extra.staffCalledAt,
     staffCalledBy: extra.staffCalledBy,

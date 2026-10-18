@@ -4,6 +4,7 @@ import { loadBrevoSectionFields } from './admin'
 import type { BrevoSectionFields } from './admin-csv'
 import { brevoCampaignName, brevoCampaignUrl } from './brevo-campaign'
 import { brevoAttributesForApi, buildBrevoContact } from './brevo-contact'
+import { brevoContactCount, brevoSyncPreviewText } from './brevo-lists'
 import {
   BrevoApiError,
   createEmailCampaign,
@@ -136,7 +137,7 @@ export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
     if (!listId) {
       return {
         ok: false as const,
-        message: 'Нужен е списък в Brevo: избери списък или задай BREVO_LIST_ID.',
+        message: 'Нужен е списък в Brevo: избери списък от падащото меню.',
       }
     }
 
@@ -187,8 +188,8 @@ export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
         campaignUrl: brevoCampaignUrl(campaign.id),
         sent,
         message: sent
-          ? `Кампания ${campaign.id} е създадена и пратена към списък „${list.name}“ (${list.id}) (${imported} контакта).`
-          : `Кампания ${campaign.id} е създадена като чернова за списък „${list.name}“ (${list.id}) (${imported} контакта). Не е пратена.`,
+          ? `Кампания ${campaign.id} е създадена и пратена към списък „${list.name}“ (${brevoContactCount(imported)}).`
+          : `Кампания ${campaign.id} е създадена като чернова за списък „${list.name}“ (${brevoContactCount(imported)}). Не е пратена.`,
       }
     } catch (error) {
       const done = campaignId ? ` Кампания ${campaignId} е създадена, но не е пратена.` : ''
@@ -230,7 +231,7 @@ export const adminBrevoSyncSections = createServerFn({ method: 'POST' })
     if (!listId) {
       return {
         ok: false as const,
-        message: 'Нужен е списък в Brevo: избери списък или задай BREVO_LIST_ID.',
+        message: 'Нужен е списък в Brevo: избери списък от падащото меню.',
       }
     }
 
@@ -266,7 +267,7 @@ export const adminBrevoSyncSections = createServerFn({ method: 'POST' })
         samples,
         lackingSection,
         lackingSms,
-        message: `Ще се синхронизират ${rows.length} контакта към списък „${list.name}“ (${list.id}).`,
+        message: brevoSyncPreviewText(rows.length, list.name),
       }
     }
 
@@ -309,8 +310,8 @@ export const adminBrevoSyncSections = createServerFn({ method: 'POST' })
         listName: list.name,
         message:
           errors.length === 0
-            ? `Синхронизирани ${sent} от ${rows.length} контакта към списък „${list.name}“ (${list.id}).`
-            : `Синхронизирани ${sent} от ${rows.length}; ${errors.length} партиди с грешка.`,
+            ? `Синхронизирани ${sent} от ${brevoContactCount(rows.length)} към списък „${list.name}“.`
+            : `Синхронизирани ${sent} от ${brevoContactCount(rows.length)} към списък „${list.name}“; ${errors.length} партиди с грешка.`,
       }
     } catch (error) {
       return { ok: false as const, message: errorMessage(error) }

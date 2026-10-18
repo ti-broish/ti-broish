@@ -3,7 +3,13 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('cloudflare:workers', () => ({ env: {} }))
 
 import { BrevoApiError, fetchBrevoList, fetchBrevoLists, type BrevoConfig } from './brevo'
-import { brevoListLabel, parseBrevoLists } from './brevo-lists'
+import {
+  brevoContactCount,
+  brevoListDisplayNames,
+  brevoListLabel,
+  brevoSyncPreviewText,
+  parseBrevoLists,
+} from './brevo-lists'
 
 const config: BrevoConfig = {
   apiKey: 'test-key',
@@ -61,6 +67,38 @@ describe('brevoListLabel', () => {
       'ТЕСТ ti-broish staging (94 контакта)',
     )
     expect(brevoListLabel({ name: 'Empty', subscribers: 0 })).toBe('Empty (0 контакта)')
+  })
+
+  it('uses the display name when given', () => {
+    expect(brevoListLabel({ name: 'ТЕСТ', subscribers: 3 }, 'ТЕСТ · #7')).toBe('ТЕСТ · #7 (3 контакта)')
+  })
+})
+
+describe('brevoListDisplayNames', () => {
+  it('keeps unique names as-is and appends · #id only to duplicates', () => {
+    const names = brevoListDisplayNames([
+      { id: 30, name: 'Доброволци' },
+      { id: 20, name: 'ТЕСТ' },
+      { id: 10, name: 'доброволци' },
+    ])
+    expect(names.get(30)).toBe('Доброволци · #30')
+    expect(names.get(20)).toBe('ТЕСТ')
+    expect(names.get(10)).toBe('доброволци · #10')
+  })
+})
+
+describe('brevoSyncPreviewText', () => {
+  it('names the selected list', () => {
+    expect(brevoSyncPreviewText(94, 'ТЕСТ ti-broish staging')).toBe(
+      'Ще се синхронизират 94 контакта към списък „ТЕСТ ti-broish staging“.',
+    )
+    expect(brevoSyncPreviewText(1, 'ТЕСТ · #7')).toBe('Ще се синхронизира 1 контакт към списък „ТЕСТ · #7“.')
+  })
+
+  it('counts contacts in Bulgarian', () => {
+    expect(brevoContactCount(0)).toBe('0 контакта')
+    expect(brevoContactCount(1)).toBe('1 контакт')
+    expect(brevoContactCount(5)).toBe('5 контакта')
   })
 })
 

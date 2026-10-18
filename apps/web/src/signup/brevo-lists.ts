@@ -33,8 +33,36 @@ export function parseBrevoLists(json: unknown): BrevoListSummary[] {
   return lists.sort((a, b) => b.id - a.id)
 }
 
-/** Bulgarian select label: „Име (N контакта)“ / „Име (1 контакт)“. */
-export function brevoListLabel(list: { name: string; subscribers: number }) {
-  const noun = list.subscribers === 1 ? 'контакт' : 'контакта'
-  return `${list.name} (${list.subscribers} ${noun})`
+/** „1 контакт“ / „N контакта“. */
+export function brevoContactCount(count: number) {
+  return `${count} ${count === 1 ? 'контакт' : 'контакта'}`
+}
+
+/**
+ * Display names for lists: the plain name, plus „ · #id“ only when another
+ * list has the same name (case-insensitive), so duplicates stay distinguishable.
+ */
+export function brevoListDisplayNames(lists: Array<{ id: number; name: string }>): Map<number, string> {
+  const counts = new Map<string, number>()
+  for (const list of lists) {
+    const key = list.name.trim().toLocaleLowerCase('bg')
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const names = new Map<number, string>()
+  for (const list of lists) {
+    const duplicate = (counts.get(list.name.trim().toLocaleLowerCase('bg')) ?? 0) > 1
+    names.set(list.id, duplicate ? `${list.name} · #${list.id}` : list.name)
+  }
+  return names
+}
+
+/** Bulgarian select label: „Име (N контакта)“ / „Име (1 контакт)“. Pass a display name to disambiguate duplicates. */
+export function brevoListLabel(list: { name: string; subscribers: number }, displayName?: string) {
+  return `${displayName ?? list.name} (${brevoContactCount(list.subscribers)})`
+}
+
+/** Dry-run summary: „Ще се синхронизират N контакта към списък „Име“.“ */
+export function brevoSyncPreviewText(total: number, listName: string) {
+  const verb = total === 1 ? 'Ще се синхронизира' : 'Ще се синхронизират'
+  return `${verb} ${brevoContactCount(total)} към списък „${listName}“.`
 }

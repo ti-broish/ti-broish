@@ -174,6 +174,8 @@ export interface BrevoSectionFields {
   role: string
   /** Defaults to true when omitted; kept so a later filter can export unassigned rows. */
   sectionPublished?: boolean
+  /** Stored power of attorney link. Synced to Brevo by the API only, not part of the CSV. */
+  palnomoshtnoUrl?: string
 }
 
 export function brevoSectionsCsv(rows: BrevoSectionFields[]) {

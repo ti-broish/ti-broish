@@ -267,6 +267,7 @@ async function toImportContactsWithWarnings(
       sectionPlace: row.sectionPlace,
       role: row.role,
       sectionPublished: row.sectionPublished !== false,
+      palnomoshtnoUrl: row.palnomoshtnoUrl,
     })
     const attributes = brevoAttributesForApi(built.attributes) as Record<string, string | number | boolean | string[]>
     if (built.attributes.ROLE) {

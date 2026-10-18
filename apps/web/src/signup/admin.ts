@@ -507,6 +507,7 @@ export async function loadBrevoSectionFields(
     townIdsByCode[section] = list
   }
   const places = await lookupSectionPlaces(codes, townIdsByCode)
+  const links = await designationLinks(db, people.map((person) => person.id))
   return people.map((person) => {
     const section = normalizeSection(person.publishedSection)
     const spot = places[section] ?? { address: '', area: '', town: '' }
@@ -522,8 +523,24 @@ export async function loadBrevoSectionFields(
       sectionPlace: sectionPlaceOf(spot),
       role: person.role,
       sectionPublished: published,
+      palnomoshtnoUrl: links.get(person.id) ?? '',
     }
   })
+}
+
+/** Stored power of attorney links by signup id, in chunks under D1's bound-parameter limit. */
+async function designationLinks(db: Database, ids: string[]) {
+  const links = new Map<string, string>()
+  for (let index = 0; index < ids.length; index += 90) {
+    const chunk = ids.slice(index, index + 90)
+    if (chunk.length === 0) continue
+    const rows = await db
+      .prepare(`SELECT id, COALESCE(designation_pdf_url, '') AS url FROM signups WHERE id IN (${chunk.map(() => '?').join(', ')}) AND COALESCE(designation_pdf_url, '') != ''`)
+      .bind(...chunk)
+      .all<{ id: string; url: string }>()
+    for (const row of rows.results ?? []) links.set(row.id, row.url)
+  }
+  return links
 }
 
 export const adminExport = createServerFn({ method: 'POST' })

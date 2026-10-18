@@ -31,6 +31,7 @@ export type BrevoContactInput = {
   sectionPlace: string
   role: string
   sectionPublished: boolean
+  palnomoshtnoUrl?: string
 }
 
 export type BrevoContactAttributes = {
@@ -45,6 +46,7 @@ export type BrevoContactAttributes = {
   SECTION_PLACE: string
   ROLE: string
   SECTION_PUBLISHED: boolean
+  PALNOMOSHTNO_URL?: string
 }
 
 export type BrevoBuiltContact = {
@@ -88,6 +90,8 @@ export function buildBrevoContact(input: BrevoContactInput): BrevoBuiltContact {
     ROLE: brevoRoleLabel(input.role),
     SECTION_PUBLISHED: published,
   }
+  const palnomoshtnoUrl = (input.palnomoshtnoUrl ?? '').trim()
+  if (palnomoshtnoUrl) attributes.PALNOMOSHTNO_URL = palnomoshtnoUrl
   if (published) {
     attributes.SECTION_ID = Number(digits)
     attributes.SECTION_CODE = digits
@@ -121,6 +125,7 @@ export function brevoAttributesForApi(
   put('SECTION_ADDRESS', attributes.SECTION_ADDRESS)
   put('SECTION_PLACE', attributes.SECTION_PLACE)
   put('ROLE', attributes.ROLE)
+  put('PALNOMOSHTNO_URL', attributes.PALNOMOSHTNO_URL)
   return out
 }
 

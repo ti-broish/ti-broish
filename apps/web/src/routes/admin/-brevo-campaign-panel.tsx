@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { adminBrevoPrepareCampaign, adminBrevoStatus } from '../../signup/admin-brevo'
 import { BrevoHealthSummary } from './-brevo-health'
+import { BrevoListSelect } from './-brevo-list-select'
 
 const ghost =
   'inline-flex min-h-11 items-center justify-center rounded-full border-2 border-[#2b062f] bg-white px-4 text-sm font-bold text-[#2b062f]'
@@ -19,7 +20,6 @@ export function BrevoCampaignPanel(props: {
   const [hint, setHint] = useState('')
   const [subject, setSubject] = useState('Кампания Ти Броиш')
   const [busy, setBusy] = useState(false)
-  const [defaultListId, setDefaultListId] = useState<number | null>(null)
   const [listId, setListId] = useState('')
   const [result, setResult] = useState<CampaignResult | null>(null)
 
@@ -44,10 +44,11 @@ export function BrevoCampaignPanel(props: {
       setConfigured(result.configured)
       if (!result.configured) setHint(result.hint)
       else {
-        setDefaultListId(result.listId)
-        setHint(`Списък ${result.listId ?? '—'} · шаблон ${result.templateId ?? 'html'} · ${result.senderEmail}`)
+        if (result.listId && !listId) setListId(String(result.listId))
+        setHint(`Шаблон ${result.templateId ?? 'html'} · ${result.senderEmail}`)
       }
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled])
 
   if (!enabled) return null
@@ -73,16 +74,9 @@ export function BrevoCampaignPanel(props: {
               onChange={(event) => setSubject(event.target.value)}
             />
           </label>
-          <label className="grid gap-1 text-sm font-semibold">
-            List ID (по желание)
-            <input
-              className="min-h-11 w-full max-w-xs rounded-xl border-2 border-[#4a314f] bg-white px-3 text-[#1a1020]"
-              inputMode="numeric"
-              placeholder={defaultListId ? String(defaultListId) : 'BREVO_LIST_ID'}
-              value={listId}
-              onChange={(event) => setListId(event.target.value)}
-            />
-          </label>
+          {configured === true ? (
+            <BrevoListSelect value={listId} disabled={busy} onChange={setListId} />
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"

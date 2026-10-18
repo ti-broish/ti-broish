@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { adminBrevoStatus, adminBrevoSyncSections } from '../../signup/admin-brevo'
 import { BrevoHealthSummary } from './-brevo-health'
+import { BrevoListSelect } from './-brevo-list-select'
 
 const ghost =
   'inline-flex min-h-11 items-center justify-center rounded-full border-2 border-[#2b062f] bg-white px-4 text-sm font-bold text-[#2b062f]'
@@ -12,12 +13,12 @@ export function BrevoSyncPanel(props: {
 }) {
   const { filters, scopeLabel, setMessage } = props
   const [configured, setConfigured] = useState<boolean | null>(null)
-  const [defaultListId, setDefaultListId] = useState<number | null>(null)
   const [listId, setListId] = useState('')
   const [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState<{
     total: number
     listId: number
+    listName: string
     samples: string[]
     lackingSection: number
     lackingSms: number
@@ -28,8 +29,9 @@ export function BrevoSyncPanel(props: {
     void adminBrevoStatus().then((status) => {
       if (!status.ok) return
       setConfigured(status.configured)
-      if (status.configured) setDefaultListId(status.listId)
+      if (status.configured && status.listId && !listId) setListId(String(status.listId))
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
@@ -46,19 +48,16 @@ export function BrevoSyncPanel(props: {
       ) : (
         <>
           <BrevoHealthSummary />
-          <label className="grid gap-1 text-sm font-semibold">
-            List ID (по желание)
-            <input
-              className="min-h-11 w-full max-w-xs rounded-xl border-2 border-[#4a314f] bg-white px-3 text-[#1a1020]"
-              inputMode="numeric"
-              placeholder={defaultListId ? String(defaultListId) : 'BREVO_LIST_ID'}
+          {configured === true ? (
+            <BrevoListSelect
               value={listId}
-              onChange={(event) => {
-                setListId(event.target.value)
+              disabled={busy}
+              onChange={(next) => {
+                setListId(next)
                 setPreview(null)
               }}
             />
-          </label>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -80,6 +79,7 @@ export function BrevoSyncPanel(props: {
                     setPreview({
                       total: response.total,
                       listId: response.listId,
+                      listName: response.listName,
                       samples: response.samples,
                       lackingSection: response.lackingSection,
                       lackingSms: response.lackingSms,
@@ -99,7 +99,7 @@ export function BrevoSyncPanel(props: {
                 onClick={() => {
                   if (
                     !window.confirm(
-                      `Синхронизирай ${preview.total} контакта към списък ${preview.listId} в Brevo? Това само обновява атрибути — без имейли.`,
+                      `Синхронизирай ${preview.total} контакта към списък „${preview.listName}“ (${preview.listId}) в Brevo? Това само обновява атрибути — без имейли.`,
                     )
                   ) {
                     return

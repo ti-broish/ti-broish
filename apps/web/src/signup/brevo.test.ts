@@ -102,7 +102,7 @@ describe('fetchBrevoHealth', () => {
     const health = await fetchBrevoHealth(config, fetchImpl)
     expect(health.account.ok).toBe(true)
     expect(health.list.ok).toBe(false)
-    expect(health.list.error).toContain('404')
+    expect(health.list.error).toContain('не съществува в Brevo')
     expect(health.attributes.ok).toBe(true)
     expect(health.sender.ok).toBe(true)
   })

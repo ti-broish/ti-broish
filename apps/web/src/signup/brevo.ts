@@ -89,6 +89,7 @@ export async function createEmailCampaign(
     name: input.name,
     subject: input.subject,
     sender: { name: config.senderName, email: config.senderEmail },
+    replyTo: config.senderEmail,
     recipients: { listIds: [input.listId] },
   }
   if (input.templateId) body.templateId = input.templateId

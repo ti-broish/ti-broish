@@ -33,7 +33,7 @@
 			"name": "EMAIL"
 		}
 	],
-	// Staging Brevo settings. Vars are not inherited by env.production, so production keeps the code defaults.
+	// Staging Brevo settings. Vars are not inherited by env.production, which has its own below.
 	// BREVO_LIST_ID 94 is the empty test list „ТЕСТ ti-broish staging“. BREVO_API_KEY is a secret.
 	"vars": {
 		"BREVO_LIST_ID": "94",
@@ -67,7 +67,13 @@
 				{
 					"name": "EMAIL"
 				}
-			]
+			],
+			// Production Brevo settings. List 95 is „Представители със секция ПВР 2026“. BREVO_API_KEY is a secret.
+			"vars": {
+				"BREVO_LIST_ID": "95",
+				"BREVO_SENDER_EMAIL": "team@tibroish.bg",
+				"BREVO_SENDER_NAME": "Ти броиш"
+			}
 		}
 	}
 	/**

@@ -21,6 +21,7 @@ export function BrevoCampaignPanel(props: {
   const [subject, setSubject] = useState('Кампания Ти Броиш')
   const [busy, setBusy] = useState(false)
   const [listId, setListId] = useState('')
+  const [listName, setListName] = useState('')
   const [result, setResult] = useState<CampaignResult | null>(null)
 
   const run = (sendNow: boolean) => {
@@ -75,7 +76,14 @@ export function BrevoCampaignPanel(props: {
             />
           </label>
           {configured === true ? (
-            <BrevoListSelect value={listId} disabled={busy} onChange={setListId} />
+            <BrevoListSelect
+              value={listId}
+              disabled={busy}
+              onChange={(next, name) => {
+                setListId(next)
+                setListName(name)
+              }}
+            />
           ) : null}
           <div className="flex flex-wrap gap-2">
             <button
@@ -93,7 +101,9 @@ export function BrevoCampaignPanel(props: {
               onClick={() => {
                 if (
                   !window.confirm(
-                    'Това ще създаде кампания и ще я ИЗПРАТИ веднага към списъка в Brevo. Продължаваме?',
+                    listName
+                      ? `Това ще създаде кампания и ще я ИЗПРАТИ веднага към списък „${listName}“ в Brevo. Продължаваме?`
+                      : 'Това ще създаде кампания и ще я ИЗПРАТИ веднага към избрания списък в Brevo. Продължаваме?',
                   )
                 ) {
                   return
@@ -121,7 +131,7 @@ export function BrevoCampaignPanel(props: {
             </p>
           ) : null}
           <p className="text-sm text-[#333]">
-            Синхронизира контактите от текущия изглед към избрания списък (по подразбиране BREVO_LIST_ID), създава кампания като чернова (template или HTML)
+            Синхронизира контактите от текущия изглед към избрания списък (по подразбиране е избран основният списък), създава кампания като чернова (template или HTML)
             и праща само ако избереш „изпрати сега“. CSV експортът остава.
           </p>
         </>

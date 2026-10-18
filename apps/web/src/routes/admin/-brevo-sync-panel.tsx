@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { adminBrevoStatus, adminBrevoSyncSections } from '../../signup/admin-brevo'
 import { BrevoHealthSummary } from './-brevo-health'
 import { BrevoListSelect } from './-brevo-list-select'
+import { brevoContactCount, brevoSyncPreviewText } from '../../signup/brevo-lists'
 
 const ghost =
   'inline-flex min-h-11 items-center justify-center rounded-full border-2 border-[#2b062f] bg-white px-4 text-sm font-bold text-[#2b062f]'
@@ -14,6 +15,7 @@ export function BrevoSyncPanel(props: {
   const { filters, scopeLabel, setMessage } = props
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [listId, setListId] = useState('')
+  const [listName, setListName] = useState('')
   const [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState<{
     total: number
@@ -52,8 +54,9 @@ export function BrevoSyncPanel(props: {
             <BrevoListSelect
               value={listId}
               disabled={busy}
-              onChange={(next) => {
+              onChange={(next, name) => {
                 setListId(next)
+                setListName(name)
                 setPreview(null)
               }}
             />
@@ -76,15 +79,17 @@ export function BrevoSyncPanel(props: {
                       return
                     }
                     if (!response.dryRun) return
+                    // Prefer the dropdown's name: it disambiguates duplicate list names with „ · #id“.
+                    const name = String(response.listId) === listId && listName ? listName : response.listName
                     setPreview({
                       total: response.total,
                       listId: response.listId,
-                      listName: response.listName,
+                      listName: name,
                       samples: response.samples,
                       lackingSection: response.lackingSection,
                       lackingSms: response.lackingSms,
                     })
-                    setMessage(response.message)
+                    setMessage(brevoSyncPreviewText(response.total, name))
                   })
                   .finally(() => setBusy(false))
               }}
@@ -99,7 +104,7 @@ export function BrevoSyncPanel(props: {
                 onClick={() => {
                   if (
                     !window.confirm(
-                      `Синхронизирай ${preview.total} контакта към списък „${preview.listName}“ (${preview.listId}) в Brevo? Това само обновява атрибути — без имейли.`,
+                      `Синхронизирай ${brevoContactCount(preview.total)} към списък „${preview.listName}“ в Brevo? Това само обновява атрибути — без имейли.`,
                     )
                   ) {
                     return
@@ -131,10 +136,15 @@ export function BrevoSyncPanel(props: {
                     .finally(() => setBusy(false))
                 }}
               >
-                Синхронизирай {preview.total} контакта
+                Синхронизирай {brevoContactCount(preview.total)} към „{preview.listName}“
               </button>
             ) : null}
           </div>
+          {preview ? (
+            <p className="text-sm font-bold text-[#1a1020]" role="status">
+              {brevoSyncPreviewText(preview.total, preview.listName)}
+            </p>
+          ) : null}
           {preview ? (
             <p className="text-sm text-[#333]">
               Примери: {preview.samples.join(', ') || '—'}. Без валидна секция: {preview.lackingSection}. Без SMS:{' '}

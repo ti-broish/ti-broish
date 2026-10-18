@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { adminBrevoLists } from '../../signup/admin-brevo'
-import { brevoListLabel, type BrevoListSummary } from '../../signup/brevo-lists'
+import { brevoListDisplayNames, brevoListLabel, type BrevoListSummary } from '../../signup/brevo-lists'
 
 const selectClass =
   'min-h-11 w-full max-w-xl rounded-xl border-2 border-[#4a314f] bg-white px-3 text-[#1a1020]'
 
 export function BrevoListSelect(props: {
   value: string
-  onChange: (listId: string) => void
+  /** Called with the list id and its display name (with „ · #id“ only for duplicate names). */
+  onChange: (listId: string, listName: string) => void
   disabled?: boolean
 }) {
   const { value, onChange, disabled } = props
@@ -27,12 +28,12 @@ export function BrevoListSelect(props: {
         const fallback = 'defaultListId' in result ? result.defaultListId : null
         setError(
           fallback
-            ? `Не успях да заредя списъците от Brevo: ${result.message} Използва се списъкът по подразбиране (${fallback}).`
+            ? `Не успях да заредя списъците от Brevo: ${result.message} Използва се основният списък (#${fallback}).`
             : `Не успях да заредя списъците от Brevo: ${result.message}`,
         )
         setLists([])
         setDefaultListId(fallback)
-        if (fallback && !value) onChange(String(fallback))
+        if (fallback && !value) onChange(String(fallback), fallbackListName(fallback))
         return
       }
       if (!result.configured) {
@@ -51,7 +52,7 @@ export function BrevoListSelect(props: {
             : result.lists[0]
               ? String(result.lists[0].id)
               : ''
-      if (next && next !== value) onChange(next)
+      if (next) onChange(next, listNameFor(result.lists, result.defaultListId, next))
     })
     return () => {
       cancelled = true
@@ -72,7 +73,7 @@ export function BrevoListSelect(props: {
           className={selectClass}
           value={value && options.some((option) => option.value === value) ? value : options[0]!.value}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(event.target.value, listNameFor(lists, defaultListId, event.target.value))}
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>
@@ -95,17 +96,31 @@ function buildOptions(
 ): Array<{ value: string; label: string }> {
   if (error) {
     if (!defaultListId) return []
-    return [{ value: String(defaultListId), label: `Списък ${defaultListId} (по подразбиране)` }]
+    return [{ value: String(defaultListId), label: fallbackListName(defaultListId) }]
   }
+  const names = brevoListDisplayNames(lists)
   const options = lists.map((list) => ({
     value: String(list.id),
-    label: brevoListLabel(list),
+    label: brevoListLabel(list, names.get(list.id)),
   }))
   if (defaultListId && !lists.some((list) => list.id === defaultListId)) {
     options.unshift({
       value: String(defaultListId),
-      label: `Списък ${defaultListId} (по подразбиране)`,
+      label: fallbackListName(defaultListId),
     })
   }
   return options
+}
+
+/** Shown when the default list is not in Brevo's listing (or listing failed). */
+function fallbackListName(listId: number) {
+  return `Основен списък #${listId}`
+}
+
+function listNameFor(lists: BrevoListSummary[], defaultListId: number | null, value: string) {
+  const id = Number(value)
+  const name = brevoListDisplayNames(lists).get(id)
+  if (name) return name
+  if (defaultListId === id) return fallbackListName(id)
+  return `Списък #${value}`
 }

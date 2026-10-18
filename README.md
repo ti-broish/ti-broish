@@ -105,7 +105,7 @@ JSON example:
 
 Never commit these. Grantor name and ЕГН are personal data — only env/CLI.
 
-The упълномощител is **Мими Андреева** (Мирела Валериева Андреева), as in the earlier template. She signs as a пълномощник of the Инициативен комитет and sub-delegates each volunteer, so the default verb is ПРЕУПЪЛНОМОЩАВАМ. Her ЕГН comes only from `DESIGNATION_GRANTOR_EGN`.
+The упълномощител (grantor) is set via `DESIGNATION_GRANTOR_NAME`. They sign as a пълномощник of the Инициативен комитет and sub-delegate each volunteer, so the default verb is ПРЕУПЪЛНОМОЩАВАМ. Their ЕГН comes only from `DESIGNATION_GRANTOR_EGN`.
 
 | Variable | Purpose |
 | --- | --- |
@@ -113,7 +113,7 @@ The упълномощител is **Мими Андреева** (Мирела В
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Service-account JSON (file path or inline). Scope defaults to `drive.file`; set `GOOGLE_DRIVE_SCOPE=https://www.googleapis.com/auth/drive` if the folder is on a Shared Drive |
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` / `GOOGLE_OAUTH_REFRESH_TOKEN` | Optional alternative to the service account |
 | `BREVO_API_KEY` | Same key as signup mail. Attribute name defaults to `PALNOMOSHTNO_URL` (override with `BREVO_DESIGNATION_ATTRIBUTE`) |
-| `DESIGNATION_GRANTOR_NAME` | Full three names of the упълномощител, e.g. `Мирела Валериева Андреева` |
+| `DESIGNATION_GRANTOR_NAME` | Full three names of the упълномощител (grantor). Secret/env only, never in git |
 | `DESIGNATION_GRANTOR_EGN` | ЕГН of the упълномощител. Env only, never in git |
 | `DESIGNATION_GRANTOR_AUTHORISATION` | The grantor's own authorisation from the committee, as the whole clause, e.g. `упълномощена с пълномощно № … от … от Константин Петров Вълков, представляващ Инициативния комитет`. Unset, the PDF shows a visible `[TODO: номер] / [TODO: дата] / [TODO: представляващ …]` clause |
 | `DESIGNATION_GRANTOR_CAPACITY` | `пълномощник` (default, verb ПРЕУПЪЛНОМОЩАВАМ) or `представляващ` (УПЪЛНОМОЩАВАМ) |
@@ -130,6 +130,6 @@ The Worker preview route reads the same `DESIGNATION_GRANTOR_*` values from wran
 ### Legal TODOs that still need confirmation
 
 - Seal line: confirm that the initiative committee has no seal, or set `DESIGNATION_SEAL_LINE`.
-- Grantor authorisation: the number and date of Мими Андреева's пълномощно from the committee, and which representative (Пендачанска or Вълков) signed it. Set `DESIGNATION_GRANTOR_AUTHORISATION`; until then the PDF shows a TODO.
+- Grantor authorisation: the number and date of the grantor's пълномощно from the committee, and which representative (Пендачанска or Вълков) signed it. Set `DESIGNATION_GRANTOR_AUTHORISATION`; until then the PDF shows a TODO.
 - `DESIGNATION_VALID_UNTIL` (default the day after the possible runoff).
 - Distinctive sign is still the static `/znachka` PDF (ЦИК Решение № 61-ПВР); this script does not generate badges.

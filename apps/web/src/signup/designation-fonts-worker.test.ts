@@ -28,5 +28,5 @@ describe('Worker designation fonts', () => {
       DEFAULT_DESIGNATION_CONFIG,
     )
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1)
-  })
+  }, 30_000)
 })

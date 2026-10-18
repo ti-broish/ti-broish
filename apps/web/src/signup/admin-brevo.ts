@@ -9,11 +9,14 @@ import {
   createEmailCampaign,
   fetchBrevoAttributeDescriptors,
   fetchBrevoHealth,
+  fetchBrevoList,
+  fetchBrevoLists,
   fetchBrevoProcess,
   importContactsToList,
   readBrevoConfig,
   sendEmailCampaignNow,
   type BrevoConfig,
+  type BrevoListSummary,
 } from './brevo'
 import {
   brevoProcessReport,
@@ -77,6 +80,36 @@ export const adminBrevoHealth = createServerFn({ method: 'POST' })
     }
   })
 
+export const adminBrevoLists = createServerFn({ method: 'POST' })
+  .handler(async () => {
+    const access = await gate('exportCampaign')
+    if (!access.ok) return access
+    const config = readBrevoConfig()
+    if ('missing' in config) {
+      return {
+        ok: true as const,
+        configured: false as const,
+        missing: config.missing,
+        message: 'Липсва BREVO_API_KEY.',
+      }
+    }
+    try {
+      const lists = await fetchBrevoLists(config)
+      return {
+        ok: true as const,
+        configured: true as const,
+        lists,
+        defaultListId: config.listId,
+      }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: errorMessage(error),
+        defaultListId: config.listId,
+      }
+    }
+  })
+
 export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
   .validator((input: { view: string; mir: string; q?: string; subject: string; sendNow: boolean; listId?: string }) => ({
     view: input.view,
@@ -103,8 +136,15 @@ export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
     if (!listId) {
       return {
         ok: false as const,
-        message: 'Нужен е списък в Brevo: въведи list id или задай BREVO_LIST_ID.',
+        message: 'Нужен е списък в Brevo: избери списък или задай BREVO_LIST_ID.',
       }
+    }
+
+    let list: BrevoListSummary
+    try {
+      list = await fetchBrevoList(config, listId)
+    } catch (error) {
+      return { ok: false as const, message: errorMessage(error) }
     }
 
     const rows = await loadBrevoSectionFields(access.db, {
@@ -122,14 +162,14 @@ export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
 
     try {
       for (const batch of chunkContacts(contacts)) {
-        await importContactsToList(config, batch, listId)
+        await importContactsToList(config, batch, list.id)
         imported += batch.length
       }
       const subject = data.subject.trim() || 'Кампания Ти Броиш'
       const campaign = await createEmailCampaign(config, {
         name: brevoCampaignName(subject, new Date()),
         subject,
-        listId,
+        listId: list.id,
         templateId: config.templateId ?? undefined,
       })
       campaignId = campaign.id
@@ -141,20 +181,22 @@ export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
       return {
         ok: true as const,
         contacts: imported,
-        listId,
+        listId: list.id,
+        listName: list.name,
         campaignId: campaign.id,
         campaignUrl: brevoCampaignUrl(campaign.id),
         sent,
         message: sent
-          ? `Кампания ${campaign.id} е създадена и пратена към списък ${listId} (${imported} контакта).`
-          : `Кампания ${campaign.id} е създадена като чернова за списък ${listId} (${imported} контакта). Не е пратена.`,
+          ? `Кампания ${campaign.id} е създадена и пратена към списък „${list.name}“ (${list.id}) (${imported} контакта).`
+          : `Кампания ${campaign.id} е създадена като чернова за списък „${list.name}“ (${list.id}) (${imported} контакта). Не е пратена.`,
       }
     } catch (error) {
       const done = campaignId ? ` Кампания ${campaignId} е създадена, но не е пратена.` : ''
       return {
         ok: false as const,
         contacts: imported,
-        listId,
+        listId: list.id,
+        listName: list.name,
         campaignId,
         campaignUrl: campaignId ? brevoCampaignUrl(campaignId) : null,
         message: `${errorMessage(error)} (внесени ${imported} от ${contacts.length} контакта.)${done}`,
@@ -181,12 +223,22 @@ export const adminBrevoSyncSections = createServerFn({ method: 'POST' })
       }
     }
 
+    if (data.listId && !parseListId(data.listId)) {
+      return { ok: false as const, message: 'List ID трябва да е положително число.' }
+    }
     const listId = parseListId(data.listId) ?? config.listId
     if (!listId) {
       return {
         ok: false as const,
-        message: 'Нужен е списък в Brevo: въведи list id или задай BREVO_LIST_ID.',
+        message: 'Нужен е списък в Brevo: избери списък или задай BREVO_LIST_ID.',
       }
+    }
+
+    let list: BrevoListSummary
+    try {
+      list = await fetchBrevoList(config, listId)
+    } catch (error) {
+      return { ok: false as const, message: errorMessage(error) }
     }
 
     const rows = await loadBrevoSectionFields(access.db, {
@@ -209,11 +261,12 @@ export const adminBrevoSyncSections = createServerFn({ method: 'POST' })
         ok: true as const,
         dryRun: true as const,
         total: rows.length,
-        listId,
+        listId: list.id,
+        listName: list.name,
         samples,
         lackingSection,
         lackingSms,
-        message: `Ще се синхронизират ${rows.length} контакта към списък ${listId}.`,
+        message: `Ще се синхронизират ${rows.length} контакта към списък „${list.name}“ (${list.id}).`,
       }
     }
 
@@ -227,7 +280,7 @@ export const adminBrevoSyncSections = createServerFn({ method: 'POST' })
       for (let index = 0; index < batches.length; index += 1) {
         const batch = batches[index]!
         try {
-          const result = await importContactsToList(config, batch, listId)
+          const result = await importContactsToList(config, batch, list.id)
           const processId = extractProcessId(result)
           if (processId !== null) processIds.push(processId)
           sent += batch.length
@@ -252,10 +305,11 @@ export const adminBrevoSyncSections = createServerFn({ method: 'POST' })
         pending,
         errors,
         roleWarnings,
-        listId,
+        listId: list.id,
+        listName: list.name,
         message:
           errors.length === 0
-            ? `Синхронизирани ${sent} от ${rows.length} контакта към списък ${listId}.`
+            ? `Синхронизирани ${sent} от ${rows.length} контакта към списък „${list.name}“ (${list.id}).`
             : `Синхронизирани ${sent} от ${rows.length}; ${errors.length} партиди с грешка.`,
       }
     } catch (error) {

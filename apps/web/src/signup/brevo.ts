@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers'
+import { parseBrevoLists, type BrevoListSummary } from './brevo-lists'
 import {
   checkBrevoAttributes,
   checkBrevoSender,
@@ -6,6 +7,8 @@ import {
   type BrevoAttrDescriptor,
   type BrevoImportContact,
 } from './brevo-sync'
+
+export type { BrevoListSummary } from './brevo-lists'
 
 const API = 'https://api.brevo.com/v3'
 
@@ -151,6 +154,64 @@ export async function fetchBrevoAttributeDescriptors(
   return parseAttributeList(json)
 }
 
+const LISTS_PAGE_SIZE = 50
+const LISTS_MAX_PAGES = 20
+
+/** Read-only GET /contacts/lists with pagination until `count` is covered (cap 20 pages). */
+export async function fetchBrevoLists(
+  config: BrevoConfig,
+  fetchImpl: typeof fetch = fetch,
+): Promise<BrevoListSummary[]> {
+  const collected: BrevoListSummary[] = []
+  let total = Number.POSITIVE_INFINITY
+  for (let page = 0; page < LISTS_MAX_PAGES; page += 1) {
+    const offset = page * LISTS_PAGE_SIZE
+    if (offset >= total) break
+    const json = (await brevoFetch(
+      config.apiKey,
+      `/contacts/lists?limit=${LISTS_PAGE_SIZE}&offset=${offset}&sort=desc`,
+      { method: 'GET' },
+      fetchImpl,
+    )) as { count?: unknown }
+    if (typeof json.count === 'number' && Number.isFinite(json.count) && json.count >= 0) {
+      total = json.count
+    }
+    const pageLists = parseBrevoLists(json)
+    collected.push(...pageLists)
+    if (pageLists.length === 0) break
+    if (collected.length >= total) break
+  }
+  const byId = new Map<number, BrevoListSummary>()
+  for (const list of collected) byId.set(list.id, list)
+  return [...byId.values()].sort((a, b) => b.id - a.id)
+}
+
+/** GET /contacts/lists/{id}. Maps 404 to a Bulgarian „Списък N не съществува…“ error. */
+export async function fetchBrevoList(
+  config: BrevoConfig,
+  id: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<BrevoListSummary> {
+  try {
+    const json = (await brevoFetch(config.apiKey, `/contacts/lists/${id}`, { method: 'GET' }, fetchImpl)) as {
+      id?: number
+      name?: string
+      uniqueSubscribers?: number
+      totalSubscribers?: number
+    }
+    return {
+      id: typeof json.id === 'number' ? json.id : id,
+      name: typeof json.name === 'string' && json.name.trim() ? json.name.trim() : `Списък ${id}`,
+      subscribers: json.uniqueSubscribers ?? json.totalSubscribers ?? 0,
+    }
+  } catch (error) {
+    if (error instanceof BrevoApiError && error.status === 404) {
+      throw new BrevoApiError(404, error.code, `Списък ${id} не съществува в Brevo.`)
+    }
+    throw error
+  }
+}
+
 export async function brevoFetch(
   apiKey: string,
   path: string,
@@ -216,25 +277,14 @@ async function checkList(config: BrevoConfig, fetchImpl: typeof fetch) {
     }
   }
   try {
-    const json = (await brevoFetch(config.apiKey, `/contacts/lists/${config.listId}`, { method: 'GET' }, fetchImpl)) as {
-      name?: string
-      uniqueSubscribers?: number
-      totalSubscribers?: number
-    }
+    const list = await fetchBrevoList(config, config.listId, fetchImpl)
     return {
       ok: true as const,
-      id: config.listId,
-      name: json.name,
-      totalSubscribers: json.uniqueSubscribers ?? json.totalSubscribers,
+      id: list.id,
+      name: list.name,
+      totalSubscribers: list.subscribers,
     }
   } catch (error) {
-    if (error instanceof BrevoApiError && error.status === 404) {
-      return {
-        ok: false as const,
-        id: config.listId,
-        error: `Списък ${config.listId} не съществува в Brevo (404). Провери BREVO_LIST_ID.`,
-      }
-    }
     return { ok: false as const, id: config.listId, error: errorMessage(error) }
   }
 }

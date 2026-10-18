@@ -1,4 +1,7 @@
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const STAFF_EMAIL = 'maria.admin-e2e@example.com'
@@ -199,6 +202,7 @@ test.describe('staff admin', () => {
   })
 
   test('Секции names the oblast, district and section in Bulgarian', async ({ page }) => {
+    seedStaffRoster()
     await signIn(page)
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/admin/sections')
@@ -232,6 +236,25 @@ test.describe('staff admin', () => {
     await page.getByRole('link', { name: 'Петър Петров' }).click()
     await expect(page).toHaveURL(/\/admin\/signups\/e2e-call$/)
     await expect(page.getByRole('heading', { name: 'Петър Петров Петров' })).toBeVisible()
+  })
+
+  test('Brevo sections CSV export is available and downloads the attribute header', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/admin/signups')
+    await page.getByText('Инструменти').click()
+    const button = page.getByRole('button', { name: 'CSV за Brevo: секции и адреси' })
+    await expect(button).toBeVisible()
+    await expect(page.getByText(/обновява съществуващи контакти в Brevo по EMAIL/)).toBeVisible()
+    const downloadPromise = page.waitForEvent('download')
+    await button.click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toMatch(/^ti-broish-brevo-sekcii-\d{4}-\d{2}-\d{2}\.csv$/)
+    const file = join(tmpdir(), `ti-broish-brevo-sekcii-e2e-${Date.now()}.csv`)
+    await download.saveAs(file)
+    const text = readFileSync(file, 'utf8')
+    expect(text.replace(/^\uFEFF/, '').split('\n')[0]).toBe(
+      'EMAIL,FIRSTNAME,LASTNAME,SMS,MIR,SECTION,SECTION_ADDRESS,SECTION_PLACE,ROLE,SECTION_PUBLISHED',
+    )
   })
 
   test('distribution lists only finished signups and marks paper against machine', async ({ page }) => {
@@ -283,7 +306,7 @@ function seedStaffRoster() {
 INSERT INTO signups (
   id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, role,
   mir_code, region_code, town_name, section_place, draft_section, published_section, notes,
-  staff_note, staff_called_at, staff_called_by, rounds_first, rounds_runoff, created_at, updated_at
+  staff_note, staff_called_at, staff_called_by, rounds_first, rounds_runoff, radius, created_at, updated_at
 ) VALUES
 (
   'e2e-maria',
@@ -293,7 +316,7 @@ INSERT INTO signups (
   '{"firstName":"Мария","middleName":"Георгиева","lastName":"Петрова","phone":"0888111222","email":"${STAFF_EMAIL}","role":"section","rounds":{"first":true,"runoff":true},"radius":"cityRegion","place":{"regionCode":"23","regionName":"София-град","municipalityName":"Столична","townName":"гр. София","cityRegionName":"Младост","sectionPlace":"ул. Витоша 1"}}',
   1, 0, 1, '0041010002', 'section',
   '23', '23', 'гр. София', 'ул. Витоша 1', '', '234600101', '',
-  '', '', '', 1, 1, datetime('now'), datetime('now')
+  '', '', '', 1, 1, 'cityRegion', datetime('now'), datetime('now')
 ),
 (
   'e2e-ivan',
@@ -303,7 +326,7 @@ INSERT INTO signups (
   '{"firstName":"Иван","middleName":"Иванов","lastName":"Иванов","phone":"0888333444","email":"ivan.admin-e2e@example.com"}',
   1, 0, 0, '', 'mobile',
   '24', '24', 'гр. София', 'ул. Пример 2', '244600199', '', '',
-  '', '', '', 0, 0, datetime('now'), datetime('now')
+  '', '', '', 0, 0, '', datetime('now'), datetime('now')
 ),
 (
   'e2e-call',
@@ -313,7 +336,7 @@ INSERT INTO signups (
   '{"firstName":"Петър","middleName":"Петров","lastName":"Петров","phone":"0888555666","email":"call.admin-e2e@example.com","callRequestedAt":"2026-10-02T08:00:00.000Z","callMessage":"За секцията","rounds":{"first":true,"runoff":false}}',
   1, 0, 1, '', 'section',
   '23', '23', 'гр. София', 'ул. Обаждане 3', '', '', '',
-  'Ще се обадим утре.', '', '', 1, 0, datetime('now'), datetime('now')
+  'Ще се обадим утре.', '', '', 1, 0, '', datetime('now'), datetime('now')
 )
 ON CONFLICT(email) DO UPDATE SET
   session_token = excluded.session_token,
@@ -331,15 +354,26 @@ ON CONFLICT(email) DO UPDATE SET
   staff_called_at = excluded.staff_called_at,
   staff_called_by = excluded.staff_called_by,
   rounds_first = excluded.rounds_first,
-  rounds_runoff = excluded.rounds_runoff;
+  rounds_runoff = excluded.rounds_runoff,
+  radius = excluded.radius;
 INSERT INTO staff (email, role, invited_by, created_at)
 VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
 ON CONFLICT(email) DO UPDATE SET role = 'admin';
 `
-  execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'ti-broish-signup-staging', '--local', '--command', sql], {
-    cwd: new URL('.', import.meta.url).pathname.replace(/e2e\/$/, ''),
-    stdio: 'pipe',
-  })
+  // Other workers write to the same local D1, so a busy database is retried.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'ti-broish-signup-staging', '--local', '--command', sql], {
+        cwd: new URL('.', import.meta.url).pathname.replace(/e2e\/$/, ''),
+        stdio: 'pipe',
+      })
+      return
+    } catch (error) {
+      const busy = /SQLITE_BUSY|database is locked/.test(String((error as { stdout?: unknown }).stdout ?? '') + String((error as { stderr?: unknown }).stderr ?? '') + String(error))
+      if (!busy || attempt >= 5) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500 * attempt)
+    }
+  }
 }
 
 async function contrastOf(locator: Locator) {

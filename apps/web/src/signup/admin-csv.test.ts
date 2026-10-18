@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { campaignCsv, distributionWhere, egnLast4, internalCsv, parsePeopleCsv, parseTakenCsv, rosterWhere, visibleSection, type RosterFields } from './admin-csv'
+import {
+  BREVO_SECTIONS_HEADERS,
+  brevoSectionsCsv,
+  campaignCsv,
+  csvCell,
+  distributionWhere,
+  egnLast4,
+  internalCsv,
+  normalizeBrevoSms,
+  parsePeopleCsv,
+  parseTakenCsv,
+  rosterWhere,
+  visibleSection,
+  type RosterFields,
+} from './admin-csv'
 
 const person: RosterFields = {
   id: '1',
@@ -96,5 +110,77 @@ describe('csv import', () => {
     expect(people.rows).toHaveLength(1)
     expect(people.rows[0]?.email).toBe('ivan@example.com')
     expect(people.errors).toEqual(['Ред 3: имейлът не е валиден.'])
+  })
+})
+
+describe('normalizeBrevoSms', () => {
+  it('normalizes Bulgarian and international phones to +E.164', () => {
+    expect(normalizeBrevoSms('0888 123 456')).toBe('+359888123456')
+    expect(normalizeBrevoSms('359888123456')).toBe('+359888123456')
+    expect(normalizeBrevoSms('00359888123456')).toBe('+359888123456')
+    expect(normalizeBrevoSms('+44 7123 456789')).toBe('+447123456789')
+    expect(normalizeBrevoSms('888123456')).toBe('+359888123456')
+    expect(normalizeBrevoSms('')).toBe('')
+    expect(normalizeBrevoSms('12')).toBe('')
+    expect(normalizeBrevoSms('not-a-phone')).toBe('')
+  })
+})
+
+describe('csvCell injection guard', () => {
+  it('leaves a valid E.164 SMS alone and still quotes formula risks', () => {
+    expect(csvCell('+359888123456')).toBe('+359888123456')
+    expect(csvCell('=cmd')).toBe("'=cmd")
+    expect(csvCell('+hack')).toBe("'+hack")
+    expect(csvCell('@sum')).toBe("'@sum")
+  })
+})
+
+describe('brevoSectionsCsv', () => {
+  it('writes the Brevo header with BOM and only the published section', () => {
+    const csv = brevoSectionsCsv([
+      {
+        email: ' Ivan@Example.com ',
+        firstName: 'Иван',
+        lastName: 'Иванов',
+        phone: '0888 123 456',
+        mir: '23',
+        publishedSection: '234600101',
+        sectionAddress: 'СУ Пример, ул. "Витоша", ж.к. Младост',
+        sectionPlace: 'гр.София',
+        role: 'section',
+        sectionPublished: true,
+      },
+    ])
+    expect(csv.startsWith('\uFEFF')).toBe(true)
+    const lines = csv.replace(/^\uFEFF/, '').trimEnd().split('\n')
+    expect(lines[0]).toBe(BREVO_SECTIONS_HEADERS.join(','))
+    expect(lines[0]).toBe('EMAIL,FIRSTNAME,LASTNAME,SMS,MIR,SECTION,SECTION_ADDRESS,SECTION_PLACE,ROLE,SECTION_PUBLISHED')
+    expect(csv).toContain('ivan@example.com')
+    expect(csv).toContain('+359888123456')
+    expect(csv).toContain('234600101')
+    expect(csv).not.toContain('234600199')
+    expect(csv).toContain('true')
+    expect(csv).toContain('"СУ Пример, ул. ""Витоша"", ж.к. Младост"')
+    expect(csv).toContain('гр.София')
+  })
+
+  it('quotes addresses with newlines and marks unpublished rows false', () => {
+    const csv = brevoSectionsCsv([
+      {
+        email: 'a@example.com',
+        firstName: 'А',
+        lastName: 'Б',
+        phone: '',
+        mir: '',
+        publishedSection: '',
+        sectionAddress: 'ред1\nред2',
+        sectionPlace: '',
+        role: 'mobile',
+        sectionPublished: false,
+      },
+    ])
+    expect(csv).toContain('"ред1\nред2"')
+    expect(csv).toContain(',false')
+    expect(csv.split('\n')[1]).not.toMatch(/,\d{9},/)
   })
 })

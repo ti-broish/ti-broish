@@ -1,6 +1,8 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
-import { campaignCsv, distributionWhere, internalCsv, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
+import { brevoSectionsCsv, campaignCsv, distributionWhere, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type RosterFields, type RosterView } from './admin-csv'
+import { lookupSectionPlaces } from './section-places-lookup'
+import { sectionPlaceOf } from './section-where'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
 import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
@@ -276,16 +278,31 @@ async function summaryOf(db: Database): Promise<AdminSummary> {
   }
 }
 
-function filtered(view: string, mir: string, q: string, mode: 'fts' | 'like', finishedOnly: boolean) {
+function filtered(view: string, mir: string, q: string, mode: 'fts' | 'like', finishedOnly: boolean, publishedOnly = false) {
   const filter = finishedOnly ? distributionWhere(viewOf(view), mir) : rosterWhere(viewOf(view), mir)
   if ('error' in filter) return filter
   const search = searchClause(q, mode)
-  return { clause: `(${filter.clause}) AND (${search.clause})`, binds: [...filter.binds, ...search.binds] }
+  const published = publishedOnly
+    ? ` AND COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0`
+    : ''
+  return { clause: `(${filter.clause}) AND (${search.clause})${published}`, binds: [...filter.binds, ...search.binds] }
 }
 
-async function queryPeople(db: Database, view: string, mir: string, q: string, limit: number, offset: number, withEgn: boolean, sort: string, dir: string, finishedOnly = false) {
+async function queryPeople(
+  db: Database,
+  view: string,
+  mir: string,
+  q: string,
+  limit: number,
+  offset: number,
+  withEgn: boolean,
+  sort: string,
+  dir: string,
+  finishedOnly = false,
+  publishedOnly = false,
+) {
   const run = async (mode: 'fts' | 'like') => {
-    const filter = filtered(view, mir, q, mode, finishedOnly)
+    const filter = filtered(view, mir, q, mode, finishedOnly, publishedOnly)
     if ('error' in filter) return filter
     const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
     const rows = await selectPeople(db, filter.clause, filter.binds, limit, offset, withEgn, rosterOrder(sort, dir))
@@ -459,24 +476,68 @@ export const adminExport = createServerFn({ method: 'POST' })
   .validator((input: { view: string; mir: string; kind: string; q?: string }) => ({
     view: input.view,
     mir: input.mir,
-    kind: input.kind,
+    kind: input.kind === 'brevo-sections' || input.kind === 'campaign' || input.kind === 'internal' ? input.kind : 'campaign',
     q: (input.q ?? '').slice(0, 120),
   }))
   .handler(async ({ data }) => {
-    const access = await gate(data.kind === 'campaign' ? 'exportCampaign' : 'exportInternal')
+    const sections = data.kind === 'brevo-sections'
+    const campaign = data.kind === 'campaign'
+    const access = await gate(campaign || sections ? 'exportCampaign' : 'exportInternal')
     if (!access.ok) return access
     const db = access.db
     const people: RosterFields[] = []
     for (let offset = 0; people.length < 5000; offset += 400) {
-      const chunk = await queryPeople(db, data.view, data.mir, data.q, 400, offset, data.kind !== 'campaign', 'updated', 'desc')
+      const chunk = await queryPeople(
+        db,
+        data.view,
+        data.mir,
+        data.q,
+        400,
+        offset,
+        !campaign && !sections,
+        'updated',
+        'desc',
+        false,
+        sections,
+      )
       if ('error' in chunk) return { ok: false as const, message: chunk.error }
       people.push(...chunk.rows.map(fieldsOf))
       if (chunk.rows.length < 400) break
     }
-    const campaign = data.kind === 'campaign'
+    const stamp = new Date().toISOString().slice(0, 10)
+    if (sections) {
+      const codes = [...new Set(people.map((person) => normalizeSection(person.publishedSection)).filter((code) => /^\d{9}$/.test(code)))]
+      const townIdsByCode: Record<string, number[]> = {}
+      for (const person of people) {
+        const section = normalizeSection(person.publishedSection)
+        if (!/^\d{9}$/.test(section) || !person.townId) continue
+        const list = townIdsByCode[section] ?? []
+        if (!list.includes(person.townId)) list.push(person.townId)
+        townIdsByCode[section] = list
+      }
+      const places = await lookupSectionPlaces(codes, townIdsByCode)
+      const csv = brevoSectionsCsv(
+        people.map((person) => {
+          const section = normalizeSection(person.publishedSection)
+          const spot = places[section] ?? { address: '', area: '' }
+          return {
+            email: person.email,
+            firstName: person.firstName,
+            lastName: person.lastName,
+            phone: person.phone,
+            mir: person.mir || mirFromSection(section),
+            publishedSection: section,
+            sectionAddress: spot.address,
+            sectionPlace: sectionPlaceOf(spot),
+            role: person.role,
+            sectionPublished: true,
+          }
+        }),
+      )
+      return { ok: true as const, csv, filename: `ti-broish-brevo-sekcii-${stamp}.csv` }
+    }
     const exported = campaign ? people.map((person) => ({ ...person, egn: '', draftSection: '' })) : people
     const csv = campaign ? campaignCsv(exported) : internalCsv(exported)
-    const stamp = new Date().toISOString().slice(0, 10)
     return { ok: true as const, csv, filename: campaign ? `ti-broish-brevo-${stamp}.csv` : `ti-broish-ekip-${stamp}.csv` }
   })
 

@@ -92,6 +92,8 @@ export interface SectionDirectory {
   municipalities: Record<string, string>
   districts: Record<string, string>
   addresses: Record<string, string>
+  /** Settlement name per 9-digit section id (e.g. "гр.София"). */
+  towns: Record<string, string>
 }
 
 export const EMPTY_SECTION_DIRECTORY: SectionDirectory = {
@@ -99,11 +101,14 @@ export const EMPTY_SECTION_DIRECTORY: SectionDirectory = {
   municipalities: {},
   districts: {},
   addresses: {},
+  towns: {},
 }
 
 export interface SectionSpot {
   address: string
   area: string
+  /** Settlement of the section when the directory knows it (e.g. "гр.София"). */
+  town?: string
 }
 
 /** Where a section id sits: the address when we have it, and oblast / община / район. */
@@ -115,7 +120,14 @@ export function sectionSpot(code: string, directory: SectionDirectory): SectionS
   const municipality = directory.municipalities[`${parts.mir}:${parts.municipality}`] ?? ''
   const districtName = parts.district === '00' ? '' : directory.districts[`${parts.mir}:${parts.municipality}:${parts.district}`] ?? ''
   const area = [region, municipality ? `община ${municipality}` : '', districtName ? `район ${districtName}` : ''].filter(Boolean).join(', ')
-  return { address: directory.addresses[id] ?? '', area }
+  const town = directory.towns[id]?.trim() ?? ''
+  return town ? { address: directory.addresses[id] ?? '', area, town } : { address: directory.addresses[id] ?? '', area }
+}
+
+/** Settlement when known, otherwise the geographic area text. */
+export function sectionPlaceOf(spot: Pick<SectionSpot, 'town' | 'area'>) {
+  const town = spot.town?.trim() ?? ''
+  return town || spot.area
 }
 
 export interface RegionSource {
@@ -133,7 +145,7 @@ export interface TownSource {
 export function assembleDirectory(input: {
   regions: RegionSource[]
   towns: TownSource[]
-  sections: Array<{ id: string; place: string }>
+  sections: Array<{ id: string; place: string; town?: string }>
 }): SectionDirectory {
   const regions: Record<string, string> = {}
   const municipalities: Record<string, string> = {}
@@ -162,13 +174,17 @@ export function assembleDirectory(input: {
     }
   }
   const addresses: Record<string, string> = {}
+  const towns: Record<string, string> = {}
   for (const section of input.sections) {
     const parts = splitSection(section.id)
     const place = section.place.trim()
     if (!parts || !place) continue
-    addresses[`${parts.mir}${parts.municipality}${parts.district}${parts.number}`] = place
+    const id = `${parts.mir}${parts.municipality}${parts.district}${parts.number}`
+    addresses[id] = place
+    const settlement = section.town?.trim() ?? ''
+    if (settlement) towns[id] = settlement
   }
-  return { regions, municipalities, districts, addresses }
+  return { regions, municipalities, districts, addresses, towns }
 }
 
 function regionLabel(code: string, apiName: string) {
@@ -214,14 +230,19 @@ export function addressTownIds(codes: string[], knownTownIds: number[], towns: T
 }
 
 export function readSectionPlaces(payload: unknown) {
-  if (!Array.isArray(payload)) return [] as Array<{ id: string; place: string }>
-  const rows: Array<{ id: string; place: string }> = []
+  if (!Array.isArray(payload)) return [] as Array<{ id: string; place: string; town?: string }>
+  const rows: Array<{ id: string; place: string; town?: string }> = []
   for (const item of payload) {
     if (!item || typeof item !== 'object') continue
     const id = String((item as { id?: unknown }).id ?? '')
     const place = (item as { place?: unknown }).place
     if (typeof place !== 'string' || !place.trim() || !splitSection(id)) continue
-    rows.push({ id, place: place.trim() })
+    const townRaw = (item as { town?: unknown }).town
+    const townName =
+      townRaw && typeof townRaw === 'object' && typeof (townRaw as { name?: unknown }).name === 'string'
+        ? (townRaw as { name: string }).name.trim()
+        : ''
+    rows.push(townName ? { id, place: place.trim(), town: townName } : { id, place: place.trim() })
   }
   return rows
 }

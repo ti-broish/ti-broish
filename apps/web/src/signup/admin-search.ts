@@ -316,6 +316,8 @@ function textClause(classified: ClassifiedSearch, mode: 'fts' | 'like') {
 }
 
 function clipText(value: unknown, max = 120) {
+  // A hand-typed ?mir=23 reaches the router as the number 23.
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
   return typeof value === 'string' ? value.slice(0, max) : ''
 }
 

@@ -7,7 +7,9 @@ import {
   brevoContactCount,
   brevoListDisplayNames,
   brevoListLabel,
+  brevoListSearchKey,
   brevoSyncPreviewText,
+  filterBrevoListOptions,
   parseBrevoLists,
 } from './brevo-lists'
 
@@ -99,6 +101,51 @@ describe('brevoSyncPreviewText', () => {
     expect(brevoContactCount(0)).toBe('0 контакта')
     expect(brevoContactCount(1)).toBe('1 контакт')
     expect(brevoContactCount(5)).toBe('5 контакта')
+  })
+})
+
+describe('filterBrevoListOptions', () => {
+  const options = [
+    { id: 95, name: 'Представители със секция ПВР 2026' },
+    { id: 94, name: 'ТЕСТ ti-broish staging' },
+    { id: 31, name: 'Доброволци · #31' },
+    { id: 9, name: 'доброволци · #9' },
+    { id: 195, name: 'Newsletter' },
+  ]
+  const ids = (query: string) => filterBrevoListOptions(options, query).map((option) => option.id)
+
+  it('returns everything for an empty or blank query', () => {
+    expect(ids('')).toEqual([95, 94, 31, 9, 195])
+    expect(ids('   ')).toEqual([95, 94, 31, 9, 195])
+  })
+
+  it('matches Cyrillic names case-insensitively anywhere in the name', () => {
+    expect(ids('пвр')).toEqual([95])
+    expect(ids('ПРЕДСТАВИТЕЛИ')).toEqual([95])
+    expect(ids('ДОБРОВОЛЦИ')).toEqual([31, 9])
+    expect(ids('тест')).toEqual([94])
+  })
+
+  it('matches Latin names case-insensitively and collapses whitespace', () => {
+    expect(ids('STAGING')).toEqual([94])
+    expect(ids('  ti-broish   staging ')).toEqual([94])
+  })
+
+  it('matches the list id, with or without #, exact id first', () => {
+    expect(ids('95')).toEqual([95, 195])
+    expect(ids('#9')).toEqual([9, 95, 94, 195])
+    expect(ids('194')).toEqual([])
+  })
+
+  it('does not treat mixed text as an id search', () => {
+    expect(ids('пвр 95')).toEqual([])
+    expect(ids('2026')).toEqual([95])
+  })
+
+  it('normalises decomposed Cyrillic (й typed as и + breve)', () => {
+    const lists = [{ id: 1, name: 'Сойка' }]
+    expect(filterBrevoListOptions(lists, 'сои\u0306').map((option) => option.id)).toEqual([1])
+    expect(brevoListSearchKey('  Ти   Броиш ')).toBe('ти броиш')
   })
 })
 

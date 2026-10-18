@@ -66,3 +66,25 @@ export function brevoSyncPreviewText(total: number, listName: string) {
   const verb = total === 1 ? 'Ще се синхронизира' : 'Ще се синхронизират'
   return `${verb} ${brevoContactCount(total)} към списък „${listName}“.`
 }
+
+/** Lowercased, NFC-normalised, whitespace-collapsed text for Cyrillic-friendly matching. */
+export function brevoListSearchKey(value: string) {
+  return value.normalize('NFC').toLocaleLowerCase('bg').replace(/\s+/gu, ' ').trim()
+}
+
+/**
+ * Filter list options by typed text: case-insensitive substring of the name, or the
+ * list id (digits, optionally prefixed with „#“). An exact id match comes first.
+ */
+export function filterBrevoListOptions<T extends { id: number; name: string }>(options: T[], query: string): T[] {
+  const needle = brevoListSearchKey(query)
+  if (!needle) return options
+  const idNeedle = /^#?\d+$/u.test(needle) ? needle.replace(/^#/u, '') : ''
+  const matches = options.filter(
+    (option) =>
+      brevoListSearchKey(option.name).includes(needle) || (idNeedle !== '' && String(option.id).includes(idNeedle)),
+  )
+  if (!idNeedle) return matches
+  const exact = matches.filter((option) => String(option.id) === idNeedle)
+  return [...exact, ...matches.filter((option) => String(option.id) !== idNeedle)]
+}

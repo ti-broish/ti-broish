@@ -118,7 +118,12 @@ export function BrevoSyncPanel(props: {
                       const errs = response.errors.length ? ` Грешки: ${response.errors.join(' · ')}` : ''
                       const warnings =
                         response.roleWarnings > 0 ? ` Предупреждения ROLE: ${response.roleWarnings}.` : ''
-                      const text = `${response.message}${process}${warnings}${errs}`
+                      const rejected = response.rejected.length
+                        ? ` Отхвърлени от Brevo: ${response.rejected.join(' · ')}`
+                        : response.pending.length
+                          ? ` Brevo още обработва: ${response.pending.join(', ')}.`
+                          : ' Brevo завърши без отхвърлени редове.'
+                      const text = `${response.message}${process}${warnings}${errs}${rejected}`
                       setResult(text)
                       setMessage(text)
                       setPreview(null)

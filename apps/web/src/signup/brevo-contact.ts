@@ -103,12 +103,20 @@ export function buildBrevoContact(input: BrevoContactInput): BrevoBuiltContact {
   }
 }
 
+/**
+ * Brevo's contact import (/contacts/import and CSV) only understands yes/no for
+ * boolean attributes. JSON true, "true" and 1 are dropped without an error.
+ */
+export function brevoImportBoolean(value: boolean) {
+  return value ? 'yes' : 'no'
+}
+
 /** Drop empty-string attributes for API upserts; always keep SECTION_PUBLISHED. */
 export function brevoAttributesForApi(
   attributes: BrevoContactAttributes,
 ): Record<string, string | number | boolean> {
   const out: Record<string, string | number | boolean> = {
-    SECTION_PUBLISHED: attributes.SECTION_PUBLISHED,
+    SECTION_PUBLISHED: brevoImportBoolean(attributes.SECTION_PUBLISHED),
   }
   const put = (key: string, value: string | number | boolean | undefined) => {
     if (value === undefined) return
@@ -143,7 +151,7 @@ export function brevoContactCsvCells(contact: BrevoBuiltContact): string[] {
     a.SECTION_ADDRESS,
     a.SECTION_PLACE,
     a.ROLE,
-    a.SECTION_PUBLISHED ? 'true' : 'false',
+    brevoImportBoolean(a.SECTION_PUBLISHED),
   ]
 }
 

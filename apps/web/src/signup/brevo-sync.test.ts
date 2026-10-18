@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  brevoProcessReport,
   checkBrevoAttributes,
   checkBrevoSender,
   chunkContacts,
@@ -201,5 +202,28 @@ describe('Brevo attribute shapes as the API returns them', () => {
     expect(gap.roleLabelGaps).toEqual(['Наблюдател'])
     const wrongNumber = checkBrevoAttributes([...base.filter((item) => item.name !== 'SECTION_ID'), { name: 'SECTION_ID', category: 'normal', type: 'text' }, categoryRole])
     expect(wrongNumber.wrongType.map((item) => item.name)).toEqual(['SECTION_ID'])
+  })
+})
+
+describe('brevoProcessReport', () => {
+  it('is clean when every import field is null', () => {
+    const report = brevoProcessReport(220, {
+      id: 220,
+      status: 'completed',
+      info: { import: { invalid_emails: null, duplicate_phone_id: null, duplicate_email_id: null } },
+    })
+    expect(report).toEqual({ id: 220, status: 'completed', issues: [] })
+  })
+
+  it('lists rejected rows with the report link, e.g. an SMS already on another contact', () => {
+    const report = brevoProcessReport(7, {
+      status: 'completed',
+      info: { import: { duplicate_phone_id: 'https://brevo.example/report.csv', invalid_emails: null } },
+    })
+    expect(report.issues).toEqual(['SMS номер, който вече е на друг контакт: https://brevo.example/report.csv'])
+  })
+
+  it('reports a process that is still running', () => {
+    expect(brevoProcessReport(8, { status: 'in_process' }).status).toBe('in_process')
   })
 })

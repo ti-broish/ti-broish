@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { loadBrevoSectionFields } from './admin'
 import type { BrevoSectionFields } from './admin-csv'
+import { brevoCampaignName, brevoCampaignUrl } from './brevo-campaign'
 import { brevoAttributesForApi, buildBrevoContact } from './brevo-contact'
 import {
   BrevoApiError,
@@ -77,12 +78,13 @@ export const adminBrevoHealth = createServerFn({ method: 'POST' })
   })
 
 export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
-  .validator((input: { view: string; mir: string; q?: string; subject: string; sendNow: boolean }) => ({
+  .validator((input: { view: string; mir: string; q?: string; subject: string; sendNow: boolean; listId?: string }) => ({
     view: input.view,
     mir: input.mir,
     q: (input.q ?? '').slice(0, 120),
     subject: input.subject,
     sendNow: input.sendNow === true,
+    listId: (input.listId ?? '').trim(),
   }))
   .handler(async ({ data }) => {
     const access = await gate('exportCampaign')
@@ -94,10 +96,14 @@ export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
         message: 'Липсва BREVO_API_KEY. Задай го с `wrangler secret put BREVO_API_KEY` и презареди. Дотогава ползвай CSV за Brevo.',
       }
     }
-    if (!config.listId) {
+    if (data.listId && !parseListId(data.listId)) {
+      return { ok: false as const, message: 'List ID трябва да е положително число.' }
+    }
+    const listId = parseListId(data.listId) ?? config.listId
+    if (!listId) {
       return {
         ok: false as const,
-        message: 'Задай BREVO_LIST_ID (числов ID на списък в Brevo), към който да се синхронизират контактите.',
+        message: 'Нужен е списък в Brevo: въведи list id или задай BREVO_LIST_ID.',
       }
     }
 
@@ -111,19 +117,22 @@ export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
     if (rows.length === 0) return { ok: false as const, message: 'Няма хора в този изглед за кампания.' }
 
     const contacts = await toImportContacts(config, rows)
+    let imported = 0
+    let campaignId: number | null = null
 
     try {
       for (const batch of chunkContacts(contacts)) {
-        await importContactsToList(config, batch, config.listId)
+        await importContactsToList(config, batch, listId)
+        imported += batch.length
       }
       const subject = data.subject.trim() || 'Кампания Ти Броиш'
-      const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
       const campaign = await createEmailCampaign(config, {
-        name: `Ти Броиш ${stamp}`,
+        name: brevoCampaignName(subject, new Date()),
         subject,
-        listId: config.listId,
+        listId,
         templateId: config.templateId ?? undefined,
       })
+      campaignId = campaign.id
       let sent = false
       if (data.sendNow) {
         await sendEmailCampaignNow(config, campaign.id)
@@ -131,17 +140,24 @@ export const adminBrevoPrepareCampaign = createServerFn({ method: 'POST' })
       }
       return {
         ok: true as const,
-        contacts: contacts.length,
+        contacts: imported,
+        listId,
         campaignId: campaign.id,
+        campaignUrl: brevoCampaignUrl(campaign.id),
         sent,
         message: sent
-          ? `Кампания ${campaign.id} е създадена и пратена към списък ${config.listId} (${contacts.length} контакта).`
-          : `Кампания ${campaign.id} е създадена като чернова за списък ${config.listId} (${contacts.length} контакта). Изпрати я от Brevo или с „изпрати сега“.`,
+          ? `Кампания ${campaign.id} е създадена и пратена към списък ${listId} (${imported} контакта).`
+          : `Кампания ${campaign.id} е създадена като чернова за списък ${listId} (${imported} контакта). Не е пратена.`,
       }
     } catch (error) {
+      const done = campaignId ? ` Кампания ${campaignId} е създадена, но не е пратена.` : ''
       return {
         ok: false as const,
-        message: errorMessage(error),
+        contacts: imported,
+        listId,
+        campaignId,
+        campaignUrl: campaignId ? brevoCampaignUrl(campaignId) : null,
+        message: `${errorMessage(error)} (внесени ${imported} от ${contacts.length} контакта.)${done}`,
       }
     }
   })

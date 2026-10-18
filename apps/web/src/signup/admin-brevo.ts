@@ -8,13 +8,16 @@ import {
   createEmailCampaign,
   fetchBrevoAttributeDescriptors,
   fetchBrevoHealth,
+  fetchBrevoProcess,
   importContactsToList,
   readBrevoConfig,
   sendEmailCampaignNow,
   type BrevoConfig,
 } from './brevo'
 import {
+  brevoProcessReport,
   chunkContacts,
+  type BrevoProcessReport,
   convertRoleForBrevo,
   maskEmail,
   type BrevoAttrDescriptor,
@@ -217,6 +220,10 @@ export const adminBrevoSyncSections = createServerFn({ method: 'POST' })
         }
       }
 
+      const processReports = await waitForProcesses(config, processIds)
+      const rejected = processReports.flatMap((report) => report.issues.map((issue) => `Процес ${report.id}: ${issue}`))
+      const pending = processReports.filter((report) => report.status !== 'completed').map((report) => `${report.id} (${report.status})`)
+
       return {
         ok: true as const,
         dryRun: false as const,
@@ -224,6 +231,9 @@ export const adminBrevoSyncSections = createServerFn({ method: 'POST' })
         sent,
         failedBatches: errors.length,
         processIds,
+        processReports,
+        rejected,
+        pending,
         errors,
         roleWarnings,
         listId,
@@ -281,6 +291,26 @@ async function toImportContactsWithWarnings(
     return { email: built.email, attributes }
   })
   return { contacts, roleWarnings }
+}
+
+/** Brevo imports run in the background. Wait briefly so the admin sees rejected rows (e.g. an SMS already on another contact). */
+async function waitForProcesses(config: BrevoConfig, processIds: Array<string | number>): Promise<BrevoProcessReport[]> {
+  const reports: BrevoProcessReport[] = []
+  for (const id of processIds.slice(0, 10)) {
+    let report: BrevoProcessReport = { id, status: 'unknown', issues: [] }
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      try {
+        report = brevoProcessReport(id, await fetchBrevoProcess(config, id))
+      } catch (error) {
+        report = { id, status: 'unknown', issues: [errorMessage(error)] }
+        break
+      }
+      if (report.status === 'completed') break
+    }
+    reports.push(report)
+  }
+  return reports
 }
 
 function extractProcessId(result: unknown): string | number | null {

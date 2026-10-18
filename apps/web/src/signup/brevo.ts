@@ -106,6 +106,10 @@ export async function createEmailCampaign(
   throw new Error('Brevo не върна номер на кампанията.')
 }
 
+export async function fetchBrevoProcess(config: BrevoConfig, processId: string | number, fetchImpl: typeof fetch = fetch) {
+  return brevoFetch(config.apiKey, `/processes/${encodeURIComponent(String(processId))}`, { method: 'GET' }, fetchImpl)
+}
+
 export async function sendEmailCampaignNow(config: BrevoConfig, campaignId: number, fetchImpl: typeof fetch = fetch) {
   return brevoFetch(
     config.apiKey,

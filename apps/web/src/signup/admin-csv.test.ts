@@ -161,13 +161,13 @@ describe('brevoSectionsCsv', () => {
     expect(csv).toContain('+359888123456')
     expect(csv).toContain('234600101')
     expect(csv).not.toContain('234600199')
-    expect(csv).toContain('true')
+    expect(csv.trimEnd().endsWith(',yes')).toBe(true)
     expect(csv).toContain('Представител')
     expect(csv).toContain('"СУ Пример, ул. ""Витоша"", ж.к. Младост"')
     expect(csv).toContain('гр.София')
   })
 
-  it('quotes addresses with newlines and marks unpublished rows false', () => {
+  it('quotes addresses with newlines and marks unpublished rows no', () => {
     const csv = brevoSectionsCsv([
       {
         email: 'a@example.com',
@@ -183,7 +183,7 @@ describe('brevoSectionsCsv', () => {
       },
     ])
     expect(csv).toContain('"ред1\nред2"')
-    expect(csv).toContain(',false')
+    expect(csv).toContain(',no')
     expect(csv.split('\n')[1]).not.toMatch(/,\d{9},/)
   })
 })

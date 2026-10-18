@@ -257,3 +257,35 @@ export function checkBrevoSender(
     message: `Подателят ${expectedEmail} е активен.`,
   }
 }
+
+export type BrevoProcessReport = {
+  id: string | number
+  status: string
+  issues: string[]
+}
+
+const IMPORT_ISSUE_LABELS: Record<string, string> = {
+  invalid_emails: 'невалидни имейли',
+  duplicate_contact_id: 'дублиран contact id',
+  duplicate_ext_id: 'дублиран EXT_ID',
+  duplicate_email_id: 'дублиран имейл',
+  duplicate_phone_id: 'SMS номер, който вече е на друг контакт',
+  duplicate_whatsapp_id: 'дублиран WhatsApp',
+  duplicate_landline_number_id: 'дублиран стационарен номер',
+}
+
+/**
+ * Read GET /processes/{id}. Brevo puts a link to a report file in each
+ * info.import field that has rejected rows, and null otherwise.
+ */
+export function brevoProcessReport(id: string | number, json: unknown): BrevoProcessReport {
+  const bag = (json && typeof json === 'object' ? json : {}) as { status?: unknown; info?: { import?: Record<string, unknown> } }
+  const status = typeof bag.status === 'string' ? bag.status : 'unknown'
+  const issues: string[] = []
+  for (const [key, value] of Object.entries(bag.info?.import ?? {})) {
+    if (value === null || value === undefined || value === '' || value === 0) continue
+    const label = IMPORT_ISSUE_LABELS[key] ?? key
+    issues.push(typeof value === 'string' && /^https?:/.test(value) ? `${label}: ${value}` : `${label}: ${JSON.stringify(value)}`)
+  }
+  return { id, status, issues }
+}

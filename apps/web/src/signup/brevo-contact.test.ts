@@ -4,6 +4,7 @@ import {
   BREVO_SECTIONS_HEADERS,
   brevoAttributesForApi,
   brevoContactCsvCells,
+  brevoImportBoolean,
   brevoRoleLabel,
   buildBrevoContact,
   normalizeBrevoSms,
@@ -92,7 +93,7 @@ describe('buildBrevoContact', () => {
       sectionPublished: false,
     })
     const api = brevoAttributesForApi(contact.attributes)
-    expect(api.SECTION_PUBLISHED).toBe(false)
+    expect(api.SECTION_PUBLISHED).toBe('no')
     expect(api.LASTNAME).toBe('Б')
     expect(api.SECTION_PLACE).toBe('място')
     expect(api).not.toHaveProperty('FIRSTNAME')
@@ -121,7 +122,7 @@ describe('buildBrevoContact', () => {
     expect(cells[6]).toBe('234600101')
     expect(cells[7]).toBe('234600101')
     expect(cells[10]).toBe('Представител')
-    expect(cells[11]).toBe('true')
+    expect(cells[11]).toBe('yes')
   })
 })
 
@@ -148,5 +149,29 @@ describe('PALNOMOSHTNO_URL', () => {
   it('is left out when there is no link, so Brevo keeps its value', () => {
     const contact = buildBrevoContact(base)
     expect('PALNOMOSHTNO_URL' in brevoAttributesForApi(contact.attributes)).toBe(false)
+  })
+})
+
+describe('brevoImportBoolean', () => {
+  it('uses yes/no because Brevo import drops true, "true" and 1', () => {
+    expect(brevoImportBoolean(true)).toBe('yes')
+    expect(brevoImportBoolean(false)).toBe('no')
+  })
+
+  it('sends yes/no for SECTION_PUBLISHED to the API and the CSV', () => {
+    const contact = buildBrevoContact({
+      email: 'a@example.com',
+      firstName: 'А',
+      lastName: 'Б',
+      phone: '',
+      mir: '23',
+      publishedSection: '234615001',
+      sectionAddress: '',
+      sectionPlace: '',
+      role: 'mobile',
+      sectionPublished: true,
+    })
+    expect(brevoAttributesForApi(contact.attributes).SECTION_PUBLISHED).toBe('yes')
+    expect(brevoContactCsvCells(contact).at(-1)).toBe('yes')
   })
 })

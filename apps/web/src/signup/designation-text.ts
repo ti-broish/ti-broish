@@ -1,6 +1,7 @@
 import {
   RIGHTS_LETTERS,
   REPRESENTATIVE_RIGHTS,
+  TODO_GRANTOR_AUTHORISATION,
   TODO_GRANTOR_EGN,
   TODO_GRANTOR_NAME,
   TODO_NUMBER,
@@ -56,8 +57,8 @@ export function visibleOrTodo(value: string, todo: string) {
 
 export function grantorAuthorisationClause(grantor: DesignationGrantor) {
   if (grantor.capacity !== 'пълномощник') return ''
-  const clause = grantor.authorisation.trim()
-  return clause ? `, ${clause}` : ''
+  const clause = (grantor.authorisation.trim() || TODO_GRANTOR_AUTHORISATION).replace(/[.\s]+$/, '')
+  return `, ${clause}.`
 }
 
 export function rightsMandateParagraph(person: DesignationPersonInput, config: DesignationConfig) {

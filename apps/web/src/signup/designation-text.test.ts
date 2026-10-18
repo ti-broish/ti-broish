@@ -6,6 +6,7 @@ import {
   formatBgDate,
   grantorFromEnv,
   mergeDesignationConfig,
+  TODO_GRANTOR_AUTHORISATION,
   verbForCapacity,
 } from './designation-config'
 import {
@@ -74,6 +75,19 @@ describe('designation text', () => {
     )
     expect(grantorOpening({ ...grantor, name: 'Петър', egn: '8001010000', authorisation: 'упълномощен/а с пълномощно № 3 от 01.10.2026 г.' }, DEFAULT_DESIGNATION_CONFIG)).toContain(
       ', упълномощен/а с пълномощно № 3 от 01.10.2026 г.',
+    )
+  })
+
+  it('defaults to a пълномощник who sub-delegates, with a visible authorisation TODO', () => {
+    const fromEnv = grantorFromEnv({})
+    expect(fromEnv.capacity).toBe('пълномощник')
+    expect(verbForCapacity(fromEnv.capacity)).toBe('ПРЕУПЪЛНОМОЩАВАМ')
+    expect(DEFAULT_DESIGNATION_CONFIG.grantorCapacity).toBe('пълномощник')
+    expect(grantorAuthorisationClause(fromEnv)).toBe(`, ${TODO_GRANTOR_AUTHORISATION}.`)
+    expect(TODO_GRANTOR_AUTHORISATION).toContain('[TODO: номер]')
+    expect(TODO_GRANTOR_AUTHORISATION).toContain('[TODO: дата]')
+    expect(grantorOpening({ ...grantor, name: 'Петър', egn: '8001010000' }, DEFAULT_DESIGNATION_CONFIG)).toMatch(
+      /насрочени за 25\.10\.2026 г\., упълномощен\/а с пълномощно № \[TODO: номер\] от \[TODO: дата\]/,
     )
   })
 

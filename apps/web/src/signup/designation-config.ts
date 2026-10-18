@@ -112,6 +112,12 @@ export const TODO_GRANTOR_EGN = '[TODO: ЕГН на упълномощителя
 export const TODO_PERSON_EGN = '[TODO: ЕГН]'
 export const TODO_PERSON_NAME = '[TODO: имена]'
 export const TODO_NUMBER = '[TODO: номер]'
+/**
+ * Shown while the grantor's own authorisation from the committee is unknown.
+ * Replace by setting DESIGNATION_GRANTOR_AUTHORISATION to the whole clause.
+ */
+export const TODO_GRANTOR_AUTHORISATION =
+  'упълномощен/а с пълномощно № [TODO: номер] от [TODO: дата] от [TODO: представляващ Инициативния комитет – Александрина Иванова Пендачанска или Константин Петров Вълков]'
 export const TODO_DISTRICT = '[TODO: изборен район]'
 
 export interface DesignationGrantorFields {

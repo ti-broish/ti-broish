@@ -239,7 +239,6 @@ test.describe('staff admin', () => {
   })
 
   test('Brevo sections CSV export is available and downloads the attribute header', async ({ page }) => {
-    seedStaffRoster()
     await signIn(page)
     await page.goto('/admin/signups')
     await page.getByText('Инструменти').click()
@@ -361,10 +360,20 @@ INSERT INTO staff (email, role, invited_by, created_at)
 VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
 ON CONFLICT(email) DO UPDATE SET role = 'admin';
 `
-  execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'ti-broish-signup-staging', '--local', '--command', sql], {
-    cwd: new URL('.', import.meta.url).pathname.replace(/e2e\/$/, ''),
-    stdio: 'pipe',
-  })
+  // Other workers write to the same local D1, so a busy database is retried.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'ti-broish-signup-staging', '--local', '--command', sql], {
+        cwd: new URL('.', import.meta.url).pathname.replace(/e2e\/$/, ''),
+        stdio: 'pipe',
+      })
+      return
+    } catch (error) {
+      const busy = /SQLITE_BUSY|database is locked/.test(String((error as { stdout?: unknown }).stdout ?? '') + String((error as { stderr?: unknown }).stderr ?? '') + String(error))
+      if (!busy || attempt >= 5) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500 * attempt)
+    }
+  }
 }
 
 async function contrastOf(locator: Locator) {

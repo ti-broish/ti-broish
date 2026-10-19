@@ -78,6 +78,9 @@ function SignupPage() {
       void saveSignup({ data: payload }).then((result) => {
         if (!result.ok) return
         if (result.pendingLinks.length > 0) setUnsentCompanionLinks(result.pendingLinks)
+        if (result.renewedCallAt && result.renewedCallAt !== profile.callRequestedAt) {
+          updateProfile({ callRequestedAt: result.renewedCallAt })
+        }
         if (result.referrerName && result.referrerName !== profile.referrerName) {
           updateProfile({ referrerName: result.referrerName })
         }

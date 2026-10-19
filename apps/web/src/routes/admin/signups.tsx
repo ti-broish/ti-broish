@@ -14,6 +14,7 @@ import { progressLabel, signupProgress } from '../../signup/admin-progress'
 import { parseSignupSearch, type SignupSearch } from '../../signup/admin-search'
 import type { RosterFields } from '../../signup/admin-csv'
 import { toggleSelected } from '../../signup/admin-bulk'
+import { CALLED_LABEL } from '../../signup/call-reopen'
 import { BREVO_SECTIONS_BUTTON, BREVO_SECTIONS_HINT, brevoSectionsScope } from '../../signup/brevo-sections-export'
 import { BrevoCampaignPanel } from './-brevo-campaign-panel'
 import { BrevoSyncPanel } from './-brevo-sync-panel'
@@ -560,7 +561,7 @@ function StatusChips({ person }: { person: RosterFields }) {
   if (person.cantReachSection) {
     chips.push({ label: `Не може да стигне (${person.cantReachSection})`, className: 'bg-[#7a1f4b] text-white' })
   }
-  if (person.staffCalledAt) chips.push({ label: 'Обадени сме', className: 'bg-[#1f4d7a] text-white' })
+  if (person.staffCalledAt) chips.push({ label: CALLED_LABEL, className: 'bg-[#1f4d7a] text-white' })
   if (person.imported && !person.emailConfirmed) chips.push({ label: 'Чака имейл', className: 'bg-[#efe8f2] text-[#1a1020]' })
   return (
     <div className="flex flex-wrap gap-1">

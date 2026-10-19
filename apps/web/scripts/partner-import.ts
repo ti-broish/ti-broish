@@ -45,7 +45,7 @@ function wrangler(extra: string[]) {
   return execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'DB', ...env, ...where, ...extra, '--yes'], {
     cwd: new URL('..', import.meta.url).pathname,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, WRANGLER_LOG_PATH: work, WRANGLER_LOG: 'error' },
+    env: { ...process.env, WRANGLER_LOG_PATH: work },
   }).toString()
 }
 

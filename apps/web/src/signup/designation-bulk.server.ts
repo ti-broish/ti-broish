@@ -1,8 +1,11 @@
 import { getCookie } from '@tanstack/react-start/server'
 import { env } from 'cloudflare:workers'
 import { BrevoApiError, readBrevoConfig } from './brevo'
+import { loadBrevoSectionFieldsForIds } from './admin'
 import {
+  designationSectionAttributes,
   fetchBrevoAttributeNames,
+  fetchBrevoAttributes,
   pushDesignationLink,
   syncDesignationLinks,
   type DesignationBrevoContact,
@@ -306,7 +309,13 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   const nextOffset = data.allSigned && data.offset + rows.length < total ? data.offset + rows.length : null
   if (contacts.length > 0) {
     try {
-      const sync = await syncDesignationLinks({ apiKey: config.apiKey, listId: config.listId, attribute, contacts })
+      const account = await fetchBrevoAttributes(config.apiKey)
+      const sections = await loadBrevoSectionFieldsForIds(access.db, contacts.map((contact) => contact.personId))
+      for (const contact of contacts) {
+        const fields = sections.get(contact.personId)
+        if (fields) contact.section = designationSectionAttributes(fields, account)
+      }
+      const sync = await syncDesignationLinks({ apiKey: config.apiKey, listId: config.listId, attribute, contacts, account })
       results.push(...sync.results)
     } catch (error) {
       const message = errorMessage(error)
@@ -316,9 +325,11 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   }
   const failed = results.filter((row) => !row.ok)
   const updated = results.length - failed.length
+  const warned = results.filter((row) => row.ok && row.warning)
+  const withSection = contacts.filter((contact) => contact.section && Object.keys(contact.section).length > 0).length
   // Counts only, no emails: shows in Workers Logs whether a sync ran and what Brevo answered.
   const log = failed.length > 0 ? console.warn : console.info
-  log('designation brevo sync', JSON.stringify({ attribute, updated, failed: failed.length, total, offset: data.offset, firstError: failed[0]?.error ?? null }))
+  log('designation brevo sync', JSON.stringify({ attribute, updated, failed: failed.length, withSection, sectionWarnings: warned.length, total, offset: data.offset, firstError: failed[0]?.error ?? null, firstWarning: warned[0]?.warning ?? null }))
   return {
     ok: failed.length === 0,
     attribute,
@@ -327,12 +338,14 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
     total,
     results,
     nextOffset,
-    message: designationBrevoMessage(attribute, updated, failed),
+    withSection,
+    sectionWarnings: warned.length,
+    message: `${designationBrevoMessage(attribute, updated, failed)}${sectionNote(withSection, warned.map((row) => row.warning ?? ''))}`,
   }
 }
 
 export type SignedLinkBrevo =
-  | { ok: true; attribute: string; created?: boolean }
+  | { ok: true; attribute: string; created?: boolean; warning?: string }
   | { ok: false; attribute: string; skipped?: boolean; error: string }
 
 /**
@@ -340,23 +353,40 @@ export type SignedLinkBrevo =
  * The Drive link is already in D1, so a Brevo failure here never fails the upload;
  * „Синхронизирай с Brevo“ re-sends it later.
  */
-export async function syncSignedLinkToBrevo(person: { id: string; email: string; url: string }): Promise<SignedLinkBrevo> {
+export async function syncSignedLinkToBrevo(person: { id: string; email: string; url: string }, db?: SignupD1): Promise<SignedLinkBrevo> {
   const attribute = configFromEnv(workerEnv()).brevoAttribute.trim().toUpperCase()
   const config = readBrevoConfig()
   if ('missing' in config) return { ok: false, attribute, skipped: true, error: 'липсва BREVO_API_KEY' }
   const email = person.email.trim()
   if (!email) return { ok: false, attribute, error: 'няма имейл' }
+  let section: Record<string, string | number | boolean | string[]> | undefined
+  if (db) {
+    try {
+      const [account, fields] = await Promise.all([fetchBrevoAttributes(config.apiKey), loadBrevoSectionFieldsForIds(db, [person.id])])
+      const mine = fields.get(person.id)
+      if (mine) section = designationSectionAttributes(mine, account)
+    } catch (error) {
+      // The link still goes to Brevo; the Секции sync or the resync button fills the section later.
+      console.warn('designation upload brevo section lookup failed', JSON.stringify({ error: errorMessage(error) }))
+    }
+  }
   const result = await pushDesignationLink({
     apiKey: config.apiKey,
     listId: config.listId,
     attribute,
-    contact: { personId: person.id, email, url: person.url },
+    contact: { personId: person.id, email, url: person.url, section },
   })
   if (!result.ok) {
     console.warn('designation upload brevo failed', JSON.stringify({ attribute, error: result.error ?? null }))
     return { ok: false, attribute, error: result.error ?? 'Brevo повикването се провали.' }
   }
-  return { ok: true, attribute, created: result.created }
+  return { ok: true, attribute, created: result.created, ...(result.warning ? { warning: result.warning } : {}) }
+}
+
+function sectionNote(withSection: number, warnings: string[]) {
+  const parts = [` Секционни атрибути: изпратени за ${withSection}.`]
+  if (warnings.length > 0) parts.push(` Отказани за ${warnings.length}: ${[...new Set(warnings)].slice(0, 2).join('; ')}`)
+  return parts.join('')
 }
 
 /** One line for the admin page: "Brevo (DOCUMENT_URL): 1 обновени / 0 грешки" plus the distinct reasons. */

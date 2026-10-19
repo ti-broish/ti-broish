@@ -75,7 +75,7 @@ export async function serveDesignationUpload(request: Request): Promise<Response
       )
       .bind(file.webViewLink, file.id, now, now, personId)
       .run()
-    const brevo = await brevoAfterUpload({ id: personId, email: row.email ?? '', url: file.webViewLink })
+    const brevo = await brevoAfterUpload({ id: personId, email: row.email ?? '', url: file.webViewLink }, access.db)
     return json({ ok: true, url: file.webViewLink, replaced, fileId: file.id, brevo })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Drive качването се провали.'
@@ -84,9 +84,9 @@ export async function serveDesignationUpload(request: Request): Promise<Response
 }
 
 /** The signed link goes to Brevo with the upload itself; a Brevo failure is reported, never thrown. */
-async function brevoAfterUpload(person: { id: string; email: string; url: string }): Promise<SignedLinkBrevo> {
+async function brevoAfterUpload(person: { id: string; email: string; url: string }, db: Parameters<typeof syncSignedLinkToBrevo>[1]): Promise<SignedLinkBrevo> {
   try {
-    return await syncSignedLinkToBrevo(person)
+    return await syncSignedLinkToBrevo(person, db)
   } catch (error) {
     return { ok: false, attribute: 'DOCUMENT_URL', error: error instanceof Error ? error.message : 'Brevo повикването се провали.' }
   }

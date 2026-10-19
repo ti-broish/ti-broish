@@ -201,7 +201,3 @@ export function formatDesignationNumber(n: number, prefix: string) {
   return `${prefix}${n}`
 }
 
-export function designationPdfFilename(number: string, fullName: string) {
-  const name = fullName.replace(/[/\\?%*:|"<>]/g, ' ').replace(/\s+/g, ' ').trim() || 'без-име'
-  return `Пълномощно ${number} – ${name}.pdf`
-}

@@ -6,9 +6,11 @@ import {
   bulkDesignationSignedFilename,
   bulkManifestRow,
   expandUploadFiles,
+  legacyBulkDesignationFilename,
   matchSignedFiles,
   normalizeDesignationFilename,
   originalHasSignedMarker,
+  sanitizeFilenameNamePart,
   serializeBulkManifestCsv,
   transliterateBg,
   transliterateLastName,
@@ -22,8 +24,10 @@ const TXT = new TextEncoder().encode('just notes')
 function person(overrides: Partial<DesignationFilePerson> = {}): DesignationFilePerson {
   return {
     id: 'p1',
-    number: 1,
+    number: 501,
     section: '234600101',
+    firstName: 'Мария',
+    middleName: 'Георгиева',
     lastName: 'Петрова',
     name: 'Мария Георгиева Петрова',
     hasDriveFile: false,
@@ -53,14 +57,39 @@ describe('Bulgarian transliteration and bulk filenames', () => {
     expect(transliterateLastName('')).toBe('bez-ime')
   })
 
-  it('builds ASCII filenames from the integer, 9-digit section and last name', () => {
-    expect(bulkDesignationFilename({ number: 1, section: '234600101', lastName: 'Петрова' })).toBe(
+  it('builds MIR_number_Cyrillic-name filenames and drops an empty middle name', () => {
+    expect(
+      bulkDesignationFilename({
+        number: 501,
+        section: '234600101',
+        firstName: 'Иван',
+        middleName: 'Петров',
+        lastName: 'Иванов',
+      }),
+    ).toBe('23_501_Иван_Петров_Иванов.pdf')
+    expect(
+      bulkDesignationSignedFilename({
+        number: 501,
+        section: '234600101',
+        firstName: 'Иван',
+        middleName: 'Петров',
+        lastName: 'Иванов',
+      }),
+    ).toBe('23_501_Иван_Петров_Иванов_signed.pdf')
+    expect(
+      bulkDesignationFilename({
+        number: 12,
+        section: '32 460 0001',
+        firstName: 'Анна',
+        middleName: '',
+        lastName: 'Стоянова',
+      }),
+    ).toBe('32_12_Анна_Стоянова.pdf')
+    expect(sanitizeFilenameNamePart('Георгиева-Петрова')).toBe('Георгиева_Петрова')
+    expect(sanitizeFilenameNamePart('  Мария  ')).toBe('Мария')
+    expect(legacyBulkDesignationFilename({ number: 1, section: '234600101', lastName: 'Петрова' })).toBe(
       '0001_234600101_Petrova.pdf',
     )
-    expect(bulkDesignationSignedFilename({ number: 1, section: '234600101', lastName: 'Петрова' })).toBe(
-      '0001_234600101_Petrova_signed.pdf',
-    )
-    expect(bulkDesignationFilename({ number: 12, section: '32 460 0001', lastName: '' })).toBe('0012_324600001_bez-ime.pdf')
   })
 })
 
@@ -68,31 +97,37 @@ describe('normalize and match signed uploads', () => {
   const petrova = person()
   const ivanov = person({
     id: 'p2',
-    number: 2,
+    number: 502,
     section: '234600102',
+    firstName: 'Иван',
+    middleName: 'Иванов',
     lastName: 'Иванов',
     name: 'Иван Иванов Иванов',
   })
   const people = [petrova, ivanov]
 
   it('normalises _signed, _SIGNED, spaces, -signed, (1), (2), .PDF and zip directories', () => {
+    expect(normalizeDesignationFilename('23_501_Мария_Георгиева_Петрова_signed.pdf')).toBe('23_501_Мария_Георгиева_Петрова')
+    expect(normalizeDesignationFilename('23_501_Мария_Георгиева_Петрова_SIGNED.pdf')).toBe('23_501_Мария_Георгиева_Петрова')
+    expect(normalizeDesignationFilename('23_501_Мария_Георгиева_Петрова _signed .pdf')).toBe('23_501_Мария_Георгиева_Петрова')
+    expect(normalizeDesignationFilename('23_501_Мария_Георгиева_Петрова-signed.pdf')).toBe('23_501_Мария_Георгиева_Петрова')
+    expect(normalizeDesignationFilename('23_501_Мария_Георгиева_Петрова_signed (1).pdf')).toBe('23_501_Мария_Георгиева_Петрова')
+    expect(normalizeDesignationFilename('23_501_Мария_Георгиева_Петрова (2).PDF')).toBe('23_501_Мария_Георгиева_Петрова')
+    expect(normalizeDesignationFilename('folder/inner/23_501_Мария_Георгиева_Петрова_signed.pdf')).toBe(
+      '23_501_Мария_Георгиева_Петрова',
+    )
+    expect(normalizeDesignationFilename('23_501_Мария_Георгиева_Петрова - Copy.pdf')).toBe('23_501_Мария_Георгиева_Петрова')
+    expect(originalHasSignedMarker('23_502_Иван_Иванов_Иванов_SIGNED (1).PDF')).toBe(true)
+    expect(originalHasSignedMarker('23_501_Мария_Георгиева_Петрова.pdf')).toBe(false)
+    // Legacy ASCII names still normalise.
     expect(normalizeDesignationFilename('0001_234600101_Petrova_signed.pdf')).toBe('0001_234600101_Petrova')
-    expect(normalizeDesignationFilename('0001_234600101_Petrova_SIGNED.pdf')).toBe('0001_234600101_Petrova')
-    expect(normalizeDesignationFilename('0001_234600101_Petrova _signed .pdf')).toBe('0001_234600101_Petrova')
-    expect(normalizeDesignationFilename('0001_234600101_Petrova-signed.pdf')).toBe('0001_234600101_Petrova')
-    expect(normalizeDesignationFilename('0001_234600101_Petrova_signed (1).pdf')).toBe('0001_234600101_Petrova')
-    expect(normalizeDesignationFilename('0001_234600101_Petrova (2).PDF')).toBe('0001_234600101_Petrova')
-    expect(normalizeDesignationFilename('folder/inner/0001_234600101_Petrova_signed.pdf')).toBe('0001_234600101_Petrova')
-    expect(normalizeDesignationFilename('0001_234600101_Petrova - Copy.pdf')).toBe('0001_234600101_Petrova')
-    expect(originalHasSignedMarker('0002_234600102_Ivanov_SIGNED (1).PDF')).toBe(true)
-    expect(originalHasSignedMarker('0001_234600101_Petrova.pdf')).toBe(false)
   })
 
-  it('matches exact names, warns when _signed is missing, and still matches', () => {
+  it('matches the new Cyrillic names, warns when _signed is missing, and still matches', () => {
     const result = matchSignedFiles(
       [
-        { name: '0001_234600101_Petrova_signed.pdf', bytes: PDF },
-        { name: '0002_234600102_Ivanov.pdf', bytes: PDF },
+        { name: '23_501_Мария_Георгиева_Петрова_signed.pdf', bytes: PDF },
+        { name: '23_502_Иван_Иванов_Иванов.pdf', bytes: PDF },
       ],
       people,
     )
@@ -104,20 +139,34 @@ describe('normalize and match signed uploads', () => {
     expect(result.unmatched).toEqual([])
   })
 
-  it('falls back to the leading number when the section matches, and rejects a section mismatch', () => {
-    const ok = matchSignedFiles([{ name: '0002_234600102_Something_signed.pdf', bytes: PDF }], people)
+  it('still matches the legacy ASCII filenames on re-upload', () => {
+    const result = matchSignedFiles(
+      [
+        { name: '0501_234600101_Petrova_signed.pdf', bytes: PDF },
+        { name: '0502_234600102_Ivanov_signed.pdf', bytes: PDF },
+      ],
+      people,
+    )
+    expect(result.matched.map((row) => row.personId)).toEqual(['p1', 'p2'])
+  })
+
+  it('falls back to МИР+number (and legacy number+section), and rejects a mismatch', () => {
+    const ok = matchSignedFiles([{ name: '23_502_Something_signed.pdf', bytes: PDF }], people)
     expect(ok.matched[0]?.personId).toBe('p2')
-    const bad = matchSignedFiles([{ name: '0002_000000000_Nobody_signed.pdf', bytes: PDF }], people)
-    expect(bad.matched).toEqual([])
-    expect(bad.unmatched[0]?.reason).toMatch(/секцията/)
+    const badMir = matchSignedFiles([{ name: '01_502_Иван_Иванов_Иванов_signed.pdf', bytes: PDF }], people)
+    expect(badMir.matched).toEqual([])
+    expect(badMir.unmatched[0]?.reason).toMatch(/МИР/)
+    const badSection = matchSignedFiles([{ name: '0502_000000000_Nobody_signed.pdf', bytes: PDF }], people)
+    expect(badSection.matched).toEqual([])
+    expect(badSection.unmatched[0]?.reason).toMatch(/секцията/)
   })
 
   it('marks duplicates so none of those files are uploaded', () => {
     const result = matchSignedFiles(
       [
-        { name: '0001_234600101_Petrova_signed.pdf', bytes: PDF },
-        { name: '0001_234600101_Petrova_SIGNED (1).PDF', bytes: PDF },
-        { name: '0002_234600102_Ivanov_signed.pdf', bytes: PDF },
+        { name: '23_501_Мария_Георгиева_Петрова_signed.pdf', bytes: PDF },
+        { name: '23_501_Мария_Георгиева_Петрова_SIGNED (1).PDF', bytes: PDF },
+        { name: '23_502_Иван_Иванов_Иванов_signed.pdf', bytes: PDF },
       ],
       people,
     )
@@ -130,7 +179,7 @@ describe('normalize and match signed uploads', () => {
   it('reports an unknown number and a non-pdf', () => {
     const result = matchSignedFiles(
       [
-        { name: '9999_000000000_Nobody_signed.pdf', bytes: PDF },
+        { name: '23_9999_Nobody_signed.pdf', bytes: PDF },
         { name: 'notes.txt', bytes: TXT },
         { name: 'empty.pdf', bytes: TXT },
       ],
@@ -142,11 +191,14 @@ describe('normalize and match signed uploads', () => {
 
   it('expands a zip and keeps directory prefixes for matching', () => {
     const zipped = zipSync({
-      'batch/0001_234600101_Petrova_signed.pdf': PDF,
+      'batch/23_501_Мария_Георгиева_Петрова_signed.pdf': PDF,
       'batch/notes.txt': TXT,
     })
     const expanded = expandUploadFiles([{ name: 'batch.zip', bytes: zipped }])
-    expect(expanded.map((file) => file.name)).toEqual(['batch/0001_234600101_Petrova_signed.pdf', 'batch/notes.txt'])
+    expect(expanded.map((file) => file.name)).toEqual([
+      'batch/23_501_Мария_Георгиева_Петрова_signed.pdf',
+      'batch/notes.txt',
+    ])
     const result = matchSignedFiles(expanded, people)
     expect(result.matched[0]?.personId).toBe('p1')
     expect(result.notPdf[0]?.fileName).toContain('notes.txt')
@@ -154,7 +206,7 @@ describe('normalize and match signed uploads', () => {
 
   it('sets willReplace when the person already has a Drive file', () => {
     const result = matchSignedFiles(
-      [{ name: '0001_234600101_Petrova_signed.pdf', bytes: PDF }],
+      [{ name: '23_501_Мария_Георгиева_Петрова_signed.pdf', bytes: PDF }],
       [person({ hasDriveFile: true })],
     )
     expect(result.matched[0]?.willReplace).toBe(true)
@@ -165,12 +217,22 @@ describe('bulk manifest CSV', () => {
   it('writes UTF-8 BOM, the bulk columns, and no ЕГН', () => {
     const csv = serializeBulkManifestCsv([
       bulkManifestRow(person()),
-      bulkManifestRow(person({ id: 'p2', number: 2, lastName: 'Иванов', name: 'Иван Иванов', section: '234600102' })),
+      bulkManifestRow(
+        person({
+          id: 'p2',
+          number: 502,
+          firstName: 'Иван',
+          middleName: '',
+          lastName: 'Иванов',
+          name: 'Иван Иванов',
+          section: '234600102',
+        }),
+      ),
     ])
     expect(csv.startsWith('\uFEFF')).toBe(true)
     const lines = csv.replace(/^\uFEFF/, '').trim().split('\n')
     expect(lines[0]).toBe(BULK_MANIFEST_COLUMNS.join(','))
-    expect(lines[1]).toContain('0001_234600101_Petrova.pdf')
+    expect(lines[1]).toContain('23_501_Мария_Георгиева_Петрова.pdf')
     expect(lines[1]).toContain('p1')
     expect(csv).not.toMatch(/\d{10}/)
     expect(csv.toLowerCase()).not.toContain('egn')

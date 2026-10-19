@@ -70,6 +70,8 @@ const TEMPLATE_WITH_DUMMY_DATA = [
   'Представителят разполага с гореизброените права за всяка от избирателните секции на територията на района, при условие, че носи утвърдения от ЦИК отличителен знак и в съответното изборно помещение не присъства друг упълномощен представител на Инициативния комитет.',
   'Настоящото пълномощно се издава със срок до 01.11.2026 г. и следва да се тълкува разширително в полза на упълномощеното лице.',
   'Инициативният комитет не разполага с печат!',
+  '',
+  'УПЪЛНОМОЩИТЕЛ:',
 ].join('\n')
 
 describe('designation text', () => {
@@ -80,14 +82,15 @@ describe('designation text', () => {
     expect(text).toBe(TEMPLATE_WITH_DUMMY_DATA)
   })
 
-  it('has no signature block and no section footer', () => {
+  it('ends on the template „УПЪЛНОМОЩИТЕЛ:“ with no signature line, name or section footer', () => {
     const text = designationPlainText(
       buildDesignationBlocks({ number: 501, issuedOn: '19.10.2026', grantor: dummyGrantor, person }, DEFAULT_DESIGNATION_CONFIG),
     )
-    expect(text).not.toContain('УПЪЛНОМОЩИТЕЛ')
+    expect(text.match(/УПЪЛНОМОЩИТЕЛ:/g)).toHaveLength(1)
+    expect(text.endsWith('Инициативният комитет не разполага с печат!\n\nУПЪЛНОМОЩИТЕЛ:')).toBe(true)
     expect(text).not.toContain('За информация')
     expect(text).not.toContain('....')
-    expect(text.trimEnd().endsWith('Инициативният комитет не разполага с печат!')).toBe(true)
+    expect(text).not.toContain('Петър Петров Петров /')
   })
 
   it('renders the number line as „№   501/19.10.2026“', () => {
@@ -131,7 +134,10 @@ describe('designation text', () => {
   it('keeps the template list markers and indents', () => {
     expect(REPRESENTATIVE_RIGHTS).toHaveLength(5)
     expect(RIGHTS_LAYOUT.map((item) => item.marker)).toEqual(['–', '-', '–', '-', '–'])
-    expect(RIGHTS_LAYOUT.map((item) => item.textAt)).toEqual([36, 36, 36, 8.1, 10.15])
+    // Positions as in the reference PDF: text 36 pt after the marker for items 1–3, hanging indents for 4–5.
+    expect(RIGHTS_LAYOUT.map((item) => item.textAt)).toEqual([37.5, 37.5, 37.5, 8.25, 10.5])
+    expect(RIGHTS_LAYOUT.map((item) => item.wrapAt)).toEqual([1.5, 1.5, 1.5, 8.25, 10.5])
+    expect(RIGHTS_LAYOUT.map((item) => item.indentRight)).toEqual([1.8, 1.8, 1.75, 0, 0])
   })
 
   it('builds the district line from the section code', () => {

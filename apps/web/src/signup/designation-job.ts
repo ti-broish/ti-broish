@@ -2,7 +2,6 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   configFromEnv,
-  designationPdfFilename,
   formatBgDate,
   formatDesignationNumber,
   grantorFromEnv,
@@ -18,6 +17,7 @@ import {
   type ManifestRow,
 } from './designation-import'
 import { designationMirOf, nextDesignationNumber, parseStoredNumber } from './designation-number'
+import { bulkDesignationFilename } from './designation-files'
 import { renderDesignationPdf } from './designation-pdf'
 import type { DesignationGrantor, DesignationPersonInput } from './designation-text'
 
@@ -206,7 +206,13 @@ export async function runDesignationJob(opts: DesignationJobOptions, deps: Desig
     const { person, mir, number, issuedAt } = item
     const display = formatDesignationNumber(number, deps.config.numberPrefix)
     const name = [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ')
-    const filename = designationPdfFilename(display, name)
+    const filename = bulkDesignationFilename({
+      number,
+      section: person.sectionCode,
+      firstName: person.firstName,
+      middleName: person.middleName,
+      lastName: person.lastName,
+    })
     log(`план ${person.id} № ${display} ${name} секция ${person.sectionCode}`)
     if (opts.dryRun) return 'generated'
 
@@ -282,7 +288,13 @@ function manifestRow(item: AssignedPerson, config: DesignationConfig): ManifestR
     number,
     issuedAt: item.issuedAt,
     section: item.person.sectionCode,
-    fileName: designationPdfFilename(number, name),
+    fileName: bulkDesignationFilename({
+      number: item.number,
+      section: item.person.sectionCode,
+      firstName: item.person.firstName,
+      middleName: item.person.middleName,
+      lastName: item.person.lastName,
+    }),
     driveUrl: item.person.designationPdfUrl ?? '',
     driveFileId: item.person.designationDriveFileId ?? '',
   }

@@ -7,6 +7,7 @@ import { adminPerson, adminUpdatePerson } from '../../signup/admin'
 import { describeAudit, formatAuditWhen, type AuditLine } from '../../signup/admin-audit'
 import { progressLabel, roleLabel, signupProgress, type AdminPerson } from '../../signup/admin-progress'
 import { defaultSignupSearch } from '../../signup/admin-search'
+import { CALLED_LABEL, calledText } from '../../signup/call-reopen'
 import { EXPERIENCE, type Experience, type NamedPlace, type Radius, type Role, type TravelStop } from '../../signup/model'
 import { UnregisterPanel } from './-unregister-panel'
 
@@ -115,7 +116,7 @@ function PersonPage() {
               {progressLabel(signupProgress(person))}
             </span>
             {person.staffCalledAt ? (
-              <span className="inline-flex min-h-7 items-center rounded-full bg-[#1f4d7a] px-2 text-xs font-bold text-white">Обадени сме</span>
+              <span className="inline-flex min-h-7 items-center rounded-full bg-[#1f4d7a] px-2 text-xs font-bold text-white">{CALLED_LABEL}</span>
             ) : null}
           </div>
           <PersonFacts person={person} />
@@ -391,9 +392,5 @@ function sectionLine(person: AdminPerson) {
 }
 
 function calledLine(at: string, by: string) {
-  const date = new Date(at)
-  const when = Number.isNaN(date.getTime())
-    ? at
-    : new Intl.DateTimeFormat('bg-BG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Sofia' }).format(date)
-  return by ? `Обадени сме на ${when} от ${by}.` : `Обадени сме на ${when}.`
+  return `${calledText(at, by)}.`
 }

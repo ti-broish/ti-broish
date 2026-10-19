@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestHost, getRequestUrl, setCookie } from '@tanstack/react-start/server'
 import { applyCantReachReport, normalizeCantReachSection, reopenCallQueueSql } from './cant-reach'
+import { CALL_REOPEN_AUDIT_SQL, callReopenAudit, callRequestFromPayload, callRequestRenewed, renewedRequestAt, reopenCalledSql } from './call-reopen'
 import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupD1, type SignupRow } from './db-core'
 import { normalizeCallRequest, signupGap, type Profile } from './model'
 import { companionsForSignup, syncCompanions } from './companion-lifecycle'
@@ -86,7 +87,7 @@ export const saveSignup = createServerFn({ method: 'POST' })
     if (bySession && bySession.email.trim().toLowerCase() !== data.email.trim().toLowerCase()) {
       data = { ...data, email: bySession.email, emailConfirmed: bySession.email_confirmed === 1 }
     }
-    const columns = signupColumns(data)
+    let columns = signupColumns(data)
     const byEmail = await db
       .prepare('SELECT id, session_token, imported, email_confirmed FROM signups WHERE email = ?')
       .bind(columns.email)
@@ -103,6 +104,21 @@ export const saveSignup = createServerFn({ method: 'POST' })
     const existing = bySession ?? byEmail
     const id = existing?.id ?? crypto.randomUUID()
     const token = existing?.session_token ?? crypto.randomUUID()
+    // A new request from someone the team already called reopens it in the queue.
+    const prior = existing
+      ? await db
+          .prepare(
+            `SELECT payload, COALESCE(staff_called_at, '') AS staff_called_at, COALESCE(staff_called_by, '') AS staff_called_by
+             FROM signups WHERE id = ?`,
+          )
+          .bind(existing.id)
+          .first<{ payload: string | null; staff_called_at: string; staff_called_by: string }>()
+      : null
+    const renewedCall = prior ? callRequestRenewed(callRequestFromPayload(prior.payload), data, prior.staff_called_at) : false
+    if (prior && renewedCall) {
+      data = { ...data, callRequestedAt: renewedRequestAt(data.callRequestedAt, prior.staff_called_at, now) }
+      columns = signupColumns(data)
+    }
     await db
       .prepare(
         `INSERT INTO signups (
@@ -192,6 +208,16 @@ export const saveSignup = createServerFn({ method: 'POST' })
         now,
       )
       .run()
+    if (prior && renewedCall) {
+      const reopened = await db.prepare(reopenCalledSql()).bind(id, prior.staff_called_at).run()
+      if (changedRows(reopened) !== 0) {
+        const audit = callReopenAudit(prior.staff_called_at, prior.staff_called_by, data.callMessage)
+        await db
+          .prepare(CALL_REOPEN_AUDIT_SQL)
+          .bind(crypto.randomUUID(), id, columns.email, audit.field, audit.before, audit.after, now)
+          .run()
+      }
+    }
     const synced = await syncCompanions(db, id, data.companions)
     data = { ...data, companions: synced.companions }
     await db.prepare('UPDATE signups SET payload = ? WHERE id = ?').bind(signupColumns(data).payload, id).run()
@@ -208,6 +234,7 @@ export const saveSignup = createServerFn({ method: 'POST' })
       referrerName: await referrerName(db, columns.referredBy),
       referralCount: countRow?.n ?? 0,
       pendingLinks: synced.pendingLinks,
+      renewedCallAt: renewedCall ? data.callRequestedAt : null,
     }
   })
 
@@ -224,11 +251,12 @@ export const reportCantReach = createServerFn({ method: 'POST' })
     if (!db || !token) return { ok: false as const, message: 'Влез в профила си.' }
     const row = await db
       .prepare(
-        `SELECT id, payload, referral_code, referred_by, source, egn, published_section, COALESCE(withdrawn, 0) AS withdrawn
+        `SELECT id, payload, referral_code, referred_by, source, egn, published_section, COALESCE(withdrawn, 0) AS withdrawn,
+                COALESCE(staff_called_at, '') AS staff_called_at, COALESCE(staff_called_by, '') AS staff_called_by
          FROM signups WHERE session_token = ?`,
       )
       .bind(token)
-      .first<SignupRow & { withdrawn: number }>()
+      .first<SignupRow & { withdrawn: number; staff_called_at: string; staff_called_by: string }>()
     if (!row) return { ok: false as const, message: 'Влез в профила си.' }
     if (row.withdrawn === 1) return { ok: false as const, message: 'Записването е оттеглено.' }
     const profile = profileFrom(row)
@@ -237,7 +265,8 @@ export const reportCantReach = createServerFn({ method: 'POST' })
     const now = new Date().toISOString()
     const next = applyCantReachReport({
       callMessage: profile.callMessage,
-      callRequestedAt: profile.callRequestedAt,
+      // After a team call this is a new request, so it gets a new timestamp.
+      callRequestedAt: row.staff_called_at ? null : profile.callRequestedAt,
       section,
       note: data.note,
       now,
@@ -252,6 +281,13 @@ export const reportCantReach = createServerFn({ method: 'POST' })
     )
     const payload = signupColumns(saved).payload
     await db.prepare(reopenCallQueueSql()).bind(payload, now, row.id, token).run()
+    if (row.staff_called_at) {
+      const audit = callReopenAudit(row.staff_called_at, row.staff_called_by, saved.callMessage)
+      await db
+        .prepare(CALL_REOPEN_AUDIT_SQL)
+        .bind(crypto.randomUUID(), row.id, saved.email, audit.field, audit.before, audit.after, now)
+        .run()
+    }
     return {
       ok: true as const,
       callMessage: saved.callMessage,

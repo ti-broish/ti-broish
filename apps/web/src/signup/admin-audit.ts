@@ -1,6 +1,6 @@
 import { roleLabel } from './admin-progress'
 
-export const AUDIT_FIELDS = ['role', 'days', 'travel', 'staff_note', 'withdrawn', 'restored'] as const
+export const AUDIT_FIELDS = ['role', 'days', 'travel', 'staff_note', 'withdrawn', 'restored', 'call_reopened'] as const
 export type AuditField = (typeof AUDIT_FIELDS)[number]
 
 export interface StaffSnapshot {
@@ -59,6 +59,7 @@ export function auditFieldLabel(field: string) {
   if (field === 'staff_note') return 'Бележка от екипа'
   if (field === 'withdrawn') return 'Отписване'
   if (field === 'restored') return 'Възстановяване'
+  if (field === 'call_reopened') return 'Обаждане'
   return ''
 }
 
@@ -88,7 +89,8 @@ export function auditLines(
       row.field !== 'travel' &&
       row.field !== 'staff_note' &&
       row.field !== 'withdrawn' &&
-      row.field !== 'restored'
+      row.field !== 'restored' &&
+      row.field !== 'call_reopened'
     ) {
       return []
     }

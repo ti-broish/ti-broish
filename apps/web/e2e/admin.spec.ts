@@ -159,7 +159,7 @@ test.describe('staff admin', () => {
     await expect(page.getByText('Дни: 25 октомври и 1 ноември → 25 октомври').first()).toBeVisible()
     await expect(page.getByText('Бележка от екипа: Празна бележка → Обадихме се, ще дойде и на двата дни.').first()).toBeVisible()
     await expect(page.getByText('Пътуване: Само в Младост → В гр. София').first()).toBeVisible()
-    await expect(page.getByText('Обадени сме', { exact: true })).toBeVisible()
+    await expect(page.getByText('Обадили сме се', { exact: true })).toBeVisible()
     await expect(page.getByLabel('Телефон')).toHaveValue('0888999000')
     await page.getByRole('link', { name: 'Към записванията' }).click()
     await page.getByRole('button', { name: 'Започнали' }).click()
@@ -188,7 +188,7 @@ test.describe('staff admin', () => {
     await page.getByRole('button', { name: 'Всички поискали' }).click()
     await expect(page).toHaveURL(/show=all/)
     await expect(page.getByRole('link', { name: 'Петър Петров Петров' })).toBeVisible()
-    await expect(page.getByText('Обадени сме', { exact: true })).toBeVisible()
+    await expect(page.getByText('Обадили сме се', { exact: true })).toBeVisible()
   })
 
   test('a started signup opens from the phone list', async ({ page }) => {

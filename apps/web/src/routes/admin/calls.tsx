@@ -9,6 +9,7 @@ import { daysLabel, formatStaffWhen } from '../../signup/admin-progress'
 import { parseQueueSearch, type QueueSearch } from '../../signup/admin-search'
 import { toggleSelected } from '../../signup/admin-bulk'
 import { cantReachBadgeLabel } from '../../signup/cant-reach'
+import { CALLED_LABEL } from '../../signup/call-reopen'
 import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
 import { useDebouncedQuery } from './-debounced-query'
 
@@ -318,7 +319,7 @@ function queueColumns(select: RowSelect | null) {
       header: 'Обаждане',
       cell: ({ row }) =>
         row.original.staffCalledAt ? (
-          <span className="inline-flex min-h-7 items-center rounded-full bg-[#1f4d7a] px-2 text-xs font-bold text-white">Обадени сме</span>
+          <span className="inline-flex min-h-7 items-center rounded-full bg-[#1f4d7a] px-2 text-xs font-bold text-white">{CALLED_LABEL}</span>
         ) : (
           <span className="inline-flex min-h-7 items-center rounded-full bg-[#7a1f4b] px-2 text-xs font-bold text-white">За обаждане</span>
         ),

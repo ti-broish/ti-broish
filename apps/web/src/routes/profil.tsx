@@ -192,6 +192,9 @@ function ProfilePage() {
     const handle = window.setTimeout(() => {
       void saveSignup({ data: profile }).then((result) => {
         if (result.ok && result.pendingLinks.length > 0) setUnsentCompanionLinks(result.pendingLinks)
+        if (result.ok && result.renewedCallAt && result.renewedCallAt !== profile.callRequestedAt) {
+          updateProfile({ callRequestedAt: result.renewedCallAt })
+        }
       })
     }, 600)
     return () => window.clearTimeout(handle)

@@ -17,6 +17,8 @@ export type SectionSearch = {
   q: string
   view: (typeof SECTION_VIEWS)[number]
   mir: string
+  /** „Само приоритетни“: only people tied to a priority section. Absent when off. */
+  prio?: boolean
 }
 
 export const defaultSignupSearch: SignupSearch = {
@@ -108,7 +110,8 @@ export function parseSignupSearch(search: Record<string, unknown>): SignupSearch
 
 export function parseSectionSearch(search: Record<string, unknown>): SectionSearch {
   const view = typeof search.view === 'string' && isOneOf(search.view, SECTION_VIEWS) ? search.view : 'unassigned'
-  return { q: clipText(search.q), view, mir: clipText(search.mir, 8) }
+  const prio = search.prio === true || search.prio === 1 || search.prio === '1' || search.prio === 'true'
+  return { q: clipText(search.q), view, mir: clipText(search.mir, 8), ...(prio ? { prio: true } : {}) }
 }
 
 export function parseQueueSearch(search: Record<string, unknown>): QueueSearch {

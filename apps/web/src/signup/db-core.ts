@@ -6,6 +6,7 @@ import { visibleSection } from './admin-csv'
 import { normalizeCantReachSection } from './cant-reach'
 import { emptyProfile, type Profile } from './model'
 import { parseAdminEmails } from './staff'
+import { PRIORITY_SECTIONS_INDEXES, PRIORITY_SECTIONS_TABLE } from './priority-sections-sql'
 
 export const SESSION_COOKIE = 'tb_session'
 
@@ -198,6 +199,8 @@ export async function signupDatabase() {
   await migrateCompanionColumns(db)
   await db.prepare(TAKEN).run()
   await db.prepare(ABROAD_PRIORITY).run()
+  await db.prepare(PRIORITY_SECTIONS_TABLE).run()
+  for (const sql of PRIORITY_SECTIONS_INDEXES) await db.prepare(sql).run()
   await db.prepare(STAFF).run()
   await db.prepare(AUDIT).run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_signup_audit_signup ON signup_audit(signup_id, created_at)').run()

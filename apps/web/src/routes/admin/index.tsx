@@ -1,7 +1,10 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading } from '../../components/admin-ui'
 import { defaultQueueSearch, defaultSectionSearch, defaultSignupSearch, type SignupSearch } from '../../signup/admin-search'
+import { adminPriorityCoverage } from '../../signup/priority-sections-admin'
+import type { PriorityCoverage } from '../../signup/priority-sections'
 
 export const Route = createFileRoute('/admin/')({
   component: AdminHome,
@@ -21,6 +24,7 @@ function AdminHome() {
         <Stat to="/admin/signups" search={{ ...defaultSignupSearch, view: 'unassigned' }} label="Без секция" value={summary.unassigned} detail="Още без публикувана секция." />
         <Stat to="/admin/calls" label="Обаждания" value={summary.queue} detail="Поискали са разговор и още не сме се обадили." />
         <Stat to="/admin/access" label="Екип" value={summary.staff} detail="Хора с достъп до админа." />
+        <PriorityStat />
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         <Link to="/admin/signups" search={defaultSignupSearch} className="rounded-2xl border-2 border-[#2b062f] bg-[#f6f1f7] p-4 text-[#1a1020] no-underline hover:bg-[#e7dce9]">
@@ -83,3 +87,27 @@ function Stat({
 }
 
 
+
+function PriorityStat() {
+  const [summary, setSummary] = useState<PriorityCoverage | null>(null)
+  useEffect(() => {
+    void adminPriorityCoverage().then((result) => {
+      if (result.ok) setSummary(result.summary)
+    }).catch(() => {})
+  }, [])
+  if (!summary || summary.total === 0) return null
+  return (
+    <Link
+      to="/admin/sections"
+      search={{ ...defaultSectionSearch, prio: true }}
+      className="grid gap-1 rounded-2xl border-2 border-[#2b062f] bg-white p-4 text-[#1a1020] no-underline hover:bg-[#f6f1f7]"
+      data-testid="priority-stat"
+    >
+      <span className="text-sm font-bold">Приоритетни секции</span>
+      <span className="text-3xl font-black text-[#2b062f]">{summary.covered}/{summary.total}</span>
+      <span className="text-sm text-[#333]">
+        Покрити (публикувани {summary.published}, чернови {summary.draft}). Без човек {summary.uncovered}.
+      </span>
+    </Link>
+  )
+}

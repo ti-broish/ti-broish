@@ -46,6 +46,8 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
   const asked = Number(url.searchParams.get('limit') ?? DESIGNATION_ZIP_BATCH_LIMIT) || DESIGNATION_ZIP_BATCH_LIMIT
   const limit = Math.min(DESIGNATION_ZIP_BATCH_LIMIT, Math.max(1, Math.floor(asked)))
   const mirDigits = mir.padStart(2, '0')
+  // ?partner=1: only „И аз“ partner people, for printing them apart.
+  const onlyPartner = url.searchParams.get('partner') === '1'
   // Signups with a published section plus „И аз“ partner people with a МИР, in one numbered list.
   const rows = await access.db
     .prepare(
@@ -59,6 +61,7 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
             AND designation_number IS NOT NULL
             AND COALESCE(withdrawn, 0) = 0
             AND (?1 = '' OR substr(published_section, 1, 2) = ?1)
+            AND ?4 = 0
         UNION ALL
         SELECT ${PARTNER_DESIGNATION_COLUMNS}
           FROM partner_people
@@ -69,7 +72,7 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
         ORDER BY designation_number, id
         LIMIT ?2 OFFSET ?3`,
     )
-    .bind(mir ? mirDigits : '', limit, offset)
+    .bind(mir ? mirDigits : '', limit, offset, onlyPartner ? 1 : 0)
     .all<ZipRow>()
   const people = rows.results ?? []
   if (people.length === 0) {
@@ -132,7 +135,7 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
 
   const from = offset + 1
   const to = offset + people.length
-  const mirPart = mir ? `-mir${mirDigits}` : ''
+  const mirPart = `${onlyPartner ? '-i-az' : ''}${mir ? `-mir${mirDigits}` : ''}`
   const filename = `palnomoshtni${mirPart}-${String(from).padStart(4, '0')}-${String(to).padStart(4, '0')}.zip`
   return new Response(stream, {
     status: 200,

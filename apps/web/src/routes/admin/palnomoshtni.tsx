@@ -131,6 +131,17 @@ function PalnomoshtniPage() {
               Отделно, „{IAZ_LABEL}“ (не са записани доброволци и не отиват в Brevo): {partnerCounts.total} души, номерирани{' '}
               {partnerCounts.numbered}, подписани {partnerCounts.signed}
               {partnerCounts.noMir ? `, без МИР ${partnerCounts.noMir} (избери МИР в таблицата, за да получат номер)` : ''}.
+              {canExport && partnerCounts.numbered > 0
+                ? zipBatchPlan(partnerCounts.numbered, DESIGNATION_ZIP_BATCH_LIMIT).map((batch) => (
+                    <a
+                      key={`iaz-${batch.offset}`}
+                      className={`${adminGhost} ml-2`}
+                      href={`/admin/palnomoshtni/zip?partner=1&offset=${batch.offset}&limit=${batch.limit}`}
+                    >
+                      Изтегли ZIP „{IAZ_LABEL}“ {batch.from}–{batch.to}
+                    </a>
+                  ))
+                : null}
             </p>
           ) : null}
         </section>

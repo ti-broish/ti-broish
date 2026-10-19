@@ -1,4 +1,5 @@
 import type { SignupD1 } from './db-core'
+import { mfaAbroadSection } from './abroad-section-addresses'
 
 /** Abroad sections (MIR 32) have no street address in the API; the place comes from the abroad sections list. */
 export function isAbroadSection(code: string) {
@@ -11,9 +12,14 @@ export type AbroadPlace = { country: string; city: string; placeLabel: string }
  * LOCATION / SECTION_PLACE for an abroad section: the section's place label (or city) and the country,
  * e.g. „Лондон (Фелтъм), Обединено кралство …“. Falls back to the town and country the person gave.
  */
-export function abroadLocation(place: AbroadPlace | undefined, fallback: { townName?: string; countryName?: string } = {}) {
-  const label = (place?.placeLabel || place?.city || fallback.townName || '').trim()
-  const country = (place?.country || fallback.countryName || '').trim()
+export function abroadLocation(
+  place: AbroadPlace | undefined,
+  fallback: { townName?: string; countryName?: string } = {},
+  code = '',
+) {
+  const mfa = mfaAbroadSection(code)
+  const label = (place?.placeLabel || place?.city || mfa?.place || fallback.townName || '').trim()
+  const country = (place?.country || mfa?.country || fallback.countryName || '').trim()
   if (!label) return country
   if (!country || label.includes(country)) return label
   return `${label}, ${country}`

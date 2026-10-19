@@ -101,6 +101,8 @@ export type DesignationSectionFields = {
   publishedSection: string
   sectionAddress: string
   sectionPlace: string
+  /** LOCATION in Brevo: town (or city and country abroad); defaults to sectionPlace. */
+  location?: string
   role: string
 }
 
@@ -114,6 +116,7 @@ const SECTION_ATTRIBUTE_KEYS = [
   'SECTION_ID_TEXT',
   'SECTION_ADDRESS',
   'SECTION_PLACE',
+  'LOCATION',
   'SECTION_PUBLISHED',
   'ROLE',
 ] as const
@@ -152,9 +155,11 @@ export function designationSectionAttributes(fields: DesignationSectionFields, a
       if (built.SECTION_PUBLISHED) out.SECTION_PUBLISHED = type === 'boolean' || type === '' ? true : 'yes'
       continue
     }
-    const value = built[key]
+    const value = key === 'LOCATION' ? (fields.location ?? fields.sectionPlace).trim() : built[key]
     if (value === undefined || value === null) continue
     if (typeof value === 'string' && value.trim() === '') continue
+    // A text value never goes into a category/date/… attribute: Brevo would refuse the whole update.
+    if (typeof value === 'string' && type !== '' && type !== 'text' && type !== 'float' && type !== 'number') continue
     if (type === 'text') out[key] = String(value)
     else if (type === 'float' || type === 'number') {
       const numeric = Number(value)

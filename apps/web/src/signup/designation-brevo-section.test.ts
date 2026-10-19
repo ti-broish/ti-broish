@@ -12,6 +12,7 @@ const account = [
   { name: 'SECTION_ID_TEXT', type: 'text' },
   { name: 'SECTION_ADDRESS', type: 'text' },
   { name: 'SECTION_PLACE', type: 'text' },
+  { name: 'LOCATION', type: 'text' },
   { name: 'SECTION_PUBLISHED', type: 'boolean' },
   {
     name: 'ROLE',
@@ -51,10 +52,22 @@ describe('designationSectionAttributes', () => {
     expect(attrs).not.toHaveProperty('DOCUMENT_URL')
   })
 
+  it('fills LOCATION with the place (city and country abroad)', () => {
+    expect(designationSectionAttributes(fields, account).LOCATION).toBe('Лозенец, София')
+    const abroad = designationSectionAttributes(
+      { ...fields, publishedSection: '320922343', mir: '32', sectionAddress: '', sectionPlace: 'Борнмът, Обединено кралство', location: 'Борнмът, Обединено кралство' },
+      account,
+    )
+    expect(abroad.LOCATION).toBe('Борнмът, Обединено кралство')
+    expect(abroad.SECTION_PLACE).toBe('Борнмът, Обединено кралство')
+    expect(abroad).not.toHaveProperty('SECTION_ADDRESS')
+  })
+
   it('never sends a blank value over a stored one', () => {
     const attrs = designationSectionAttributes({ ...fields, sectionAddress: '  ', sectionPlace: '', firstName: '', role: '' }, account)
     expect(attrs).not.toHaveProperty('SECTION_ADDRESS')
     expect(attrs).not.toHaveProperty('SECTION_PLACE')
+    expect(attrs).not.toHaveProperty('LOCATION')
     expect(attrs).not.toHaveProperty('FIRSTNAME')
     expect(attrs).not.toHaveProperty('ROLE')
     for (const value of Object.values(attrs)) {
@@ -65,6 +78,11 @@ describe('designationSectionAttributes', () => {
   it('only sends attributes the Brevo account has', () => {
     const attrs = designationSectionAttributes(fields, [{ name: 'DOCUMENT_URL', type: 'text' }, { name: 'SECTION_ADDRESS', type: 'text' }])
     expect(attrs).toEqual({ SECTION_ADDRESS: 'ул. Шипка 1' })
+  })
+
+  it('skips LOCATION when it is not a text attribute in Brevo', () => {
+    const typed = account.map((attr) => (attr.name === 'LOCATION' ? { name: 'LOCATION', type: 'category', enumeration: [] } : attr))
+    expect(designationSectionAttributes(fields, typed)).not.toHaveProperty('LOCATION')
   })
 
   it('omits a ROLE label missing from the Brevo enumeration', () => {

@@ -4,6 +4,7 @@ import { brevoSectionsCsv, campaignCsv, distributionWhere, exportWithdrawnGuard,
 import { validateSectionCodesExist } from './abroad-section-validate'
 import { lookupSectionPlaces } from './section-places-lookup'
 import { sectionPlaceOf } from './section-where'
+import { abroadLocation, isAbroadSection, loadAbroadPlaces } from './brevo-location'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
 import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
@@ -518,12 +519,14 @@ export async function loadBrevoSectionFields(
     if (!list.includes(person.townId)) list.push(person.townId)
     townIdsByCode[section] = list
   }
-  const places = await lookupSectionPlaces(codes, townIdsByCode)
+  const places = await lookupSectionPlaces(codes.filter((code) => !isAbroadSection(code)), townIdsByCode)
+  const abroad = await loadAbroadPlaces(db, codes)
   const links = await designationLinks(db, people.map((person) => person.id))
   return people.map((person) => {
     const section = normalizeSection(person.publishedSection)
     const spot = places[section] ?? { address: '', area: '', town: '' }
     const published = /^\d{9}$/.test(section)
+    const sectionPlace = isAbroadSection(section) ? abroadLocation(abroad.get(section)) : sectionPlaceOf(spot)
     return {
       email: person.email,
       firstName: person.firstName,
@@ -532,7 +535,7 @@ export async function loadBrevoSectionFields(
       mir: person.mir || mirFromSection(section),
       publishedSection: section,
       sectionAddress: spot.address,
-      sectionPlace: sectionPlaceOf(spot),
+      sectionPlace,
       role: person.role,
       sectionPublished: published,
       palnomoshtnoUrl: links.get(person.id) ?? '',
@@ -545,7 +548,17 @@ export async function loadBrevoSectionFields(
  * so the пълномощно update can send them with DOCUMENT_URL.
  */
 export async function loadBrevoSectionFieldsForIds(db: Database, ids: string[]) {
-  const rows: Array<{ id: string; first_name: string; last_name: string; mir: string; role: string; published_section: string; town_id: number | string | null }> = []
+  const rows: Array<{
+    id: string
+    first_name: string
+    last_name: string
+    mir: string
+    role: string
+    published_section: string
+    town_id: number | string | null
+    town_name: string | null
+    country_name: string | null
+  }> = []
   for (let index = 0; index < ids.length; index += 90) {
     const chunk = ids.slice(index, index + 90)
     if (chunk.length === 0) continue
@@ -557,7 +570,9 @@ export async function loadBrevoSectionFieldsForIds(db: Database, ids: string[]) 
           COALESCE(mir_code, '') AS mir,
           COALESCE(role, '') AS role,
           COALESCE(published_section, '') AS published_section,
-          json_extract(payload, '$.place.townId') AS town_id
+          json_extract(payload, '$.place.townId') AS town_id,
+          COALESCE(NULLIF(town_name, ''), json_extract(payload, '$.place.townName'), '') AS town_name,
+          COALESCE(json_extract(payload, '$.place.countryName'), '') AS country_name
         FROM signups WHERE id IN (${chunk.map(() => '?').join(', ')}) AND COALESCE(withdrawn, 0) = 0`,
       )
       .bind(...chunk)
@@ -576,19 +591,28 @@ export async function loadBrevoSectionFieldsForIds(db: Database, ids: string[]) 
     if (!list.includes(townId)) list.push(townId)
     townIdsByCode[section] = list
   }
-  const places = codes.size > 0 ? await lookupSectionPlaces([...codes], townIdsByCode) : {}
-  const out = new Map<string, { firstName: string; lastName: string; mir: string; publishedSection: string; sectionAddress: string; sectionPlace: string; role: string }>()
+  const domestic = [...codes].filter((code) => !isAbroadSection(code))
+  const places = domestic.length > 0 ? await lookupSectionPlaces(domestic, townIdsByCode) : {}
+  const abroad = await loadAbroadPlaces(db, [...codes])
+  const out = new Map<
+    string,
+    { firstName: string; lastName: string; mir: string; publishedSection: string; sectionAddress: string; sectionPlace: string; location: string; role: string }
+  >()
   for (const row of rows) {
     const section = normalizeSection(row.published_section ?? '')
     if (!/^\d{9}$/.test(section)) continue
     const spot = places[section] ?? { address: '', area: '', town: '' }
+    const sectionPlace = isAbroadSection(section)
+      ? abroadLocation(abroad.get(section), { townName: String(row.town_name ?? ''), countryName: String(row.country_name ?? '') })
+      : sectionPlaceOf(spot)
     out.set(row.id, {
       firstName: String(row.first_name ?? ''),
       lastName: String(row.last_name ?? ''),
       mir: String(row.mir ?? '') || mirFromSection(section),
       publishedSection: section,
       sectionAddress: spot.address ?? '',
-      sectionPlace: sectionPlaceOf(spot),
+      sectionPlace,
+      location: sectionPlace,
       role: String(row.role ?? ''),
     })
   }

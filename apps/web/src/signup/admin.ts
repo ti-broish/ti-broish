@@ -5,6 +5,7 @@ import { validateSectionCodesExist } from './abroad-section-validate'
 import { lookupSectionPlaces } from './section-places-lookup'
 import { sectionPlaceOf } from './section-where'
 import { abroadLocation, isAbroadSection, loadAbroadPlaces } from './brevo-location'
+import { abroadSectionAddress } from './abroad-section-addresses'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
 import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
@@ -526,7 +527,8 @@ export async function loadBrevoSectionFields(
     const section = normalizeSection(person.publishedSection)
     const spot = places[section] ?? { address: '', area: '', town: '' }
     const published = /^\d{9}$/.test(section)
-    const sectionPlace = isAbroadSection(section) ? abroadLocation(abroad.get(section)) : sectionPlaceOf(spot)
+    const sectionPlace = isAbroadSection(section) ? abroadLocation(abroad.get(section), {}, section) : sectionPlaceOf(spot)
+    const sectionAddress = isAbroadSection(section) ? abroadSectionAddress(section) : spot.address
     return {
       email: person.email,
       firstName: person.firstName,
@@ -534,7 +536,7 @@ export async function loadBrevoSectionFields(
       phone: person.phone,
       mir: person.mir || mirFromSection(section),
       publishedSection: section,
-      sectionAddress: spot.address,
+      sectionAddress,
       sectionPlace,
       role: person.role,
       sectionPublished: published,
@@ -603,14 +605,14 @@ export async function loadBrevoSectionFieldsForIds(db: Database, ids: string[]) 
     if (!/^\d{9}$/.test(section)) continue
     const spot = places[section] ?? { address: '', area: '', town: '' }
     const sectionPlace = isAbroadSection(section)
-      ? abroadLocation(abroad.get(section), { townName: String(row.town_name ?? ''), countryName: String(row.country_name ?? '') })
+      ? abroadLocation(abroad.get(section), { townName: String(row.town_name ?? ''), countryName: String(row.country_name ?? '') }, section)
       : sectionPlaceOf(spot)
     out.set(row.id, {
       firstName: String(row.first_name ?? ''),
       lastName: String(row.last_name ?? ''),
       mir: String(row.mir ?? '') || mirFromSection(section),
       publishedSection: section,
-      sectionAddress: spot.address ?? '',
+      sectionAddress: isAbroadSection(section) ? abroadSectionAddress(section) : (spot.address ?? ''),
       sectionPlace,
       location: sectionPlace,
       role: String(row.role ?? ''),

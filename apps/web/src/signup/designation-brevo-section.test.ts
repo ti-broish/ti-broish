@@ -61,6 +61,11 @@ describe('designationSectionAttributes', () => {
     expect(abroad.LOCATION).toBe('Борнмът, Обединено кралство')
     expect(abroad.SECTION_PLACE).toBe('Борнмът, Обединено кралство')
     expect(abroad).not.toHaveProperty('SECTION_ADDRESS')
+    const withAddress = designationSectionAttributes(
+      { ...fields, publishedSection: '320922343', mir: '32', sectionAddress: 'The Green House Hotel, 4 Grove Road, Bournemouth, BH1 3A', sectionPlace: 'Борнмът, Обединено кралство' },
+      account,
+    )
+    expect(withAddress.SECTION_ADDRESS).toBe('The Green House Hotel, 4 Grove Road, Bournemouth, BH1 3A')
   })
 
   it('never sends a blank value over a stored one', () => {

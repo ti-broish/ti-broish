@@ -1,4 +1,5 @@
 import { normalizeSection } from './admin-csv'
+import { mfaAbroadSection } from './abroad-section-addresses'
 import {
   addressTownIds,
   assembleDirectory,
@@ -78,7 +79,15 @@ export async function lookupSectionPlaces(
   townIdsByCode: Record<string, number[]> = {},
 ): Promise<Record<string, SectionSpot>> {
   const places: Record<string, SectionSpot> = {}
-  for (const batch of sectionLookupBatches(codes, townIdsByCode)) {
+  // Abroad sections: the API has no address, the MFA table does.
+  const domestic: string[] = []
+  for (const raw of codes) {
+    const code = normalizeSection(String(raw))
+    const mfa = mfaAbroadSection(code)
+    if (mfa) places[code] = { address: mfa.address, area: mfa.country, town: mfa.place }
+    else domestic.push(raw)
+  }
+  for (const batch of sectionLookupBatches(domestic, townIdsByCode)) {
     try {
       const directory = await directoryFor(batch.codes, batch.townIds)
       for (const code of batch.codes) places[code] = sectionSpot(code, directory)

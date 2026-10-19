@@ -102,6 +102,26 @@ describe('distributeAbroad', () => {
     expect(full.unmatched).toEqual([{ personId: 'c', email: 'c@example.com', reason: 'no_capacity', detail: 'Австрия / Виена' }])
   })
 
+  it('drafts one person per section even when the file lists several empty ПП-ДБ seats', () => {
+    const plan = distributeAbroad({
+      people: [person({ id: 'a', email: 'a@example.com' }), person({ id: 'b', email: 'b@example.com' })],
+      sections: [section({ id: '320021001', city: 'Виена', tierLetter: 'C', capacity: 3, emptyPpdbSeats: 3 })],
+    })
+    expect(plan.assignments.map((row) => row.sectionId)).toEqual(['320021001'])
+    expect(plan.unmatched.map((row) => row.reason)).toEqual(['no_capacity'])
+  })
+
+  it('within a tier sends people to sections with more empty ПП-ДБ seats first', () => {
+    const plan = distributeAbroad({
+      people: [person({ id: 'a', email: 'a@example.com' })],
+      sections: [
+        section({ id: '320021001', city: 'Виена', tierLetter: 'B', emptyPpdbSeats: 0 }),
+        section({ id: '320021002', city: 'Виена', tierLetter: 'B', emptyPpdbSeats: 2 }),
+      ],
+    })
+    expect(plan.assignments[0]?.sectionId).toBe('320021002')
+  })
+
   it('respects blocked section codes', () => {
     const plan = distributeAbroad({
       people: [person({ id: 'a', email: 'a@example.com' })],

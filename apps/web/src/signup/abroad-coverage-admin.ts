@@ -38,7 +38,6 @@ export const adminImportAbroadCoverage = createServerFn({ method: 'POST' })
     }
     const db = access.db
     const now = new Date().toISOString()
-    await db.prepare('DELETE FROM abroad_priority_sections').run()
     const insert = `INSERT INTO abroad_priority_sections (
              section_code, country, city, place_label, members, tier, tier_letter,
              ppdb_seats, da_seats, ppdb_seats_without_nominee, party_seats_allocated_in_file, updated_at
@@ -59,9 +58,8 @@ export const adminImportAbroadCoverage = createServerFn({ method: 'POST' })
         now,
       ),
     )
-    for (let i = 0; i < statements.length; i += 50) {
-      await db.batch(statements.slice(i, i + 50))
-    }
+    // One batch = one transaction: a failed re-upload keeps the previous coverage.
+    await db.batch([db.prepare('DELETE FROM abroad_priority_sections'), ...statements])
     const summary = summarizeCoverage(parsed.rows)
     return {
       ok: true as const,

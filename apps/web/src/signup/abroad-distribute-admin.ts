@@ -142,16 +142,15 @@ async function loadPrioritySections(db: Database): Promise<AbroadDistributeSecti
       members: number
     }>()
   return (result.results ?? []).map((row) => {
-    const emptyPpdb = Number(row.ppdb_seats_without_nominee) || 0
-    // Prefer empty ПП-ДБ seats as capacity; otherwise one volunteer slot per section.
-    const capacity = emptyPpdb > 0 ? emptyPpdb : 1
     return {
       id: normalizeSection(row.section_code),
       country: row.country,
       city: row.city,
       placeLabel: row.place_label,
       tierLetter: row.tier_letter as AbroadTierLetter,
-      capacity,
+      // One volunteer per section — a second draft would be a duplicate that blocks publish.
+      capacity: 1,
+      emptyPpdbSeats: Number(row.ppdb_seats_without_nominee) || 0,
     }
   })
 }

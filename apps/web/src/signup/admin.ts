@@ -540,6 +540,61 @@ export async function loadBrevoSectionFields(
   })
 }
 
+/**
+ * Section fields for Brevo by signup id (same address/place lookup as the Секции sync),
+ * so the пълномощно update can send them with DOCUMENT_URL.
+ */
+export async function loadBrevoSectionFieldsForIds(db: Database, ids: string[]) {
+  const rows: Array<{ id: string; first_name: string; last_name: string; mir: string; role: string; published_section: string; town_id: number | string | null }> = []
+  for (let index = 0; index < ids.length; index += 90) {
+    const chunk = ids.slice(index, index + 90)
+    if (chunk.length === 0) continue
+    const found = await db
+      .prepare(
+        `SELECT id,
+          COALESCE(json_extract(payload, '$.firstName'), '') AS first_name,
+          COALESCE(json_extract(payload, '$.lastName'), '') AS last_name,
+          COALESCE(mir_code, '') AS mir,
+          COALESCE(role, '') AS role,
+          COALESCE(published_section, '') AS published_section,
+          json_extract(payload, '$.place.townId') AS town_id
+        FROM signups WHERE id IN (${chunk.map(() => '?').join(', ')}) AND COALESCE(withdrawn, 0) = 0`,
+      )
+      .bind(...chunk)
+      .all<(typeof rows)[number]>()
+    rows.push(...(found.results ?? []))
+  }
+  const townIdsByCode: Record<string, number[]> = {}
+  const codes = new Set<string>()
+  for (const row of rows) {
+    const section = normalizeSection(row.published_section ?? '')
+    if (!/^\d{9}$/.test(section)) continue
+    codes.add(section)
+    const townId = townIdOf(row.town_id)
+    if (!townId) continue
+    const list = townIdsByCode[section] ?? []
+    if (!list.includes(townId)) list.push(townId)
+    townIdsByCode[section] = list
+  }
+  const places = codes.size > 0 ? await lookupSectionPlaces([...codes], townIdsByCode) : {}
+  const out = new Map<string, { firstName: string; lastName: string; mir: string; publishedSection: string; sectionAddress: string; sectionPlace: string; role: string }>()
+  for (const row of rows) {
+    const section = normalizeSection(row.published_section ?? '')
+    if (!/^\d{9}$/.test(section)) continue
+    const spot = places[section] ?? { address: '', area: '', town: '' }
+    out.set(row.id, {
+      firstName: String(row.first_name ?? ''),
+      lastName: String(row.last_name ?? ''),
+      mir: String(row.mir ?? '') || mirFromSection(section),
+      publishedSection: section,
+      sectionAddress: spot.address ?? '',
+      sectionPlace: sectionPlaceOf(spot),
+      role: String(row.role ?? ''),
+    })
+  }
+  return out
+}
+
 /** Stored power of attorney links by signup id, in chunks under D1's bound-parameter limit. */
 async function designationLinks(db: Database, ids: string[]) {
   const links = new Map<string, string>()

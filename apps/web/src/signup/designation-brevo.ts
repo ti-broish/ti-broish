@@ -1,4 +1,9 @@
 import { withRetry } from './designation-drive-core'
+import { buildBrevoContact } from './brevo-contact'
+import { convertRoleForBrevo, type BrevoAttrDescriptor } from './brevo-sync'
+
+export type BrevoAttrValue = string | number | boolean | string[]
+export type BrevoAttrs = Record<string, BrevoAttrValue>
 
 const API = 'https://api.brevo.com/v3'
 
@@ -39,11 +44,11 @@ export class BrevoContactError extends Error {
 export async function updateBrevoContactAttribute(
   apiKey: string,
   email: string,
-  attributes: Record<string, string>,
+  attributes: BrevoAttrs,
   fetchImpl: typeof fetch = fetch,
   listIds: number[] = [],
 ) {
-  const body: { attributes: Record<string, string>; listIds?: number[] } = { attributes }
+  const body: { attributes: BrevoAttrs; listIds?: number[] } = { attributes }
   if (listIds.length > 0) body.listIds = listIds
   const response = await withRetry(() =>
     fetchImpl(`${API}/contacts/${encodeURIComponent(email)}?identifierType=email_id`, {
@@ -60,7 +65,7 @@ export async function updateBrevoContactAttribute(
 export async function createBrevoContact(
   apiKey: string,
   email: string,
-  attributes: Record<string, string>,
+  attributes: BrevoAttrs,
   listIds: number[],
   fetchImpl: typeof fetch = fetch,
 ) {
@@ -75,16 +80,105 @@ export async function createBrevoContact(
   throw new BrevoContactError(response.status, await brevoErrorMessage(response))
 }
 
-/** Names of the contact attributes the Brevo account has (GET /contacts/attributes). */
-export async function fetchBrevoAttributeNames(apiKey: string, fetchImpl: typeof fetch = fetch): Promise<Set<string>> {
+/** Contact attributes the Brevo account has (GET /contacts/attributes). */
+export async function fetchBrevoAttributes(apiKey: string, fetchImpl: typeof fetch = fetch): Promise<BrevoAttrDescriptor[]> {
   const response = await withRetry(() => fetchImpl(`${API}/contacts/attributes`, { method: 'GET', headers: headers(apiKey) }))
   if (!response.ok) throw new BrevoContactError(response.status, await brevoErrorMessage(response))
-  const json = (await response.json()) as { attributes?: Array<{ name?: unknown }> }
-  return new Set((json.attributes ?? []).map((item) => String(item.name ?? '').toUpperCase()).filter(Boolean))
+  const json = (await response.json()) as { attributes?: BrevoAttrDescriptor[] }
+  return (json.attributes ?? []).filter((item) => item && typeof item.name === 'string' && item.name)
 }
 
-export type DesignationBrevoContact = { personId: string; email: string; url: string }
-export type DesignationBrevoResult = { personId: string; ok: boolean; created?: boolean; error?: string }
+/** Names of the contact attributes the Brevo account has, upper-case. */
+export async function fetchBrevoAttributeNames(apiKey: string, fetchImpl: typeof fetch = fetch): Promise<Set<string>> {
+  return new Set((await fetchBrevoAttributes(apiKey, fetchImpl)).map((item) => item.name.toUpperCase()))
+}
+
+/** Section fields of one person, as the Секции → Brevo sync builds them. */
+export type DesignationSectionFields = {
+  firstName: string
+  lastName: string
+  mir: string
+  publishedSection: string
+  sectionAddress: string
+  sectionPlace: string
+  role: string
+}
+
+/** Attributes the пълномощно update never sends: SMS can belong to another contact and would fail the whole PUT. */
+const SECTION_ATTRIBUTE_KEYS = [
+  'FIRSTNAME',
+  'LASTNAME',
+  'MIR',
+  'SECTION_ID',
+  'SECTION_CODE',
+  'SECTION_ID_TEXT',
+  'SECTION_ADDRESS',
+  'SECTION_PLACE',
+  'SECTION_PUBLISHED',
+  'ROLE',
+] as const
+
+/**
+ * Section attributes to send with the signed link, so a contact never ends up with a
+ * DOCUMENT_URL but no section. Only non-empty values, and only attributes the account
+ * has: a blank never replaces a stored value and an unknown attribute never fails the PUT.
+ */
+export function designationSectionAttributes(fields: DesignationSectionFields, account: BrevoAttrDescriptor[]): BrevoAttrs {
+  const known = new Map(account.map((attr) => [attr.name.toUpperCase(), attr]))
+  const built = buildBrevoContact({
+    email: '',
+    firstName: fields.firstName.trim(),
+    lastName: fields.lastName.trim(),
+    phone: '',
+    mir: fields.mir,
+    publishedSection: fields.publishedSection,
+    sectionAddress: fields.sectionAddress.trim(),
+    sectionPlace: fields.sectionPlace.trim(),
+    role: fields.role,
+    sectionPublished: true,
+  }).attributes
+  const out: BrevoAttrs = {}
+  for (const key of SECTION_ATTRIBUTE_KEYS) {
+    if (!known.has(key)) continue
+    if (key === 'ROLE') {
+      if (!built.ROLE) continue
+      const converted = convertRoleForBrevo(built.ROLE, known.get('ROLE'))
+      if (converted.ok) out.ROLE = converted.value
+      continue
+    }
+    const type = String(known.get(key)?.type ?? '').toLowerCase()
+    if (key === 'SECTION_PUBLISHED') {
+      // Only ever set to true here; unpublishing is the Секции sync's job.
+      if (built.SECTION_PUBLISHED) out.SECTION_PUBLISHED = type === 'boolean' || type === '' ? true : 'yes'
+      continue
+    }
+    const value = built[key]
+    if (value === undefined || value === null) continue
+    if (typeof value === 'string' && value.trim() === '') continue
+    if (type === 'text') out[key] = String(value)
+    else if (type === 'float' || type === 'number') {
+      const numeric = Number(value)
+      if (Number.isFinite(numeric)) out[key] = numeric
+    } else out[key] = value
+  }
+  return out
+}
+
+export type DesignationBrevoContact = {
+  personId: string
+  email: string
+  url: string
+  /** Section attributes sent in the same update (see designationSectionAttributes). */
+  section?: BrevoAttrs
+}
+export type DesignationBrevoResult = {
+  personId: string
+  ok: boolean
+  created?: boolean
+  error?: string
+  /** Set when the link was stored but Brevo refused the section attributes. */
+  warning?: string
+}
 export type DesignationBrevoCheck = { personId: string; ok: boolean; error?: string }
 export type DesignationBrevoSync = {
   attribute: string
@@ -119,19 +213,44 @@ export async function pushDesignationLink(opts: {
   fetchImpl?: typeof fetch
 }): Promise<DesignationBrevoResult> {
   const fetchImpl = opts.fetchImpl ?? fetch
-  const attributes = { [opts.attribute.trim().toUpperCase()]: opts.contact.url }
+  const link = { [opts.attribute.trim().toUpperCase()]: opts.contact.url }
+  const section = opts.contact.section ?? {}
+  const withSection: BrevoAttrs = { ...section, ...link }
+  const hasSection = Object.keys(section).length > 0
   const listIds = opts.listId ? [opts.listId] : []
   const { personId, email } = opts.contact
+  const put = (attributes: BrevoAttrs) => updateBrevoContactAttribute(opts.apiKey, email, attributes, fetchImpl, listIds)
+  const create = (attributes: BrevoAttrs) => createBrevoContact(opts.apiKey, email, attributes, listIds, fetchImpl)
+  // A 400 on the section attributes must not cost the signed link: retry with the link alone.
+  const sectionRefused = (error: unknown) => hasSection && error instanceof BrevoContactError && error.status === 400
+  const warningOf = (error: unknown) => `секционните атрибути не минаха: ${describe(error)}`
   try {
-    await updateBrevoContactAttribute(opts.apiKey, email, attributes, fetchImpl, listIds)
+    await put(withSection)
     return { personId, ok: true }
   } catch (error) {
-    if (!(error instanceof BrevoContactError) || error.status !== 404) return { personId, ok: false, error: describe(error) }
+    if (sectionRefused(error)) {
+      try {
+        await put(link)
+        return { personId, ok: true, warning: warningOf(error) }
+      } catch (linkError) {
+        if (!(linkError instanceof BrevoContactError) || linkError.status !== 404) return { personId, ok: false, error: describe(linkError) }
+      }
+    } else if (!(error instanceof BrevoContactError) || error.status !== 404) {
+      return { personId, ok: false, error: describe(error) }
+    }
   }
   try {
-    await createBrevoContact(opts.apiKey, email, attributes, listIds, fetchImpl)
+    await create(withSection)
     return { personId, ok: true, created: true }
   } catch (createError) {
+    if (sectionRefused(createError)) {
+      try {
+        await create(link)
+        return { personId, ok: true, created: true, warning: warningOf(createError) }
+      } catch (linkError) {
+        return { personId, ok: false, error: describe(linkError) }
+      }
+    }
     return { personId, ok: false, error: describe(createError) }
   }
 }
@@ -172,10 +291,13 @@ export async function syncDesignationLinks(opts: {
   fetchImpl?: typeof fetch
   concurrency?: number
   verify?: boolean
+  /** Brevo attribute descriptors, when the caller already fetched them. */
+  account?: BrevoAttrDescriptor[]
 }): Promise<DesignationBrevoSync> {
   const fetchImpl = opts.fetchImpl ?? fetch
   const attribute = opts.attribute.trim().toUpperCase()
-  const names = await fetchBrevoAttributeNames(opts.apiKey, fetchImpl)
+  const account = opts.account ?? (await fetchBrevoAttributes(opts.apiKey, fetchImpl))
+  const names = new Set(account.map((item) => item.name.toUpperCase()))
   if (!names.has(attribute)) {
     const error = `В Brevo няма атрибут ${attribute}.`
     return {

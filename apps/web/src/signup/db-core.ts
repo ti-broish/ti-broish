@@ -79,6 +79,10 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN withdrawn_by TEXT',
   'ALTER TABLE signups ADD COLUMN withdrawn_reason TEXT',
   'ALTER TABLE signups ADD COLUMN withdrawn_note TEXT',
+  // Partner import („И аз“). Also in sql/2026-10-19-partner-import.sql.
+  'ALTER TABLE signups ADD COLUMN partner TEXT',
+  'ALTER TABLE signups ADD COLUMN partner_submitted_at TEXT',
+  'ALTER TABLE signups ADD COLUMN partner_imported_at TEXT',
 ]
 
 const COMPANIONS = `
@@ -143,6 +147,7 @@ CREATE TABLE IF NOT EXISTS signup_audit (
 
 const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_signups_source ON signups(source)',
+  'CREATE INDEX IF NOT EXISTS idx_signups_partner ON signups(partner)',
   'CREATE INDEX IF NOT EXISTS idx_signups_mir ON signups(mir_code)',
   'CREATE INDEX IF NOT EXISTS idx_signups_role ON signups(role)',
   'CREATE INDEX IF NOT EXISTS idx_signups_confirm ON signups(confirm_token)',

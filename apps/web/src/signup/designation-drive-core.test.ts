@@ -31,7 +31,7 @@ describe('Drive auth health without credentials', () => {
     expect(health.missingSecrets).toContain('GOOGLE_SERVICE_ACCOUNT_JSON')
     expect(health.folderError).toMatch(/DESIGNATION_DRIVE_FOLDER_ID/)
     expect(health.brevoKey).toBe(false)
-    expect(health.brevoAttribute).toBe('PALNOMOSHTNO_URL')
+    expect(health.brevoAttribute).toBe('DOCUMENT_URL')
     expect(designationHealthMessage(health)).toMatch(/GOOGLE_SERVICE_ACCOUNT_JSON/)
     expect(designationHealthMessage(health)).toMatch(/Качването към Drive е изключено/)
   })

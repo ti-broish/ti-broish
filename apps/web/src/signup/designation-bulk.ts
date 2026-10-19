@@ -22,8 +22,10 @@ export const adminDesignationHealth = createServerFn({ method: 'POST' }).handler
 })
 
 export const adminDesignationSyncBrevo = createServerFn({ method: 'POST' })
-  .validator((input: { personIds: string[] }) => ({
-    personIds: [...new Set((input.personIds ?? []).filter(personIdOk))].slice(0, 500),
+  .validator((input: { personIds?: string[]; allSigned?: boolean; offset?: number }) => ({
+    personIds: [...new Set((input.personIds ?? []).filter(personIdOk))].slice(0, 300),
+    allSigned: input.allSigned === true,
+    offset: Number.isInteger(input.offset) && (input.offset ?? 0) > 0 ? Number(input.offset) : 0,
   }))
   .handler(async ({ data }) => {
     const { handleDesignationSyncBrevo } = await import('./designation-bulk.server')

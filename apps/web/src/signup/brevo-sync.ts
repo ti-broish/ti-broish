@@ -140,7 +140,7 @@ export const BREVO_REQUIRED_ATTRIBUTES: ExpectedBrevoAttribute[] = [
   { name: 'SECTION_ADDRESS', types: ['text', 'string'] },
   { name: 'SECTION_PLACE', types: ['text', 'string'] },
   { name: 'SECTION_PUBLISHED', types: ['boolean', 'bool'] },
-  { name: 'PALNOMOSHTNO_URL', types: ['text', 'string'] },
+  { name: 'DOCUMENT_URL', types: ['text', 'string', 'url'] },
 ]
 
 export type AttributeCheckResult = {

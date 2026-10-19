@@ -1,7 +1,12 @@
 import { getCookie } from '@tanstack/react-start/server'
 import { env } from 'cloudflare:workers'
-import { BrevoApiError, fetchBrevoProcess, importContactsToList, readBrevoConfig, type BrevoConfig } from './brevo'
-import { brevoProcessReport, chunkContacts, type BrevoImportContact, type BrevoProcessReport } from './brevo-sync'
+import { BrevoApiError, readBrevoConfig } from './brevo'
+import {
+  fetchBrevoAttributeNames,
+  syncDesignationLinks,
+  type DesignationBrevoContact,
+  type DesignationBrevoResult,
+} from './designation-brevo'
 import { configFromEnv, ELECTION_DISTRICTS, todayInSofia } from './designation-config'
 import {
   designationDriveFolderId,
@@ -227,104 +232,103 @@ export async function handleDesignationHealth() {
     ok: true as const,
     health,
     canUpload,
-    message: designationHealthMessage(health),
+    message: `${designationHealthMessage(health)}${await brevoAttributeNote(bag, health.brevoAttribute)}`,
   }
 }
 
-export async function handleDesignationSyncBrevo(data: { personIds: string[] }) {
+/** Say on the health line when the Brevo attribute for the link is missing; uploads would not reach Brevo. */
+async function brevoAttributeNote(bag: Record<string, string | undefined>, attribute: string) {
+  const apiKey = (bag.BREVO_API_KEY ?? '').trim()
+  if (!apiKey) return ''
+  try {
+    const names = await fetchBrevoAttributeNames(apiKey)
+    return names.has(attribute.toUpperCase()) ? '' : ` В Brevo няма атрибут ${attribute} — създай го (текст), иначе линковете няма да стигнат до Brevo.`
+  } catch (error) {
+    return ` Атрибутите в Brevo не се провериха: ${errorMessage(error)}`
+  }
+}
+
+/** People per Brevo resync call; each costs one or two Brevo subrequests. */
+export const DESIGNATION_BREVO_PAGE = 300
+
+export type DesignationSyncInput = { personIds: string[]; allSigned: boolean; offset: number }
+
+export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   const access = await gateDesignation('exportCampaign')
   if (!access.ok) return access
-  if (data.personIds.length === 0) return { ok: false as const, message: 'Няма хора за синхрон към Brevo.' }
+  if (!data.allSigned && data.personIds.length === 0) return { ok: false as const, message: 'Няма хора за синхрон към Brevo.' }
   const config = readBrevoConfig()
   if ('missing' in config) {
     return {
       ok: false as const,
       skipped: true as const,
-      message: 'Липсва BREVO_API_KEY. Линковете в Drive са записани.',
+      message: 'Brevo: липсва BREVO_API_KEY. Линковете в Drive са записани.',
     }
   }
-  if (!config.listId) {
-    return {
-      ok: false as const,
-      skipped: true as const,
-      message: 'Липсва BREVO_LIST_ID. Линковете в Drive са записани.',
-    }
-  }
-  const marks = data.personIds.map(() => '?').join(', ')
-  const rows = await access.db
-    .prepare(`SELECT id, email, COALESCE(designation_pdf_url, '') AS url FROM signups WHERE id IN (${marks})`)
-    .bind(...data.personIds)
-    .all<{ id: string; email: string; url: string }>()
   const attribute = configFromEnv(workerEnv()).brevoAttribute
-  const contacts: BrevoImportContact[] = []
-  for (const row of rows.results ?? []) {
+  let rows: Array<{ id: string; email: string; url: string }>
+  let total = 0
+  if (data.allSigned) {
+    const count = await access.db
+      .prepare(`SELECT COUNT(*) AS n FROM signups WHERE COALESCE(designation_pdf_url, '') <> ''`)
+      .first<{ n: number }>()
+    total = Number(count?.n ?? 0)
+    const page = await access.db
+      .prepare(
+        `SELECT id, email, designation_pdf_url AS url FROM signups WHERE COALESCE(designation_pdf_url, '') <> '' ORDER BY id LIMIT ? OFFSET ?`,
+      )
+      .bind(DESIGNATION_BREVO_PAGE, data.offset)
+      .all<{ id: string; email: string; url: string }>()
+    rows = page.results ?? []
+  } else {
+    const marks = data.personIds.map(() => '?').join(', ')
+    const found = await access.db
+      .prepare(`SELECT id, email, COALESCE(designation_pdf_url, '') AS url FROM signups WHERE id IN (${marks})`)
+      .bind(...data.personIds)
+      .all<{ id: string; email: string; url: string }>()
+    rows = found.results ?? []
+    total = rows.length
+  }
+  const contacts: DesignationBrevoContact[] = []
+  const results: DesignationBrevoResult[] = []
+  for (const row of rows) {
     const email = (row.email ?? '').trim()
     const url = (row.url ?? '').trim()
-    if (!email || !url) continue
-    contacts.push({ email, attributes: { [attribute]: url } })
+    if (!email) results.push({ personId: row.id, ok: false, error: 'няма имейл' })
+    else if (!url) results.push({ personId: row.id, ok: false, error: 'няма линк към Drive' })
+    else contacts.push({ personId: row.id, email, url })
   }
-  if (contacts.length === 0) {
-    return { ok: false as const, message: 'Няма URL-и за пращане към Brevo.' }
+  const nextOffset = data.allSigned && data.offset + rows.length < total ? data.offset + rows.length : null
+  if (contacts.length > 0) {
+    try {
+      const sync = await syncDesignationLinks({ apiKey: config.apiKey, listId: config.listId, attribute, contacts })
+      results.push(...sync.results)
+    } catch (error) {
+      const message = errorMessage(error)
+      console.error('designation brevo sync failed', message)
+      return { ok: false as const, attribute, results, nextOffset, message: `Brevo: ${message}` }
+    }
   }
-  try {
-    const processIds: Array<string | number> = []
-    const errors: string[] = []
-    let sent = 0
-    for (const [index, batch] of chunkContacts(contacts).entries()) {
-      try {
-        const result = await importContactsToList(config, batch, config.listId)
-        const processId = extractProcessId(result)
-        if (processId !== null) processIds.push(processId)
-        sent += batch.length
-      } catch (error) {
-        errors.push(`Партида ${index + 1}: ${errorMessage(error)}`)
-      }
-    }
-    const processReports = await waitForProcesses(config, processIds)
-    const rejected = processReports.flatMap((report) => report.issues.map((issue) => `Процес ${report.id}: ${issue}`))
-    const pending = processReports.filter((report) => report.status !== 'completed').map((report) => `${report.id} (${report.status})`)
-    return {
-      ok: true as const,
-      sent,
-      rejected,
-      pending,
-      errors,
-      processReports,
-      message:
-        errors.length === 0
-          ? `Brevo: обновени ${sent} контакта (${attribute}).`
-          : `Brevo: обновени ${sent} контакта; ${errors.length} партиди с грешка.`,
-    }
-  } catch (error) {
-    return { ok: false as const, message: errorMessage(error) }
+  const failed = results.filter((row) => !row.ok)
+  if (failed.length > 0) console.warn('designation brevo sync errors', failed.length, failed[0]?.error)
+  const updated = results.length - failed.length
+  return {
+    ok: failed.length === 0,
+    attribute,
+    updated,
+    failed: failed.length,
+    results,
+    nextOffset,
+    message: designationBrevoMessage(attribute, updated, failed),
   }
 }
 
-async function waitForProcesses(config: BrevoConfig, processIds: Array<string | number>): Promise<BrevoProcessReport[]> {
-  const reports: BrevoProcessReport[] = []
-  for (const id of processIds.slice(0, 10)) {
-    let report: BrevoProcessReport = { id, status: 'unknown', issues: [] }
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-      try {
-        report = brevoProcessReport(id, await fetchBrevoProcess(config, id))
-      } catch (error) {
-        report = { id, status: 'unknown', issues: [errorMessage(error)] }
-        break
-      }
-      if (report.status === 'completed') break
-    }
-    reports.push(report)
-  }
-  return reports
-}
-
-function extractProcessId(result: unknown): string | number | null {
-  if (!result || typeof result !== 'object') return null
-  const bag = result as { processId?: unknown; id?: unknown }
-  if (typeof bag.processId === 'string' || typeof bag.processId === 'number') return bag.processId
-  if (typeof bag.id === 'string' || typeof bag.id === 'number') return bag.id
-  return null
+/** One line for the admin page: "Brevo (DOCUMENT_URL): 1 обновени / 0 грешки" plus the distinct reasons. */
+export function designationBrevoMessage(attribute: string, updated: number, failed: DesignationBrevoResult[]) {
+  const head = `Brevo (${attribute}): ${updated} обновени / ${failed.length} грешки`
+  if (failed.length === 0) return `${head}.`
+  const reasons = [...new Set(failed.map((row) => row.error || 'неизвестна грешка'))].slice(0, 3)
+  return `${head}: ${reasons.join('; ')}`
 }
 
 function errorMessage(error: unknown) {

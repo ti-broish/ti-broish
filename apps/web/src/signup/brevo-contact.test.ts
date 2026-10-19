@@ -126,7 +126,7 @@ describe('buildBrevoContact', () => {
   })
 })
 
-describe('PALNOMOSHTNO_URL', () => {
+describe('DOCUMENT_URL', () => {
   const base = {
     email: 'a@example.com',
     firstName: 'А',
@@ -142,13 +142,13 @@ describe('PALNOMOSHTNO_URL', () => {
 
   it('goes to the API when a link is stored, never into the CSV', () => {
     const contact = buildBrevoContact({ ...base, palnomoshtnoUrl: ' https://drive.google.com/file/d/x/view ' })
-    expect(brevoAttributesForApi(contact.attributes).PALNOMOSHTNO_URL).toBe('https://drive.google.com/file/d/x/view')
+    expect(brevoAttributesForApi(contact.attributes).DOCUMENT_URL).toBe('https://drive.google.com/file/d/x/view')
     expect(brevoContactCsvCells(contact)).toHaveLength(BREVO_SECTIONS_HEADERS.length)
   })
 
   it('is left out when there is no link, so Brevo keeps its value', () => {
     const contact = buildBrevoContact(base)
-    expect('PALNOMOSHTNO_URL' in brevoAttributesForApi(contact.attributes)).toBe(false)
+    expect('DOCUMENT_URL' in brevoAttributesForApi(contact.attributes)).toBe(false)
   })
 })
 

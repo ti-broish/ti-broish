@@ -7,6 +7,8 @@ import type { AbroadTierLetter } from './abroad-coverage'
 import { isSpecialBulgariaSection } from './stationary-sections'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows } from './staff'
+import { rankWithPriority } from './priority-sections'
+import { loadPriorityRows } from './priority-sections-admin'
 
 type Database = SignupD1
 
@@ -51,11 +53,15 @@ export const adminSuggest = createServerFn({ method: 'POST' })
     }
 
     const townId = place.townId
+    const priorityPerson = { town: row.town || place.townName || '', municipality: row.municipality, mir: row.mir }
     if (!townId) {
+      // Without a town we can still point at priority sections in the person's municipality.
+      const blocked = await blockedSectionCodes(db, row.id)
+      const suggestions = rankWithPriority([], await priorityRowsSafe(db), priorityPerson, blocked, 8)
       return {
         ok: true as const,
-        suggestions: [],
-        message: 'Няма избран град в записването, затова няма предложения.',
+        suggestions,
+        message: suggestions.length ? '' : 'Няма избран град в записването, затова няма предложения.',
       }
     }
 
@@ -67,7 +73,7 @@ export const adminSuggest = createServerFn({ method: 'POST' })
     }
 
     const blocked = await blockedSectionCodes(db, row.id)
-    const suggestions = scoreSectionSuggestions(
+    const scored = scoreSectionSuggestions(
       sections,
       {
         mir: row.mir,
@@ -78,8 +84,10 @@ export const adminSuggest = createServerFn({ method: 'POST' })
         travelMunicipalities: row.travel_municipalities,
       },
       blocked,
-      8,
+      200,
     )
+    // Priority (risk-scored) sections first: same town, then same municipality, by R desc.
+    const suggestions = rankWithPriority(scored, await priorityRowsSafe(db), priorityPerson, blocked, 8)
     return { ok: true as const, suggestions, message: suggestions.length ? '' : 'Няма свободни секции в този град.' }
   })
 
@@ -97,6 +105,14 @@ async function gate(action: 'edit') {
   if (!role) return { ok: false as const, state: 'forbidden' as const, email, message: 'Този имейл не е поканен в екипа.' }
   if (!roleAllows(role, action)) return { ok: false as const, state: 'forbidden' as const, email, message: 'Тази роля няма това право.' }
   return { ok: true as const, db, email, role }
+}
+
+async function priorityRowsSafe(db: Database) {
+  try {
+    return await loadPriorityRows(db)
+  } catch {
+    return []
+  }
 }
 
 async function blockedSectionCodes(db: Database, personId: string) {

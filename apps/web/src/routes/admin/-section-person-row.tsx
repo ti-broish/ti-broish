@@ -5,8 +5,10 @@ import { adminDraft } from '../../signup/admin-assign-actions'
 import { adminSuggest } from '../../signup/admin-suggest'
 import { addressDeskLine, deskLabel } from '../../signup/sections'
 import { EMPTY_SECTION_DIRECTORY, sectionSpot, signupSpot, type SectionSpot } from '../../signup/section-where'
+import type { PriorityInfo } from '../../signup/priority-sections'
+import { PriorityBadge } from './-priority-badge'
 
-type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown' }
+type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown'; priority?: PriorityInfo }
 
 export function DeskBadge({ desk }: { desk: 'paper' | 'machine' | 'unknown' }) {
   const tone =
@@ -35,11 +37,15 @@ export function SectionPersonRow(props: {
   publishOne: (id: string) => Promise<{ ok: boolean; message: string }>
   notifyAgain: (id: string) => Promise<{ ok: boolean; message: string }>
   spots: Record<string, SectionSpot>
+  /** Priority section code → R and level. */
+  priority?: Record<string, PriorityInfo>
+  /** Best priority section reachable from where the person signed up. */
+  reach?: (PriorityInfo & { scope: 'town' | 'municipality' }) | null
 }) {
   const {
     person, canEdit, draftValues, setDraftValues, warnings, setRowWarnings,
     tips, setSuggestions, suggestBusy, setSuggestBusy, setMessage, load,
-    canPublish, publishOne, notifyAgain, spots,
+    canPublish, publishOne, notifyAgain, spots, priority = {}, reach = null,
   } = props
   const pendingDraft = Boolean(person.draftSection && person.draftSection !== person.publishedSection)
   const signed = signupSpot(person)
@@ -62,13 +68,23 @@ export function SectionPersonRow(props: {
                     {person.region === '32' ? <p className="text-xs text-[#333]">чужбина</p> : person.mir ? <p className="text-xs text-[#333]">МИР {person.mir}</p> : null}
                   </td>
                   <td className="py-3 pr-3">{signed.municipality || '—'}</td>
-                  <td className="py-3 pr-3">{signed.town || '—'}</td>
+                  <td className="py-3 pr-3">
+                    <p>{signed.town || '—'}</p>
+                    {reach ? (
+                      <p className="mt-1 text-xs text-[#333]">
+                        <PriorityBadge info={reach} /> {reach.scope === 'town' ? 'в града' : 'в общината'}
+                      </p>
+                    ) : null}
+                  </td>
                   <td className="py-3 pr-3">{signed.district || '—'}</td>
                   <td className="max-w-xs py-3 pr-3">{signed.address || '—'}</td>
                   <td className="max-w-xs py-3 pr-3">{signed.reach || '—'}</td>
                   <td className="whitespace-nowrap py-3 pr-3">
                     {person.draftSection && person.draftLocked ? (
                       <p className="mb-1 text-xs font-bold text-[#1a1020]">Запазена корекция. Следващото разпределение я държи.</p>
+                    ) : null}
+                    {priorityOf(draftCode, priority) ? (
+                      <p className="mb-1"><PriorityBadge info={priorityOf(draftCode, priority)} /></p>
                     ) : null}
                     {canEdit ? (
                       <div className="grid gap-2">
@@ -150,6 +166,9 @@ export function SectionPersonRow(props: {
                                   }}
                                 >
                                   <span className="mr-2 inline-flex align-middle"><DeskBadge desk={tip.desk} /></span>
+                                  {tip.priority ?? priority[tip.id] ? (
+                                    <span className="mr-2 inline-flex align-middle"><PriorityBadge info={tip.priority ?? priority[tip.id]} /></span>
+                                  ) : null}
                                   {tip.id}
                                   <span className="font-normal text-[#333]"> — {tip.place || tip.reason}</span>
                                 </button>
@@ -167,6 +186,9 @@ export function SectionPersonRow(props: {
                   </td>
                   <td className="whitespace-nowrap py-3 pr-3">
                     <p>{person.publishedSection || '—'}</p>
+                    {priorityOf(person.publishedSection, priority) ? (
+                      <p className="mt-1"><PriorityBadge info={priorityOf(person.publishedSection, priority)} /></p>
+                    ) : null}
                     {canPublish ? (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {pendingDraft ? (
@@ -201,6 +223,11 @@ export function SectionPersonRow(props: {
                   </td>
                 </tr>
   )
+}
+
+function priorityOf(code: string, priority: Record<string, PriorityInfo>) {
+  const digits = code.replace(/\D/g, '')
+  return digits.length === 9 ? priority[digits] ?? null : null
 }
 
 function spotFor(code: string, spots: Record<string, SectionSpot>) {

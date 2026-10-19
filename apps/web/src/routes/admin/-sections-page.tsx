@@ -1,5 +1,5 @@
 import { getRouteApi } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminChipOn, adminGhost, adminInput } from '../../components/admin-ui'
 import { adminRoster } from '../../signup/admin'
@@ -18,6 +18,9 @@ import { useDebouncedQuery } from './-debounced-query'
 import { BrevoSectionsExportPanel } from './-brevo-sections-export'
 import { BrevoSyncPanel } from './-brevo-sync-panel'
 import { brevoSectionsScope } from '../../signup/brevo-sections-export'
+import { adminPrioritySections, type PrioritySectionView } from '../../signup/priority-sections-admin'
+import { orderByPriority, type PriorityCoverage, type PriorityInfo } from '../../signup/priority-sections'
+import { PrioritySectionsPanel } from './-priority-sections-panel'
 
 const sectionsRoute = getRouteApi('/admin/sections')
 
@@ -28,7 +31,7 @@ const views = [
   ['abroad', 'Чужбина'],
 ] as const
 
-type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown' }
+type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown'; priority?: PriorityInfo }
 
 export function SectionsPage() {
   const search = sectionsRoute.useSearch()
@@ -49,6 +52,9 @@ export function SectionsPage() {
   const [suggestBusy, setSuggestBusy] = useState<string | null>(null)
   const [spots, setSpots] = useState<Record<string, SectionSpot>>({})
   const [mirDraft, setMirDraft] = useState(search.mir)
+  const [prioritySections, setPrioritySections] = useState<PrioritySectionView[]>([])
+  const [prioritySummary, setPrioritySummary] = useState<PriorityCoverage | null>(null)
+  const [priorityUpdatedAt, setPriorityUpdatedAt] = useState('')
   const canEdit = access.permissions.edit
   const canPublish = access.permissions.publish
   const canExport = access.permissions.exportCampaign
@@ -62,7 +68,27 @@ export function SectionsPage() {
   )
   const [draft, setDraft] = useDebouncedQuery(search.q, commitQuery)
 
+  function loadPriority(notice = '') {
+    void adminPrioritySections().then((result) => {
+      if (!result.ok) return
+      setPrioritySections(result.sections)
+      setPrioritySummary(result.summary)
+      setPriorityUpdatedAt(result.updatedAt)
+      if (notice) setMessage(notice)
+    }).catch(() => {})
+  }
+
+  const priorityMap = useMemo(
+    () => Object.fromEntries(prioritySections.map((row) => [row.sectionCode, { r: row.r, level: row.level }])) as Record<string, PriorityInfo>,
+    [prioritySections],
+  )
+  const ordered = useMemo(
+    () => orderByPriority(people, prioritySections, { only: Boolean(search.prio), sort: Boolean(search.prio) || search.view === 'unassigned' }),
+    [people, prioritySections, search.prio, search.view],
+  )
+
   function load(notice = '') {
+    loadPriority()
     setArmed(false)
     setArmedDraft(false)
     setArmedClear(false)
@@ -137,7 +163,26 @@ export function SectionsPage() {
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          className={search.prio ? adminChipOn : adminGhost}
+          aria-pressed={Boolean(search.prio)}
+          onClick={() => void navigate({ search: (prev) => {
+            const { prio: _prio, ...rest } = prev
+            return search.prio ? rest : { ...rest, prio: true }
+          } })}
+        >
+          ★ Само приоритетни
+        </button>
       </div>
+      <PrioritySectionsPanel
+        canEdit={canEdit}
+        sections={prioritySections}
+        summary={prioritySummary}
+        updatedAt={priorityUpdatedAt}
+        setMessage={setMessage}
+        reload={(notice) => loadPriority(notice)}
+      />
       <form
         className="flex flex-wrap items-end gap-2"
         onSubmit={(event) => {
@@ -259,6 +304,7 @@ export function SectionsPage() {
       {phase === 'loading' && people.length === 0 ? <p role="status">Зареждаме секциите…</p> : null}
       {phase === 'error' ? <p role="alert" className="font-bold text-[#8f1d1d]">{message}</p> : null}
       {message && phase !== 'error' ? <p className="text-sm font-bold text-[#1a1020]">{message}</p> : null}
+      {phase !== 'loading' && people.length > 0 && ordered.length === 0 ? <p className="rounded-2xl border-2 border-[#2b062f] bg-[#f6f1f7] px-4 py-6">Няма хора, свързани с приоритетна секция, в този изглед.</p> : null}
       {phase !== 'loading' && people.length === 0 ? <p className="rounded-2xl border-2 border-[#2b062f] bg-[#f6f1f7] px-4 py-6">Няма хора за това търсене.</p> : null}
       <div className="flex flex-wrap items-center gap-2 text-sm text-[#1a1020]" aria-label="Вид секция">
         <span className="font-bold">Вид секция:</span>
@@ -284,10 +330,12 @@ export function SectionsPage() {
             </tr>
           </thead>
           <tbody>
-            {people.map((person) => (
+            {ordered.map(({ person, reach }) => (
               <SectionPersonRow
                 key={person.id}
                 person={person}
+                priority={priorityMap}
+                reach={reach}
                 canEdit={canEdit}
                 draftValues={draftValues}
                 setDraftValues={setDraftValues}

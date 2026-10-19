@@ -255,6 +255,32 @@ test.describe('staff admin', () => {
     await expect(page.getByText(/Предложение:/)).toBeVisible({ timeout: 20_000 })
   })
 
+  test('Секции takes a priority CSV, badges priority sections, filters them and counts coverage', async ({ page }) => {
+    seedStaffRoster()
+    await signIn(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/admin/sections')
+    const panel = page.getByTestId('priority-panel')
+    await panel.locator('summary').click()
+    await panel.getByLabel('CSV с приоритетни секции').setInputFiles({
+      name: 'priority-sections.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('\uFEFFСИК;Населено място;Община;Област;R;level;T\n234600101;гр.София;Столична;СОФИЯ 23 ИР;4.5;elevated;1\n234699999;гр.София;Столична;СОФИЯ 23 ИР;3.1;watch;2\n'),
+    })
+    await expect(page.getByText(/Записани са 2 приоритетни секции/)).toBeVisible({ timeout: 20_000 })
+    await expect(panel.getByTestId('priority-coverage')).toContainText('покрити 1 от 2')
+    await expect(panel.getByRole('cell', { name: '234699999' })).toBeVisible()
+    await expect(panel.getByRole('cell', { name: 'Без човек' })).toBeVisible()
+    await page.getByRole('button', { name: 'Публикувани', exact: true }).click()
+    await page.getByRole('button', { name: '★ Само приоритетни' }).click()
+    await expect(page).toHaveURL(/prio=true/)
+    const table = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Човек' }) })
+    const maria = table.getByRole('row', { name: /maria\.admin-e2e@example.com/ })
+    await expect(maria.getByTestId('priority-badge').first()).toHaveText('★ повишен · R 4.50')
+    await page.goto('/admin')
+    await expect(page.getByTestId('priority-stat')).toContainText('1/2')
+  })
+
   test('Секции names the oblast, district and section in Bulgarian', async ({ page }) => {
     seedStaffRoster()
     await signIn(page)

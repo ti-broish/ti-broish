@@ -22,7 +22,7 @@ describe('Worker designation fonts', () => {
       {
         number: 1,
         issuedOn: '18.10.2026',
-        grantor: { name: '', egn: '', capacity: 'пълномощник', authorisation: '' },
+        grantor: { name: '', egn: '', capacity: 'пълномощник', authorisation: '', principalName: '', principalEgn: '' },
         person: { firstName: 'Иван', middleName: 'Петров', lastName: 'Иванов', egn: '0000000000', sectionCode: '234600001', sectionPlace: '' },
       },
       DEFAULT_DESIGNATION_CONFIG,

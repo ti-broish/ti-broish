@@ -13,7 +13,7 @@ import {
   type DesignationSave,
 } from './designation-job'
 
-const grantor = { name: '', egn: '', capacity: 'пълномощник' as const, authorisation: '' }
+const grantor = { name: '', egn: '', capacity: 'пълномощник' as const, authorisation: '', principalName: '', principalEgn: '' }
 
 function person(overrides: Partial<DesignationPersonRow> = {}): DesignationPersonRow {
   return { ...samplePerson(), id: 'p1', email: 'ivan@example.com', ...overrides }

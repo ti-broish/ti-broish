@@ -10,7 +10,7 @@ import { collectStream, streamZipWriter } from '../src/signup/designation-zip-st
 
 const COUNT = Number(process.argv[2] ?? 300)
 
-const grantor = { name: '', egn: '', capacity: 'пълномощник' as const, authorisation: '' }
+const grantor = { name: '', egn: '', capacity: 'пълномощник' as const, authorisation: '', principalName: '', principalEgn: '' }
 
 async function main() {
   const started = performance.now()

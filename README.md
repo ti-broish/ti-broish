@@ -122,9 +122,9 @@ JSON example:
 
 ### Secrets and config
 
-Never commit these. Grantor name and ЕГН are personal data — only env/CLI.
+Never commit these. Grantor and principal names with ЕГН are personal data — only env/CLI.
 
-The упълномощител (grantor) is set via `DESIGNATION_GRANTOR_NAME`. They sign as a пълномощник of the Инициативен комитет and sub-delegate each volunteer, so the default verb is ПРЕУПЪЛНОМОЩАВАМ. Their ЕГН comes only from `DESIGNATION_GRANTOR_EGN`.
+The wording follows the committee's own пълномощно template. The упълномощител (grantor) is set via `DESIGNATION_GRANTOR_NAME`. They sign as a пълномощник of one of the committee's representatives (the principal, `DESIGNATION_PRINCIPAL_NAME`), who represents the Инициативен комитет самостоятелно, and they sub-delegate each volunteer, so the default verb is ПРЕУПЪЛНОМОЩАВАМ. Both ЕГН values come only from `DESIGNATION_GRANTOR_EGN` and `DESIGNATION_PRINCIPAL_EGN`.
 
 | Variable | Purpose |
 | --- | --- |
@@ -135,17 +135,19 @@ The упълномощител (grantor) is set via `DESIGNATION_GRANTOR_NAME`. 
 | `BREVO_API_KEY` | Same key as signup mail. Attribute name defaults to `DOCUMENT_URL` (override with `BREVO_DESIGNATION_ATTRIBUTE`) |
 | `DESIGNATION_GRANTOR_NAME` | Full three names of the упълномощител (grantor). Secret/env only, never in git |
 | `DESIGNATION_GRANTOR_EGN` | ЕГН of the упълномощител. Env only, never in git |
-| `DESIGNATION_GRANTOR_AUTHORISATION` | The grantor's own authorisation from the committee, as the whole clause, e.g. `упълномощена с пълномощно № … от … от Константин Петров Вълков, представляващ Инициативния комитет`. Unset, the PDF shows a visible `[TODO: номер] / [TODO: дата] / [TODO: представляващ …]` clause |
-| `DESIGNATION_GRANTOR_CAPACITY` | `пълномощник` (default, verb ПРЕУПЪЛНОМОЩАВАМ) or `представляващ` (УПЪЛНОМОЩАВАМ) |
+| `DESIGNATION_PRINCIPAL_NAME` | Full three names of the committee representative whose пълномощник the grantor is. Secret. Unset, the PDF shows a visible `[TODO: …]` |
+| `DESIGNATION_PRINCIPAL_EGN` | ЕГН of that representative. Secret. Unset, the PDF shows a visible `[TODO: …]` |
+| `DESIGNATION_GRANTOR_AUTHORISATION` | Optional clause appended after „(ИК)“, e.g. `упълномощен с пълномощно № … от …`. The current template has none; leave unset |
+| `DESIGNATION_GRANTOR_CAPACITY` | `пълномощник` (default, verb ПРЕУПЪЛНОМОЩАВАМ, names the principal) or `представляващ` (УПЪЛНОМОЩАВАМ, the grantor represents the committee directly) |
 | `DESIGNATION_ISSUED_ON` | Date of issue, `dd.mm.yyyy` or ISO. Default: today in Europe/Sofia |
-| `DESIGNATION_VALID_UNTIL` | Default `02.11.2026` |
+| `DESIGNATION_VALID_UNTIL` | Default `01.11.2026` (as in the template) |
 | `DESIGNATION_SEAL_LINE` | Default `Инициативният комитет не разполага с печат!` |
 | `DESIGNATION_NUMBER_PREFIX` | Optional prefix in front of the sequential integer |
 | `DESIGNATION_SECTION_INFO` | Set to `0` to omit the non-operative section info line |
 
 Service accounts have no My Drive quota. Put the folder on a Shared Drive and add the service account as Editor or Content manager. Option B (manual upload + `--import`) does not need a service account. The Brevo contact attribute `DOCUMENT_URL` (text) must exist before the first sync.
 
-The Worker preview and ZIP routes read the same `DESIGNATION_GRANTOR_*` values from wrangler secrets/vars so the downloaded PDF matches the batch.
+The Worker preview and ZIP routes read the same `DESIGNATION_GRANTOR_*` and `DESIGNATION_PRINCIPAL_*` values from wrangler secrets/vars so the downloaded PDF matches the batch.
 
 ### Google Cloud service account (Worker)
 
@@ -165,7 +167,6 @@ pnpm exec wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON --env production
 
 ### Legal TODOs that still need confirmation
 
-- Seal line: confirm that the initiative committee has no seal, or set `DESIGNATION_SEAL_LINE`.
-- Grantor authorisation: the number and date of the grantor's пълномощно from the committee, and which representative (Пендачанска or Вълков) signed it. Set `DESIGNATION_GRANTOR_AUTHORISATION`; until then the PDF shows a TODO.
-- `DESIGNATION_VALID_UNTIL` (default the day after the possible runoff).
+- Grantor and principal: set `DESIGNATION_GRANTOR_NAME`/`_EGN` and `DESIGNATION_PRINCIPAL_NAME`/`_EGN` as secrets; until then the PDF shows TODOs.
+- `DESIGNATION_VALID_UNTIL` (default `01.11.2026`, the possible runoff day, as in the template).
 - Distinctive sign is still the static `/znachka` PDF (ЦИК Решение № 61-ПВР); this script does not generate badges.

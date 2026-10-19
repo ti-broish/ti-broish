@@ -9,7 +9,8 @@
  * - Committee registration, Решение № 199-ПВР от 11 септември 2026 г.:
  *   https://www.cik.bg/bg/decisions/199/2026-09-11
  *   Public representatives (each independently): Александрина Иванова Пендачанска
- *   and Константин Петров Вълков. Grantor name/EGN still come only from env.
+ *   and Константин Петров Вълков. Grantor and principal names/EGN come only from env.
+ * - Wording of the пълномощно: the committee's own template (Oct 2026).
  * - Representatives (пълномощно contents, rights, runoff validity), Решение № 339-ПВР от 12 октомври 2026 г.
  * - Distinctive sign, Решение № 61-ПВР от 28 август 2026 г.
  */
@@ -27,7 +28,9 @@ export interface DesignationConfig {
   runoffLegalRef: string
   distinctiveSignDecision: string
   representativesDecision: string
-  /** TODO: confirm with the committee that it has no seal. */
+  /** „регистриран за участие в … с Решение … на ЦИК“, as worded in the committee's template. */
+  committeeRegistration: string
+  /** Seal line from the committee's template (the committee has no seal). */
   sealLine: string
   validUntil: string
   numberPrefix: string
@@ -41,7 +44,7 @@ export const DEFAULT_BREVO_DESIGNATION_ATTRIBUTE = 'DOCUMENT_URL'
 
 export const DEFAULT_DESIGNATION_CONFIG: DesignationConfig = {
   committeeFullName:
-    'Инициативен комитет за издигане на Андрей Атанасов Гюров за независим кандидат за президент и Георги Димитров Кандев за независим кандидат за вицепрезидент на републиката',
+    'Инициативен комитет за издигане на кандидатурата на Андрей Атанасов Гюров за президент и Георги Димитров Кандев за вицепрезидент',
   committeeShortName: 'Инициативния комитет',
   committeeFoundedOn: '10.09.2026',
   committeeDecision: 'Решение № 199-ПВР от 11 септември 2026 г. на ЦИК',
@@ -51,8 +54,10 @@ export const DEFAULT_DESIGNATION_CONFIG: DesignationConfig = {
   runoffLegalRef: 'т. 24 от Решение № 339-ПВР от 12 октомври 2026 г. на ЦИК',
   distinctiveSignDecision: 'Решение № 61-ПВР от 28 август 2026 г. на ЦИК',
   representativesDecision: 'Решение № 339-ПВР от 12 октомври 2026 г. на ЦИК',
+  committeeRegistration:
+    'регистриран за участие в изборите за президент и вицепрезидент на 25 октомври 2026 г. с Решение № 199-ПВР/11.09.2026 г. на ЦИК',
   sealLine: 'Инициативният комитет не разполага с печат!',
-  validUntil: '02.11.2026',
+  validUntil: '01.11.2026',
   numberPrefix: '',
   grantorCapacity: 'пълномощник',
   includeSectionInfoLine: true,
@@ -96,38 +101,40 @@ export const ELECTION_DISTRICTS: Record<string, string> = {
 }
 
 /**
- * Rights from т. 13 of Решение № 339-ПВР, rendered in the singular to match
- * "Представителят има право:".
+ * Rights exactly as worded in the committee's пълномощно template (Oct 2026),
+ * rendered as an en-dash list under "Представителят има право:".
  */
 export const REPRESENTATIVE_RIGHTS = [
-  'да присъства в изборното помещение при откриването и закриването на изборния ден;',
-  'да присъства в изборното помещение по време на гласуването;',
-  'да присъства в изборното помещение при отварянето на избирателните кутии и при установяване на резултатите от гласуването, за което му се осигурява пряка видимост;',
-  'да присъства при въвеждането и повторното въвеждане в избирателните комисии и в изчислителните пунктове на данните от протоколите с резултатите от гласуването на секционните избирателни комисии;',
-  'да получи срещу подпис копие от протокола с резултатите от гласуването в избирателната секция, включително протокола с данните от машинното гласуване и протокола от контролното преброяване на контролните разписки, както и с резултатите от гласуването в съответния район;',
+  'да присъства в изборното помещение при откриването и закриването на изборния ден, по време на гласуването, както и при отварянето на избирателните кутии и при установяване на резултатите от гласуването, като му се осигури пряка видимост, включително чрез видеозаснемане или видеоизлъчване по ред, определен от Централната избирателна комисия;',
+  'да присъства при въвеждането в районната избирателна комисия на данните от протоколите на СИК с резултатите от гласуването в избирателните секции и при приемане и проверка на протоколите на СИК, като му се осигурява пряка видимост при приемането и проверката на протоколите, включително чрез видеозаснемане или видеоизлъчване по ред, определен от Централната избирателна комисия;',
+  'да получи срещу подпис, копие от подписания от членовете на СИК протокол с резултатите от гласуването в избирателната секция, подпечатано на всяка страница с печата на комисията и подписано от председателя, заместник-председателя и секретаря;',
+  'да присъстват на заседанията на избирателните комисии.',
   'да подава жалби и сигнали за нарушения на изборния процес.',
 ] as const
 
-export const RIGHTS_LETTERS = ['а', 'б', 'в', 'г', 'д', 'е'] as const
+export const RIGHTS_BULLET = '–'
 
 export const TODO_GRANTOR_NAME = '[TODO: имена на упълномощителя]'
 export const TODO_GRANTOR_EGN = '[TODO: ЕГН на упълномощителя]'
 export const TODO_PERSON_EGN = '[TODO: ЕГН]'
 export const TODO_PERSON_NAME = '[TODO: имена]'
 export const TODO_NUMBER = '[TODO: номер]'
-/**
- * Shown while the grantor's own authorisation from the committee is unknown.
- * Replace by setting DESIGNATION_GRANTOR_AUTHORISATION to the whole clause.
- */
-export const TODO_GRANTOR_AUTHORISATION =
-  'упълномощен/а с пълномощно № [TODO: номер] от [TODO: дата] от [TODO: представляващ Инициативния комитет – Александрина Иванова Пендачанска или Константин Петров Вълков]'
+export const TODO_PRINCIPAL_NAME = '[TODO: имена на представляващия Инициативния комитет]'
+export const TODO_PRINCIPAL_EGN = '[TODO: ЕГН на представляващия Инициативния комитет]'
 export const TODO_DISTRICT = '[TODO: изборен район]'
 
 export interface DesignationGrantorFields {
   name: string
   egn: string
   capacity: GrantorCapacity
+  /**
+   * Optional extra clause about the grantor's own authorisation, e.g.
+   * "упълномощен с пълномощно № 1 от 15.10.2026 г.". The current template has none.
+   */
   authorisation: string
+  /** Who the grantor is пълномощник of: the committee's representative (секретно — names + ЕГН). */
+  principalName: string
+  principalEgn: string
 }
 
 export function mergeDesignationConfig(overrides: Partial<DesignationConfig> = {}): DesignationConfig {
@@ -145,6 +152,8 @@ export function grantorFromEnv(env: Record<string, string | undefined>): Designa
     egn: (env.DESIGNATION_GRANTOR_EGN ?? '').trim(),
     capacity: env.DESIGNATION_GRANTOR_CAPACITY?.trim() === 'представляващ' ? 'представляващ' : 'пълномощник',
     authorisation: (env.DESIGNATION_GRANTOR_AUTHORISATION ?? '').trim(),
+    principalName: (env.DESIGNATION_PRINCIPAL_NAME ?? '').trim(),
+    principalEgn: (env.DESIGNATION_PRINCIPAL_EGN ?? '').trim(),
   }
 }
 

@@ -1,12 +1,13 @@
 import {
-  RIGHTS_LETTERS,
+  RIGHTS_BULLET,
   REPRESENTATIVE_RIGHTS,
-  TODO_GRANTOR_AUTHORISATION,
   TODO_GRANTOR_EGN,
   TODO_GRANTOR_NAME,
   TODO_NUMBER,
   TODO_PERSON_EGN,
   TODO_PERSON_NAME,
+  TODO_PRINCIPAL_EGN,
+  TODO_PRINCIPAL_NAME,
   districtLineOf,
   formatBgDate,
   formatDesignationNumber,
@@ -40,7 +41,7 @@ export type DesignationBlock =
   | { type: 'center'; text: string; bold?: boolean }
   | { type: 'paragraph'; runs: TextRun[]; firstLineIndent?: boolean }
   | { type: 'left'; runs: TextRun[] }
-  | { type: 'bullets'; items: string[] }
+  | { type: 'bullets'; marker: string; items: string[] }
   | { type: 'spacer' }
   | { type: 'signature'; grantorName: string }
   | { type: 'info'; text: string }
@@ -55,23 +56,29 @@ export function visibleOrTodo(value: string, todo: string) {
   return trimmed || todo
 }
 
+/** Optional clause about the grantor's own authorisation; the current template has none. */
 export function grantorAuthorisationClause(grantor: DesignationGrantor) {
   if (grantor.capacity !== 'пълномощник') return ''
-  const clause = (grantor.authorisation.trim() || TODO_GRANTOR_AUTHORISATION).replace(/[.\s]+$/, '')
-  return `, ${clause}.`
+  const clause = grantor.authorisation.trim().replace(/^[,\s]+/, '').replace(/[.\s]+$/, '')
+  return clause ? `, ${clause}` : ''
+}
+
+/** Committee name followed by its registration, as worded in the template. */
+export function committeeWithRegistration(config: DesignationConfig) {
+  return `${config.committeeFullName}, ${config.committeeRegistration}`
 }
 
 export function rightsMandateParagraph(person: DesignationPersonInput, config: DesignationConfig) {
   const district = districtLineOf(person.sectionCode)
-  return `Да бъде ПРЕДСТАВИТЕЛ на ${config.committeeShortName} в изборния ден за ${config.electionName} на ${config.electionDate} г., както и при евентуален нов избор на ${config.runoffDate} г., в ${district}.`
+  return `Да бъде ПРЕДСТАВИТЕЛ на ${committeeWithRegistration(config)} в ${district}.`
 }
 
 export function territoryParagraph(config: DesignationConfig) {
-  return `Представителят разполага с гореизброените права за всяка от избирателните секции на територията на изборния район, при условие, че носи утвърдения с ${config.distinctiveSignDecision} отличителен знак и в съответното изборно помещение не присъства друг представител или застъпник на ${config.committeeShortName}.`
+  return `Представителят разполага с гореизброените права за всяка от избирателните секции на територията на района, при условие, че носи утвърдения от ЦИК отличителен знак и в съответното изборно помещение не присъства друг упълномощен представител на ${config.committeeShortName}.`
 }
 
 export function termParagraph(config: DesignationConfig) {
-  return `Настоящото пълномощно се издава със срок до ${formatBgDate(config.validUntil)} г., важи и за новия избор съгласно ${config.runoffLegalRef} и следва да се тълкува разширително в полза на упълномощеното лице.`
+  return `Настоящото пълномощно се издава със срок до ${formatBgDate(config.validUntil)} г. и следва да се тълкува разширително в полза на упълномощеното лице.`
 }
 
 export function sectionInfoLine(person: DesignationPersonInput) {
@@ -83,18 +90,13 @@ export function sectionInfoLine(person: DesignationPersonInput) {
 export function grantorOpening(grantor: DesignationGrantor, config: DesignationConfig) {
   const name = visibleOrTodo(grantor.name, TODO_GRANTOR_NAME)
   const egn = visibleOrTodo(grantor.egn, TODO_GRANTOR_EGN)
-  return `Подписаният/ата ${name}, ЕГН ${egn}, в качеството ми на ${grantor.capacity} на ${config.committeeFullName}, учреден на ${config.committeeFoundedOn} г., регистриран с ${config.committeeDecision} за участие в ${config.electionName}, насрочени за ${config.electionDate} г.${grantorAuthorisationClause(grantor)}`
-}
-
-function splitBoldPhrase(text: string, phrase: string): TextRun[] {
-  const at = text.indexOf(phrase)
-  if (at < 0) return [{ text }]
-  const runs: TextRun[] = []
-  if (at > 0) runs.push({ text: text.slice(0, at) })
-  runs.push({ text: phrase, bold: true })
-  const rest = text.slice(at + phrase.length)
-  if (rest) runs.push({ text: rest })
-  return runs
+  const committee = `${committeeWithRegistration(config)} (ИК)`
+  if (grantor.capacity === 'представляващ') {
+    return `Подписаният ${name}, ЕГН ${egn}, в качеството ми на представляващ самостоятелно ${committee}.`
+  }
+  const principalName = visibleOrTodo(grantor.principalName, TODO_PRINCIPAL_NAME)
+  const principalEgn = visibleOrTodo(grantor.principalEgn, TODO_PRINCIPAL_EGN)
+  return `Подписаният ${name}, ЕГН ${egn}, в качеството ми на пълномощник на ${principalName}, ЕГН ${principalEgn}, в качеството му на представляващ самостоятелно ${committee}${grantorAuthorisationClause(grantor)}.`
 }
 
 export function displayedNumber(input: DesignationRenderInput, config: DesignationConfig) {
@@ -125,12 +127,12 @@ export function buildDesignationBlocks(input: DesignationRenderInput, config: De
     { type: 'spacer' },
     { type: 'center', text: 'СЪС СЛЕДНИТЕ ПРАВА:' },
     { type: 'spacer' },
-    { type: 'paragraph', runs: splitBoldPhrase(mandate, 'ПРЕДСТАВИТЕЛ'), firstLineIndent: true },
+    { type: 'paragraph', runs: [{ text: mandate }], firstLineIndent: true },
     { type: 'spacer' },
     { type: 'left', runs: [{ text: 'Представителят има право:' }] },
-    { type: 'bullets', items: REPRESENTATIVE_RIGHTS.map((right, index) => `${RIGHTS_LETTERS[index]}) ${right}`) },
+    { type: 'bullets', marker: RIGHTS_BULLET, items: [...REPRESENTATIVE_RIGHTS] },
     { type: 'spacer' },
-    { type: 'paragraph', runs: splitBoldPhrase(territory, config.committeeShortName) },
+    { type: 'paragraph', runs: [{ text: territory }] },
     { type: 'spacer' },
     { type: 'paragraph', runs: [{ text: termParagraph(config) }] },
     { type: 'spacer' },
@@ -149,7 +151,7 @@ export function designationPlainText(blocks: DesignationBlock[]) {
   for (const block of blocks) {
     if (block.type === 'title' || block.type === 'center' || block.type === 'info') lines.push(block.text)
     else if (block.type === 'paragraph' || block.type === 'left') lines.push(block.runs.map((run) => run.text).join(''))
-    else if (block.type === 'bullets') lines.push(...block.items)
+    else if (block.type === 'bullets') lines.push(...block.items.map((item) => `${block.marker} ${item}`))
     else if (block.type === 'signature') {
       lines.push('УПЪЛНОМОЩИТЕЛ:')
       lines.push('........................')

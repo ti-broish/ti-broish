@@ -20,7 +20,7 @@ import {
   type DesignationImportDataSource,
   type DesignationImportPerson,
 } from '../src/signup/designation-import'
-import { parseStoredNumber } from '../src/signup/designation-number'
+import { DESIGNATION_MAX_PER_MIR_SQL, maxPerMirFromRows, parseStoredNumber } from '../src/signup/designation-number'
 import {
   designationImportLookupSql,
   designationLinkUpdateBatchSql,
@@ -260,17 +260,18 @@ function wranglerDataSource(envName: CliArgs['env']): DesignationDataSource {
         COALESCE(egn, '') AS egn,
         COALESCE(published_section, '') AS section_code,
         COALESCE(NULLIF(section_place, ''), json_extract(payload, '$.place.sectionPlace'), '') AS section_place,
-        designation_number, designation_issued_at, designation_pdf_url, designation_drive_file_id
+        designation_number, designation_mir, designation_issued_at, designation_pdf_url, designation_drive_file_id
         FROM signups WHERE ${where.join(' AND ')} ORDER BY designation_number IS NULL, designation_number, updated_at${limit}`
       const rows = await d1Query<RawRow>(envName, sql)
       return rows.map(fromRaw)
     },
-    async maxNumber() {
-      const rows = await d1Query<{ n: number | null }>(envName, 'SELECT MAX(designation_number) AS n FROM signups')
-      return Number(rows[0]?.n ?? 0) || 0
+    async maxNumbers() {
+      const rows = await d1Query<{ mir: string | null; n: number | null }>(envName, DESIGNATION_MAX_PER_MIR_SQL)
+      return maxPerMirFromRows(rows)
     },
     async save(row) {
       const sql = `UPDATE signups SET
+        designation_mir = ${sqlLiteral(row.mir)},
         designation_number = ${sqlLiteral(row.number)},
         designation_issued_at = ${sqlLiteral(row.issuedAt)},
         designation_pdf_url = ${sqlLiteral(row.pdfUrl)},
@@ -292,6 +293,7 @@ interface RawRow {
   section_code: string
   section_place: string
   designation_number: number | string | null
+  designation_mir: string | null
   designation_issued_at: string | null
   designation_pdf_url: string | null
   designation_drive_file_id: string | null
@@ -308,6 +310,7 @@ function fromRaw(row: RawRow): DesignationPersonRow {
     sectionCode: row.section_code,
     sectionPlace: row.section_place,
     designationNumber: parseStoredNumber(row.designation_number),
+    designationMir: row.designation_mir,
     designationIssuedAt: row.designation_issued_at,
     designationPdfUrl: row.designation_pdf_url,
     designationDriveFileId: row.designation_drive_file_id,
@@ -321,6 +324,7 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN designation_drive_file_id TEXT',
   'ALTER TABLE signups ADD COLUMN designation_generated_at TEXT',
   'ALTER TABLE signups ADD COLUMN designation_signed_at TEXT',
+  'ALTER TABLE signups ADD COLUMN designation_mir TEXT',
 ]
 
 async function ensureColumns(envName: CliArgs['env']) {

@@ -17,7 +17,7 @@ import {
   sortManifest,
   type ManifestRow,
 } from './designation-import'
-import { parseStoredNumber } from './designation-number'
+import { designationMirOf, nextDesignationNumber, parseStoredNumber } from './designation-number'
 import { renderDesignationPdf } from './designation-pdf'
 import type { DesignationGrantor, DesignationPersonInput } from './designation-text'
 
@@ -33,6 +33,8 @@ export interface DesignationPersonRow {
   sectionCode: string
   sectionPlace: string
   designationNumber: number | null
+  /** МИР stored with the number, when the row already has one. */
+  designationMir?: string | null
   designationIssuedAt: string | null
   designationPdfUrl: string | null
   designationDriveFileId: string | null
@@ -40,6 +42,7 @@ export interface DesignationPersonRow {
 
 export interface DesignationSave {
   id: string
+  mir: string
   number: number
   issuedAt: string
   pdfUrl: string | null
@@ -48,7 +51,8 @@ export interface DesignationSave {
 
 export interface DesignationDataSource {
   list(opts: { personId?: string; limit?: number }): Promise<DesignationPersonRow[]>
-  maxNumber(): Promise<number>
+  /** Stored maximum number per МИР. */
+  maxNumbers(): Promise<ReadonlyMap<string, number>>
   save(row: DesignationSave): Promise<void>
 }
 
@@ -94,7 +98,7 @@ export function samplePerson(): DesignationPersonRow {
     egn: '0000000000',
     sectionCode: '234600001',
     sectionPlace: 'гр. София, район Младост, ул. Примерна 1',
-    designationNumber: 1,
+    designationNumber: 501,
     designationIssuedAt: null,
     designationPdfUrl: null,
     designationDriveFileId: null,
@@ -118,7 +122,7 @@ export async function runSamplePdf(opts: {
   }
   const bytes = await renderDesignationPdf(
     {
-      number: 1,
+      number: 501,
       issuedOn: opts.issuedOn,
       grantor: opts.grantor,
       person,
@@ -131,6 +135,7 @@ export async function runSamplePdf(opts: {
 
 interface AssignedPerson {
   person: DesignationPersonRow
+  mir: string
   number: number
   issuedAt: string
 }
@@ -141,18 +146,27 @@ export async function runDesignationJob(opts: DesignationJobOptions, deps: Desig
   const issuedOn = formatBgDate(deps.issuedOn || todayInSofia(deps.now))
   const people = await deps.data.list({ personId: opts.personId, limit: opts.limit })
   const summary: DesignationJobSummary = { total: people.length, generated: 0, uploaded: 0, skipped: 0, failed: 0, errors: [] }
-  let next = Math.max(1, (await deps.data.maxNumber()) + 1)
-  const assigned: AssignedPerson[] = people.map((person) => {
+  // Consecutive per МИР from 501; the unique (designation_mir, designation_number) index rejects a clash.
+  const stored = await deps.data.maxNumbers()
+  const next = new Map<string, number>()
+  const mirOf = (person: DesignationPersonRow) =>
+    (person.designationNumber != null && person.designationMir?.trim()) || designationMirOf(person.sectionCode)
+  const nextIn = (mir: string) => next.get(mir) ?? nextDesignationNumber([stored.get(mir)])
+  for (const person of people) {
     const existing = parseStoredNumber(person.designationNumber)
-    let number = existing
+    const mir = mirOf(person)
+    if (existing != null && existing >= nextIn(mir)) next.set(mir, existing + 1)
+  }
+  const assigned: AssignedPerson[] = people.map((person) => {
+    const mir = mirOf(person)
+    let number = parseStoredNumber(person.designationNumber)
     if (number == null) {
-      number = next
-      next += 1
-    } else if (number >= next) {
-      next = number + 1
+      number = nextIn(mir)
+      next.set(mir, number + 1)
     }
     return {
       person,
+      mir,
       number,
       issuedAt: person.designationIssuedAt ? formatBgDate(person.designationIssuedAt) : issuedOn,
     }
@@ -189,7 +203,7 @@ export async function runDesignationJob(opts: DesignationJobOptions, deps: Desig
   return summary
 
   async function processPerson(item: AssignedPerson): Promise<'skipped' | 'generated' | 'uploaded'> {
-    const { person, number, issuedAt } = item
+    const { person, mir, number, issuedAt } = item
     const display = formatDesignationNumber(number, deps.config.numberPrefix)
     const name = [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ')
     const filename = designationPdfFilename(display, name)
@@ -215,7 +229,7 @@ export async function runDesignationJob(opts: DesignationJobOptions, deps: Desig
     await writeFile(join(opts.outDir, filename), bytes)
 
     if (opts.localOnly) {
-      await deps.data.save({ id: person.id, number, issuedAt, pdfUrl: person.designationPdfUrl, driveFileId: person.designationDriveFileId })
+      await deps.data.save({ id: person.id, mir, number, issuedAt, pdfUrl: person.designationPdfUrl, driveFileId: person.designationDriveFileId })
       return 'generated'
     }
 
@@ -224,6 +238,7 @@ export async function runDesignationJob(opts: DesignationJobOptions, deps: Desig
       await syncBrevo(person.email, person.designationPdfUrl ?? '')
       await deps.data.save({
         id: person.id,
+        mir,
         number,
         issuedAt,
         pdfUrl: person.designationPdfUrl,
@@ -242,6 +257,7 @@ export async function runDesignationJob(opts: DesignationJobOptions, deps: Desig
     await syncBrevo(person.email, file.webViewLink)
     await deps.data.save({
       id: person.id,
+      mir,
       number,
       issuedAt,
       pdfUrl: file.webViewLink,

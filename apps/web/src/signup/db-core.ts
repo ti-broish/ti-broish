@@ -1,4 +1,5 @@
 import { migrateCompanionColumns } from './db-core-migrate-companions'
+import { DESIGNATION_NUMBER_UNIQUE_INDEX_SQL } from './designation-number'
 import { ensureSearchIndex } from './db-search'
 import { env } from 'cloudflare:workers'
 import { visibleSection } from './admin-csv'
@@ -72,6 +73,7 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN designation_drive_file_id TEXT',
   'ALTER TABLE signups ADD COLUMN designation_generated_at TEXT',
   'ALTER TABLE signups ADD COLUMN designation_signed_at TEXT',
+  'ALTER TABLE signups ADD COLUMN designation_mir TEXT',
   'ALTER TABLE signups ADD COLUMN withdrawn_at TEXT',
   'ALTER TABLE signups ADD COLUMN withdrawn_by TEXT',
   'ALTER TABLE signups ADD COLUMN withdrawn_reason TEXT',
@@ -200,6 +202,11 @@ export async function signupDatabase() {
   await db.prepare(AUDIT).run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_signup_audit_signup ON signup_audit(signup_id, created_at)').run()
   for (const sql of INDEXES) await db.prepare(sql).run()
+  try {
+    await db.prepare(DESIGNATION_NUMBER_UNIQUE_INDEX_SQL).run()
+  } catch {
+    // Applied by sql/2026-10-19-designation-number-per-mir.sql; never block requests on it.
+  }
   const now = new Date().toISOString()
   for (const email of parseAdminEmails((env as unknown as { ADMIN_EMAILS?: string }).ADMIN_EMAILS)) {
     await db.prepare(`INSERT INTO staff (email, role, invited_by, created_at) VALUES (?, 'admin', 'env', ?) ON CONFLICT(email) DO NOTHING`).bind(email, now).run()

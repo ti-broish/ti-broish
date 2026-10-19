@@ -18,6 +18,7 @@ describe('Worker designation fonts', () => {
     const inline = await loadDesignationFonts()
     expect(inline.regular).toEqual(files.regular)
     expect(inline.bold).toEqual(files.bold)
+    expect(inline.sans).toEqual(files.sans)
     const bytes = await renderDesignationPdf(
       {
         number: 1,

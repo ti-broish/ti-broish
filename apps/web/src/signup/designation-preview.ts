@@ -1,12 +1,12 @@
 import {
   configFromEnv,
-  designationPdfFilename,
   formatBgDate,
   grantorFromEnv,
   todayInSofia,
 } from './designation-config'
+import { bulkDesignationFilename } from './designation-files'
 import { renderDesignationPdf } from './designation-pdf'
-import { personFullName, type DesignationPersonInput, type DesignationRenderInput } from './designation-text'
+import { type DesignationPersonInput, type DesignationRenderInput } from './designation-text'
 
 export type StaffDenialState = 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'
 
@@ -71,8 +71,20 @@ export async function previewDesignationPdf(input: {
     person: input.person,
   }
   const bytes = await renderDesignationPdf(renderInput, config)
-  const numberLabel = String(input.number ?? 'чернова')
-  return { bytes, filename: designationPdfFilename(numberLabel, personFullName(input.person)) }
+  const number =
+    typeof input.number === 'number' && Number.isFinite(input.number) && input.number > 0
+      ? Math.floor(input.number)
+      : Number(String(input.number ?? '').replace(/\D/g, '')) || 0
+  return {
+    bytes,
+    filename: bulkDesignationFilename({
+      number,
+      section: input.person.sectionCode,
+      firstName: input.person.firstName,
+      middleName: input.person.middleName,
+      lastName: input.person.lastName,
+    }),
+  }
 }
 
 export function contentDisposition(filename: string) {

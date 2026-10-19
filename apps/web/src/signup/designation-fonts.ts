@@ -3,6 +3,11 @@ export interface DesignationFontBytes {
   bold: Uint8Array
   /** Carlito (metric-compatible with Calibri), used by the template for the representative's name and ЕГН. */
   sans: Uint8Array
+  /**
+   * Arimo (metric-compatible with Arial) for Cyrillic in those runs: Calibri has no Cyrillic in the
+   * committee's reference PDF, so Google Docs falls back to Arial for „<<Имена>>“ and keeps Calibri for the rest.
+   */
+  sansCyrillic: Uint8Array
 }
 
 type FontProvider = () => Promise<DesignationFontBytes>
@@ -26,7 +31,12 @@ async function loadFontsFromFiles(): Promise<DesignationFontBytes> {
   const { readFile } = await import('node:fs/promises')
   const read = async (name: string) =>
     new Uint8Array(await readFile(new URL(/* @vite-ignore */ `./fonts/${name}`, import.meta.url)))
-  return { regular: await read('Tinos-Regular.ttf'), bold: await read('Tinos-Bold.ttf'), sans: await read('Carlito-Regular.ttf') }
+  return {
+    regular: await read('Tinos-Regular.ttf'),
+    bold: await read('Tinos-Bold.ttf'),
+    sans: await read('Carlito-Regular.ttf'),
+    sansCyrillic: await read('Arimo-Regular.ttf'),
+  }
 }
 
 export function dataUrlBytes(dataUrl: string) {

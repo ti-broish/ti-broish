@@ -31,8 +31,8 @@ The generator lives in `apps/web/src/signup/designation-pdf.ts`. Staff can previ
 The usual path is the admin page, not the CLI. Viewing needs the `view` staff right; numbering, ZIP, upload and Brevo sync need `exportCampaign` (editor or admin).
 
 1. **Номерирай** — assigns a stable integer `designation_number` (MAX+1, never renumbers) to everyone with a published section, in order of section, `created_at`, id. Sets `designation_issued_at` to today in Europe/Sofia when empty.
-2. **Изтегли ZIP** — unsigned PDFs, 100 per request, streamed with STORE compression. Filenames are `{0001}_{9-digit-section}_{Lastname}.pdf` (Bulgarian streamlined transliteration, no ЕГН). Includes `manifest.csv`. Marks `designation_generated_at`.
-3. Sign the PDFs. Re-upload as `*_signed.pdf` (a ZIP of those files is fine). The page matches by normalised filename, then by leading number plus section.
+2. **Изтегли ZIP** — unsigned PDFs, 100 per request, streamed with STORE compression. Filenames are `{МИР}_{номер}_{Име}_{Презиме}_{Фамилия}.pdf` (Cyrillic names, no ЕГН; missing middle name is omitted). Includes `manifest.csv`. Marks `designation_generated_at`.
+3. Sign the PDFs. Re-upload as `*_signed.pdf` (a ZIP of those files is fine). The page matches by normalised filename (new Cyrillic form first, then the older ASCII `{0001}_{section}_{Lastname}` form), then by МИР+number or legacy number+section.
 4. **Качи N подписани** — one PDF per request to Google Drive (update in place when `designation_drive_file_id` exists; on 403/404 create a new `*_signed.pdf` in the folder, anyone-with-the-link viewer). Writes `designation_pdf_url`, `designation_drive_file_id`, `designation_signed_at`.
 5. After the uploads, the page writes the Drive link to the Brevo contact attribute `DOCUMENT_URL` (one `PUT /contacts/{email}` per person, adding the contact to `BREVO_LIST_ID` when set; a contact Brevo does not have is created). The result table shows, per file, whether Drive and Brevo worked and why not, e.g. `Качени 1 от 1; Brevo (DOCUMENT_URL): 1 обновени / 0 грешки.` If the Brevo key is missing, Drive links stay and the page says so.
 6. **Синхронизирай с Brevo** — sends every stored Drive link to Brevo again, without uploading files (300 people per request). Use it after fixing Brevo, e.g. creating the attribute.
@@ -99,8 +99,8 @@ CSV example:
 
 ```csv
 personId,email,name,number,issuedAt,section,fileName,driveUrl,driveFileId
-p1,ivan@example.com,Иван Петров Иванов,1,18.10.2026,234600001,Пълномощно 1 – Иван Петров Иванов.pdf,https://drive.google.com/file/d/abc123/view,abc123
-p2,maria@example.com,Мария Георгиева,2,18.10.2026,234600002,Пълномощно 2 – Мария Георгиева.pdf,https://drive.google.com/file/d/def456/view,
+p1,ivan@example.com,Иван Петров Иванов,501,18.10.2026,234600001,23_501_Иван_Петров_Иванов.pdf,https://drive.google.com/file/d/abc123/view,abc123
+p2,maria@example.com,Мария Георгиева,502,18.10.2026,234600002,23_502_Мария_Георгиева.pdf,https://drive.google.com/file/d/def456/view,
 ```
 
 JSON example:

@@ -97,6 +97,8 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
         id: row.id,
         number,
         section,
+        firstName: names.firstName,
+        middleName: names.middleName,
         lastName: names.lastName,
         name: [names.firstName, names.middleName, names.lastName].filter(Boolean).join(' '),
         hasDriveFile: false,

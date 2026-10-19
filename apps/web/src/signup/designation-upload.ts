@@ -54,7 +54,7 @@ export async function serveDesignationUpload(request: Request): Promise<Response
   }
 
   const names = namesFromPayload(row.payload)
-  const filename = bulkDesignationSignedFilename({ number, section, lastName: names.lastName })
+  const filename = bulkDesignationSignedFilename({ number, section, firstName: names.firstName, middleName: names.middleName, lastName: names.lastName })
   const existingId = (row.designation_drive_file_id ?? '').trim()
   const replaced = Boolean(existingId || (row.designation_pdf_url ?? '').trim())
   try {

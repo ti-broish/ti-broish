@@ -134,6 +134,8 @@ function toView(person: ListedPerson): DesignationPersonView {
     id: person.id,
     number: person.number,
     name: displayName(person),
+    firstName: person.firstName,
+    middleName: person.middleName,
     lastName: person.lastName,
     section: person.section,
     mir,

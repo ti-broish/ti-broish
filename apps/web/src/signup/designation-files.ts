@@ -48,6 +48,8 @@ export interface DesignationFilePerson {
   id: string
   number: number
   section: string
+  firstName: string
+  middleName: string
   lastName: string
   name: string
   hasDriveFile: boolean
@@ -58,6 +60,8 @@ export interface DesignationPersonView {
   id: string
   number: number | null
   name: string
+  firstName: string
+  middleName: string
   lastName: string
   section: string
   mir: string
@@ -86,6 +90,8 @@ export function toFilePerson(person: DesignationPersonView): DesignationFilePers
     id: person.id,
     number: person.number ?? 0,
     section: person.section,
+    firstName: person.firstName,
+    middleName: person.middleName,
     lastName: person.lastName,
     name: person.name,
     hasDriveFile: person.hasDriveFile || Boolean(person.driveUrl),
@@ -213,15 +219,52 @@ export function padDesignationNumber(number: number) {
   return String(n).padStart(4, '0')
 }
 
-/** `{0001}_{9-digit section}_{Lastname}.pdf` — integer only, even when a number prefix exists. */
-export function bulkDesignationFilename(input: { number: number; section: string; lastName: string }) {
+/**
+ * One name part for a filename: keep Cyrillic, turn spaces/hyphens into `_`,
+ * drop characters Windows/macOS reject in names, collapse repeats.
+ */
+export function sanitizeFilenameNamePart(part: string) {
+  return part
+    .normalize('NFC')
+    .trim()
+    .replace(/[/\\?%*:|"<>]/g, '')
+    .replace(/[\s\-–—]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+}
+
+/** `{МИР}_{номер}_{Име}_{Презиме?}_{Фамилия}.pdf` — Cyrillic names, no padded number, no empty middle. */
+export function bulkDesignationFilename(input: {
+  number: number
+  section: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
+}) {
+  const mir = mirFromSection(input.section) || '00'
+  const n = Number.isFinite(input.number) && input.number > 0 ? Math.floor(input.number) : 0
+  const parts = [input.firstName, input.middleName, input.lastName]
+    .map((part) => sanitizeFilenameNamePart(part ?? ''))
+    .filter(Boolean)
+  const name = parts.join('_') || 'без-име'
+  return `${mir}_${n}_${name}.pdf`
+}
+
+/** Pre-v0.0.16 ASCII form `{0001}_{9-digit section}_{Lastname}.pdf` — still accepted on upload. */
+export function legacyBulkDesignationFilename(input: { number: number; section: string; lastName: string }) {
   const number = padDesignationNumber(input.number)
   const section = sectionDigits(input.section) || '000000000'
   const last = transliterateLastName(input.lastName)
   return `${number}_${section}_${last}.pdf`
 }
 
-export function bulkDesignationSignedFilename(input: { number: number; section: string; lastName: string }) {
+export function bulkDesignationSignedFilename(input: {
+  number: number
+  section: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
+}) {
   return bulkDesignationFilename(input).replace(/\.pdf$/i, '_signed.pdf')
 }
 
@@ -276,21 +319,48 @@ function expectedNormalized(person: DesignationFilePerson) {
   return normalizeDesignationFilename(bulkDesignationFilename(person))
 }
 
+function legacyExpectedNormalized(person: DesignationFilePerson) {
+  return normalizeDesignationFilename(legacyBulkDesignationFilename(person))
+}
+
+/** New `{МИР}_{номер}_…` or legacy `{номер}_{9-digit section}_…`. */
+export function parseDesignationFilenameParts(normalized: string): {
+  style: 'new' | 'legacy'
+  mir: string | null
+  number: number
+  section: string | null
+} | null {
+  const neu = normalized.match(/^(\d{1,2})_(\d+)(?:_|$)/)
+  if (neu) {
+    const number = Number(neu[2])
+    if (!Number.isFinite(number) || number <= 0) return null
+    return { style: 'new', mir: neu[1]!.padStart(2, '0'), number, section: null }
+  }
+  const number = leadingDesignationNumber(normalized)
+  if (number == null) return null
+  return { style: 'legacy', mir: null, number, section: sectionFromFilename(normalized) }
+}
+
 function findPersonForFile(normalized: string, people: DesignationFilePerson[]) {
   const lower = normalized.toLowerCase()
   const exact = people.filter((person) => expectedNormalized(person).toLowerCase() === lower)
-  if (exact.length === 1) return exact[0]
-  if (exact.length > 1) return exact[0]
-  const number = leadingDesignationNumber(normalized)
-  if (number == null) return null
-  const section = sectionFromFilename(normalized)
-  const numbered = people.filter((person) => person.number === number)
+  if (exact.length >= 1) return exact[0]
+  const legacyExact = people.filter((person) => legacyExpectedNormalized(person).toLowerCase() === lower)
+  if (legacyExact.length >= 1) return legacyExact[0]
+  const parts = parseDesignationFilenameParts(normalized)
+  if (!parts) return null
+  if (parts.style === 'new') {
+    const matched = people.filter(
+      (person) => person.number === parts.number && mirFromSection(person.section) === parts.mir,
+    )
+    return matched.length === 1 ? matched[0] : null
+  }
+  const numbered = people.filter((person) => person.number === parts.number)
   const matched = numbered.filter((person) => {
-    if (!section) return true
-    return sectionDigits(person.section) === section
+    if (!parts.section) return true
+    return sectionDigits(person.section) === parts.section
   })
-  if (matched.length === 1) return matched[0]
-  return null
+  return matched.length === 1 ? matched[0] : null
 }
 
 export function matchSignedFiles(files: IncomingUploadFile[], people: DesignationFilePerson[]): SignedUploadMatch {
@@ -314,14 +384,18 @@ export function matchSignedFiles(files: IncomingUploadFile[], people: Designatio
     }
     const person = findPersonForFile(normalized, people)
     if (!person) {
-      const number = leadingDesignationNumber(normalized)
-      const section = sectionFromFilename(normalized)
-      const reason =
-        number != null && section && people.some((row) => row.number === number)
-          ? 'номерът съвпада, но секцията в името е друга'
-          : number != null
-            ? 'няма човек с този номер'
-            : 'името не съвпада с очаквания файл'
+      const parts = parseDesignationFilenameParts(normalized)
+      let reason = 'името не съвпада с очаквания файл'
+      if (parts?.style === 'new') {
+        reason = people.some((row) => row.number === parts.number)
+          ? 'номерът съвпада, но МИР в името е друг'
+          : 'няма човек с този номер'
+      } else if (parts) {
+        reason =
+          parts.section && people.some((row) => row.number === parts.number)
+            ? 'номерът съвпада, но секцията в името е друга'
+            : 'няма човек с този номер'
+      }
       result.unmatched.push({ kind: 'unmatched', fileName, reason })
       continue
     }

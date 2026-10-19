@@ -136,37 +136,7 @@ function PalnomoshtniPage() {
           >
             Номерирай
           </button>
-          <button
-            type="button"
-            className={adminGhost}
-            disabled={!canExport || busy || signedCount === 0}
-            title={!canExport ? EXPORT_REASON : 'Праща вече качените линкове към Brevo наново, без да качваш файловете.'}
-            onClick={() => {
-              setBusy(true)
-              setMessage('')
-              setBrevoSummary('Синхронизираме с Brevo…')
-              setResyncFailures([])
-              const names = new Map(people.map((row) => [row.id, `${row.number ?? '—'} · ${row.name}`]))
-              void resyncAllSigned((line) => setBrevoSummary(line))
-                .then(({ summary, failures }) => {
-                  setBrevoSummary(summary)
-                  setResyncFailures(failures.map((row) => `${names.get(row.personId) ?? row.personId}: ${row.error ?? 'грешка'}`))
-                })
-                .catch((error) => setBrevoSummary(error instanceof Error ? `Brevo: ${error.message}` : 'Brevo синхронът се провали.'))
-                .finally(() => setBusy(false))
-            }}
-          >
-            Синхронизирай с Brevo
-          </button>
         </div>
-        {brevoSummary && uploadRows.length === 0 ? <p className="text-sm font-bold text-[#1a1020]">{brevoSummary}</p> : null}
-        {resyncFailures.length > 0 ? (
-          <ul aria-label="Грешки при синхрон с Brevo" className="list-disc pl-5 text-sm text-[#8f1d1d]">
-            {resyncFailures.slice(0, 50).map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-        ) : null}
         <div className="grid gap-2">
           <p className="text-sm font-bold text-[#1a1020]">
             ZIP партиди: {batches.length || 0}
@@ -201,7 +171,7 @@ function PalnomoshtniPage() {
           Качване на подписани
         </h2>
         <p className="text-sm text-[#333]">
-          Избери PDF-и или ZIP. Имената се съпоставят по файла ({'номер_секция_фамилия_signed.pdf'}) без ЕГН. Дубликатите не се качват, докато не махнеш излишните.
+          Избери PDF-и или ZIP. Имената се съпоставят по файла ({'МИР_номер_Име_Презиме_Фамилия_signed.pdf'}; старият ASCII формат също се приема) без ЕГН. Дубликатите не се качват, докато не махнеш излишните.
         </p>
         <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="palnomoshtni-files">
           Подписани PDF или ZIP
@@ -292,6 +262,45 @@ function PalnomoshtniPage() {
           </p>
         ) : null}
         {uploadRows.length > 0 ? <UploadResults rows={uploadRows} /> : null}
+      </section>
+
+      <section aria-labelledby="palnomoshtni-brevo" className="grid gap-3 rounded-2xl border-2 border-[#2b062f] bg-white p-4">
+        <h2 id="palnomoshtni-brevo" className="text-lg font-black text-[#1a1020]">
+          Синхрон с Brevo
+        </h2>
+        <p className="text-sm text-[#333]">След качването на подписаните PDF-и: праща вече качените линкове към Brevo наново.</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={adminGhost}
+            disabled={!canExport || busy || signedCount === 0}
+            title={!canExport ? EXPORT_REASON : 'Праща вече качените линкове към Brevo наново, без да качваш файловете.'}
+            onClick={() => {
+              setBusy(true)
+              setMessage('')
+              setBrevoSummary('Синхронизираме с Brevo…')
+              setResyncFailures([])
+              const names = new Map(people.map((row) => [row.id, `${row.number ?? '—'} · ${row.name}`]))
+              void resyncAllSigned((line) => setBrevoSummary(line))
+                .then(({ summary, failures }) => {
+                  setBrevoSummary(summary)
+                  setResyncFailures(failures.map((row) => `${names.get(row.personId) ?? row.personId}: ${row.error ?? 'грешка'}`))
+                })
+                .catch((error) => setBrevoSummary(error instanceof Error ? `Brevo: ${error.message}` : 'Brevo синхронът се провали.'))
+                .finally(() => setBusy(false))
+            }}
+          >
+            Синхронизирай с Brevo
+          </button>
+        </div>
+        {brevoSummary && uploadRows.length === 0 ? <p className="text-sm font-bold text-[#1a1020]">{brevoSummary}</p> : null}
+        {resyncFailures.length > 0 ? (
+          <ul aria-label="Грешки при синхрон с Brevo" className="list-disc pl-5 text-sm text-[#8f1d1d]">
+            {resyncFailures.slice(0, 50).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        ) : null}
       </section>
 
       <section aria-labelledby="palnomoshtni-table" className="grid gap-3">

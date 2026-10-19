@@ -9,6 +9,8 @@ apps/web/test-results/
 apps/web/playwright-report/
 # The designation sample is a site file. A global ignore skips every other PDF.
 !apps/web/public/oznachenie-predstavitel.pdf
+# The volunteer handbook and the training material are site files too.
+!apps/web/public/files/*.pdf
 # Tinos faces for the representative power of attorney (a global ignore skips *.ttf).
 !apps/web/src/signup/fonts/*.ttf
 # Synthetic abroad priority sample (a global ignore skips *.csv).

@@ -5,8 +5,8 @@ import { isProtocolDay } from '../signup/election'
 export const Route = createFileRoute('/instructions')({ component: InstructionsPage })
 
 const files = [
-  ['Наръчник на пазителя на вота', 'https://tibroish.bg/files/Narachnik-Ti-broish.pdf'],
-  ['Обучителен материал, НС 27.10.2024', 'https://tibroish.bg/files/Ти%20Броиш%20Обучителен%20материал%20-%20НС%2027.10.2024.pdf'],
+  ['Наръчник на пазителя на вота', '/files/Narachnik-Ti-broish.pdf'],
+  ['Обучителен материал 25.10.2026', '/files/Ти%20Броиш%20Обучителен%20материал%20-%2025.10.2026.pdf'],
 ]
 
 const lessons = [

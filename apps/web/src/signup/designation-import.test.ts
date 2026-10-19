@@ -211,7 +211,7 @@ describe('runDesignationImport', () => {
       { id: 'p2', pdfUrl: DOC, driveFileId: 'doc456' },
     ])
     expect(brevo).toHaveLength(2)
-    expect(brevo[0]?.body).toContain('PALNOMOSHTNO_URL')
+    expect(brevo[0]?.body).toContain('DOCUMENT_URL')
     expect(brevo[0]?.body).toContain(FILE)
     const printed = formatImportSummary(summary).join('\n')
     expect(printed).toContain('без линк')

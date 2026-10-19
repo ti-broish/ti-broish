@@ -34,7 +34,10 @@ The usual path is the admin page, not the CLI. Viewing needs the `view` staff ri
 2. **Изтегли ZIP** — unsigned PDFs, 100 per request, streamed with STORE compression. Filenames are `{0001}_{9-digit-section}_{Lastname}.pdf` (Bulgarian streamlined transliteration, no ЕГН). Includes `manifest.csv`. Marks `designation_generated_at`.
 3. Sign the PDFs. Re-upload as `*_signed.pdf` (a ZIP of those files is fine). The page matches by normalised filename, then by leading number plus section.
 4. **Качи N подписани** — one PDF per request to Google Drive (update in place when `designation_drive_file_id` exists; on 403/404 create a new `*_signed.pdf` in the folder, anyone-with-the-link viewer). Writes `designation_pdf_url`, `designation_drive_file_id`, `designation_signed_at`.
-5. After the uploads, the page pushes only the URL attribute (default `PALNOMOSHTNO_URL`) to the Brevo list. If the Brevo key or list id is missing, Drive links stay and the page says so.
+5. After the uploads, the page writes the Drive link to the Brevo contact attribute `DOCUMENT_URL` (one `PUT /contacts/{email}` per person, adding the contact to `BREVO_LIST_ID` when set; a contact Brevo does not have is created). The result table shows, per file, whether Drive and Brevo worked and why not, e.g. `Качени 1 от 1; Brevo (DOCUMENT_URL): 1 обновени / 0 грешки.` If the Brevo key is missing, Drive links stay and the page says so.
+6. **Синхронизирай с Brevo** — sends every stored Drive link to Brevo again, without uploading files (300 people per request). Use it after fixing Brevo, e.g. creating the attribute.
+
+The attribute must exist in Brevo as a text attribute. The page checks it on load and before every sync, because Brevo's contact import drops unknown attributes without an error.
 
 The page loads without Drive/Brevo credentials and says which secret names are missing. ЕГН is never shown.
 
@@ -42,7 +45,7 @@ The page loads without Drive/Brevo credentials and says which secret names are m
 
 Two ways to get the file onto Google Drive and store the link on the signup (and in Brevo):
 
-**A: service account upload.** The script uploads each PDF to a Drive folder (anyone-with-the-link viewer), writes `designation_pdf_url` / `designation_drive_file_id`, and copies the URL to the Brevo contact attribute (default `PALNOMOSHTNO_URL`). Needs `DRIVE_FOLDER_ID` or `DESIGNATION_DRIVE_FOLDER_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` (or the OAuth triple).
+**A: service account upload.** The script uploads each PDF to a Drive folder (anyone-with-the-link viewer), writes `designation_pdf_url` / `designation_drive_file_id`, and copies the URL to the Brevo contact attribute (default `DOCUMENT_URL`). Needs `DRIVE_FOLDER_ID` or `DESIGNATION_DRIVE_FOLDER_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` (or the OAuth triple).
 
 **B: manual upload + `--import`.** Generate with `--local-only` (no Google credentials). An admin — or an assistant with its own Drive connector — uploads the PDFs, fills `driveUrl` in the manifest, and the script writes the links back to D1 and Brevo.
 
@@ -129,7 +132,7 @@ The упълномощител (grantor) is set via `DESIGNATION_GRANTOR_NAME`. 
 | `DRIVE_FOLDER_ID` | Fallback folder id (CLI and Worker) if `DESIGNATION_DRIVE_FOLDER_ID` is unset |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Service-account JSON. Worker secret (inline JSON). CLI also accepts a file path. Worker scope defaults to `https://www.googleapis.com/auth/drive`; override with `GOOGLE_DRIVE_SCOPE` |
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` / `GOOGLE_OAUTH_REFRESH_TOKEN` | Optional alternative to the service account; takes precedence when all three are set |
-| `BREVO_API_KEY` | Same key as signup mail. Attribute name defaults to `PALNOMOSHTNO_URL` (override with `BREVO_DESIGNATION_ATTRIBUTE`) |
+| `BREVO_API_KEY` | Same key as signup mail. Attribute name defaults to `DOCUMENT_URL` (override with `BREVO_DESIGNATION_ATTRIBUTE`) |
 | `DESIGNATION_GRANTOR_NAME` | Full three names of the упълномощител (grantor). Secret/env only, never in git |
 | `DESIGNATION_GRANTOR_EGN` | ЕГН of the упълномощител. Env only, never in git |
 | `DESIGNATION_GRANTOR_AUTHORISATION` | The grantor's own authorisation from the committee, as the whole clause, e.g. `упълномощена с пълномощно № … от … от Константин Петров Вълков, представляващ Инициативния комитет`. Unset, the PDF shows a visible `[TODO: номер] / [TODO: дата] / [TODO: представляващ …]` clause |
@@ -140,7 +143,7 @@ The упълномощител (grantor) is set via `DESIGNATION_GRANTOR_NAME`. 
 | `DESIGNATION_NUMBER_PREFIX` | Optional prefix in front of the sequential integer |
 | `DESIGNATION_SECTION_INFO` | Set to `0` to omit the non-operative section info line |
 
-Service accounts have no My Drive quota. Put the folder on a Shared Drive and add the service account as Editor or Content manager. Option B (manual upload + `--import`) does not need a service account. Create the Brevo contact attribute `PALNOMOSHTNO_URL` (text) before the first sync.
+Service accounts have no My Drive quota. Put the folder on a Shared Drive and add the service account as Editor or Content manager. Option B (manual upload + `--import`) does not need a service account. The Brevo contact attribute `DOCUMENT_URL` (text) must exist before the first sync.
 
 The Worker preview and ZIP routes read the same `DESIGNATION_GRANTOR_*` values from wrangler secrets/vars so the downloaded PDF matches the batch.
 

@@ -11,11 +11,12 @@ import {
   parseSubmitted,
   partnerBadge,
   partnerImportStatements,
+  partnerMir,
   planPartnerImport,
+  previewRows,
   splitFullName,
   type PartnerRawRow,
 } from './partner-import'
-import { rosterWhere } from './admin-csv'
 import { validEgn } from './rules'
 
 /** A fake ЕГН with a correct check digit. */
@@ -107,75 +108,101 @@ describe('field mapping', () => {
     expect(mapPlace('', '').place).toBeNull()
   })
 
-  it('lists the reasons a row is invalid', () => {
-    const result = mapPartnerRow(raw({ email: 'не-е-имейл', egn: '1234567890', phone: '12' }))
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.reasons).toEqual(['имейлът не е валиден', 'ЕГН не е валидно (дата или контролна цифра)', 'телефонът не е валиден'])
+  it('needs only a name and a valid ЕГН; a bad email or phone is a warning and is not kept', () => {
+    const bad = mapPartnerRow(raw({ name: '', egn: '1234567890' }))
+    expect(bad.ok).toBe(false)
+    if (!bad.ok) expect(bad.reasons).toEqual(['липсва име', 'ЕГН не е валидно (дата или контролна цифра)'])
+    const loose = mapPartnerRow(raw({ email: 'не-е-имейл', phone: '12' }))
+    expect(loose.ok).toBe(true)
+    if (loose.ok) {
+      expect(loose.person).toMatchObject({ email: '', phone: '' })
+      expect(loose.person.warnings).toEqual(expect.arrayContaining(['имейлът не е валиден (не се пази)', 'телефонът не е валиден (не се пази)']))
+    }
   })
 
   it('imports a row without a phone, with a warning', () => {
     const result = mapPartnerRow(raw({ phone: '' }))
     expect(result.ok && result.person.warnings).toContain('няма телефон')
   })
+
+  it('finds the МИР of the пълномощно; София needs a district', () => {
+    expect(mapPartnerRow(raw({})).ok && (mapPartnerRow(raw({})) as { person: { mir: string } }).person.mir).toBe('03')
+    const mladost = mapPartnerRow(raw({ oblast: 'София град', municipalities: 'Младост 3' }))
+    expect(mladost.ok && mladost.person.mir).toBe('23')
+    const sofia = mapPartnerRow(raw({ oblast: 'София град', municipalities: 'София' }))
+    expect(sofia.ok && sofia.person.mir).toBe('')
+    expect(sofia.ok && sofia.person.warnings).toContain('няма МИР: София без район (23/24/25)')
+    const karlovo = mapPartnerRow(raw({ oblast: 'Пловдив', municipalities: 'Карлово' }))
+    expect(karlovo.ok && karlovo.person.mir).toBe('17')
+    expect(partnerMir(null)).toBe('')
+  })
 })
 
 describe('plan', () => {
+  const D = egn(70, 1, 1, 1)
+  const E = egn(72, 2, 2, 2)
   const rows: PartnerRawRow[] = [
     raw({ line: 2 }),
     raw({ line: 3, email: 'harry+iaz2@hkdobrev.com', egn: B.replace(/^0+/, ''), name: 'Мария Иванова' }),
     raw({ line: 4, submitted: '15 окт 2026 · 8:00' }),
     raw({ line: 5, email: 'harry+iaz3@hkdobrev.com', egn: C }),
-    raw({ line: 6, email: 'shared@example.com', egn: egn(70, 1, 1, 1) }),
-    raw({ line: 7, email: 'shared@example.com', egn: egn(72, 2, 2, 2) }),
+    raw({ line: 6, email: 'shared@example.com', egn: D }),
+    raw({ line: 7, email: 'shared@example.com', egn: E }),
     raw({ line: 8, email: 'harry+iaz4@hkdobrev.com', egn: '1234567890' }),
   ]
 
-  it('sorts rows into new, existing, repeated in the file and invalid', () => {
-    const plan = planPartnerImport(rows, [{ id: 'existing-c', email: 'someone@example.com', egn: C, partner: null }])
-    expect(plan.counts).toEqual({ new: 2, tag: 1, already: 0, repeat: 1, invalid: 3 })
+  it('sorts rows into new, already imported, repeated in the file and invalid; one ЕГН is one person', () => {
+    const plan = planPartnerImport(rows, [C], [])
+    expect(plan.counts).toEqual({ new: 4, already: 1, repeat: 1, invalid: 1, alsoSignup: 0, noMir: 0 })
     expect(plan.rows.find((row) => row.line === 4)).toMatchObject({ kind: 'repeat' })
     expect(plan.rows.find((row) => row.line === 2)).toMatchObject({ kind: 'new' })
-    expect(plan.rows.find((row) => row.line === 5)).toMatchObject({ kind: 'tag', existingId: 'existing-c' })
-    expect(plan.rows.filter((row) => row.email === 'shared@example.com').every((row) => row.kind === 'invalid')).toBe(true)
+    expect(plan.rows.find((row) => row.line === 5)).toMatchObject({ kind: 'already' })
+    // Two people on one email are two people: both get a пълномощно.
+    const shared = plan.rows.filter((row) => row.email === 'shared@example.com')
+    expect(shared.map((row) => row.kind)).toEqual(['new', 'new'])
+    expect(shared[0]!.person!.warnings).toContain('имейлът е общ за 2 души във файла')
   })
 
-  it('never writes over an existing signup: only the empty partner tag', () => {
-    const plan = planPartnerImport(rows, [{ id: 'existing-c', email: 'someone@example.com', egn: C, partner: null }])
-    const statements = partnerImportStatements(plan, '2026-10-19T19:00:00.000Z', { id: () => 'id', token: () => 'token', referral: () => 'Ref123' })
-    const tag = statements.find((statement) => statement.sql.startsWith('UPDATE'))!
-    expect(tag.sql).toMatch(/SET partner = \?, partner_submitted_at = COALESCE/)
-    expect(tag.sql).not.toMatch(/payload|email =|egn =|phone/)
-    expect(tag.sql).toMatch(/COALESCE\(partner, ''\) = ''/)
-    expect(tag.params).toEqual([IAZ_PARTNER, '2026-10-19T04:21:00.000Z', '2026-10-19T19:00:00.000Z', 'existing-c'])
+  it('reports people who are also signups, without merging or touching them', () => {
+    const plan = planPartnerImport(rows, [], [
+      { email: 'someone@example.com', egn: C },
+      { email: 'harry+iaz2@hkdobrev.com', egn: '' },
+    ])
+    expect(plan.counts.alsoSignup).toBe(2)
+    expect(plan.rows.find((row) => row.line === 5)).toMatchObject({ kind: 'new', signup: 'egn' })
+    expect(plan.rows.find((row) => row.line === 3)).toMatchObject({ kind: 'new', signup: 'email' })
+    const statements = partnerImportStatements(plan, '2026-10-19T19:00:00.000Z', () => 'pp-id')
+    expect(statements.every((statement) => statement.sql.startsWith('INSERT INTO partner_people'))).toBe(true)
+    expect(statements.map((statement) => statement.sql).join('\n')).not.toMatch(/signups/)
   })
 
-  it('stores a new person as imported, unconfirmed, without a letter and with the partner', () => {
-    const plan = planPartnerImport(rows, [])
-    const statements = partnerImportStatements(plan, '2026-10-19T19:00:00.000Z', { id: () => 'id', token: () => 'token', referral: () => 'Ref123' })
+  it('stores a new person only in partner_people, with the МИР for the пълномощно', () => {
+    const plan = planPartnerImport(rows, [], [])
+    const statements = partnerImportStatements(plan, '2026-10-19T19:00:00.000Z', () => 'pp-id')
     const insert = statements.find((statement) => statement.params.includes('harry+iaz2@hkdobrev.com'))!
-    expect(insert.sql).toMatch(/ON CONFLICT\(email\) DO NOTHING/)
-    expect(insert.sql).toMatch(/0, 0, 0, 0, 1, 'skipped'/)
-    expect(insert.sql).not.toMatch(/confirm_token/)
-    expect(insert.params).toContain(B)
-    const payload = JSON.parse(String(insert.params[17]))
-    expect(payload).toMatchObject({ firstName: 'Мария', lastName: 'Иванова', phone: '0888123456', egn: '', source: IAZ_PARTNER, emailConfirmed: false })
-    expect(insert.params[insert.params.length - 2]).toBe('2026-10-19T04:21:00.000Z')
+    expect(insert.sql).toMatch(/^INSERT INTO partner_people/)
+    expect(insert.sql).toMatch(/ON CONFLICT\(partner, egn\) DO NOTHING/)
+    expect(insert.params).toEqual([
+      'pp-id', IAZ_PARTNER, B, 'harry+iaz2@hkdobrev.com', '0888123456', 'Мария', '', 'Иванова',
+      '03', expect.any(String), 'Варна', '', '03', '2026-10-19T04:21:00.000Z', '2026-10-19T19:00:00.000Z', '2026-10-19T19:00:00.000Z',
+    ])
   })
 
-  it('is idempotent: the second run of the same file only finds people already tagged', () => {
-    const first = planPartnerImport(rows, [])
-    const imported = first.rows
-      .filter((row) => row.kind === 'new')
-      .map((row) => ({ id: `id-${row.line}`, email: row.email, egn: row.person!.egn, partner: IAZ_PARTNER }))
-    const second = planPartnerImport(rows, imported)
+  it('is idempotent: the second run of the same file finds everyone already imported', () => {
+    const first = planPartnerImport(rows, [], [])
+    const imported = first.rows.filter((row) => row.kind === 'new').map((row) => row.person!.egn)
+    const second = planPartnerImport(rows, imported, [])
     expect(second.counts.new).toBe(0)
     expect(second.counts.already).toBe(first.counts.new)
     expect(partnerImportStatements(second, '2026-10-19T19:00:00.000Z')).toEqual([])
   })
 
-  it('skips an email that already belongs to another ЕГН', () => {
-    const plan = planPartnerImport([raw({})], [{ id: 'x', email: 'harry+iaz1@hkdobrev.com', egn: C, partner: null }])
-    expect(plan.rows[0]).toMatchObject({ kind: 'invalid', reasons: ['имейлът вече е записан с друго ЕГН'] })
+  it('masks ЕГН and email in the preview', () => {
+    const preview = previewRows(planPartnerImport(rows, [], []))
+    const row = preview.find((item) => item.line === 2)!
+    expect(row.egn).toBe(`******${A.slice(-4)}`)
+    expect(row.email).toBe('h***@hkdobrev.com')
+    expect(JSON.stringify(preview)).not.toContain(A)
   })
 
   it('inlines literals safely for the script', () => {
@@ -183,20 +210,19 @@ describe('plan', () => {
   })
 })
 
-describe('the „И аз“ tag in Записани', () => {
-  it('has a badge and a view', () => {
+describe('the „И аз“ import', () => {
+  it('has a badge', () => {
     expect(partnerBadge('iaz.bg')).toBe('И аз')
     expect(partnerBadge('IAZ.BG')).toBe('И аз')
     expect(partnerBadge('other.bg')).toBe('')
-    const view = rosterWhere('iaz', '')
-    expect('clause' in view && view.clause).toMatch(/partner/)
   })
 
-  it('sends nothing: the import modules do not load mail or Brevo code', () => {
+  it('sends nothing and never writes signups: the import modules load no mail or Brevo code', () => {
     for (const name of ['partner-import.ts', 'partner-import-admin.ts']) {
       const text = readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
-      expect(text).not.toMatch(/from '\.\/(mail|brevo[\w-]*|admin-brevo|confirm-mail)'/)
+      expect(text).not.toMatch(/from '\.\/(mail|brevo[\w-]*|admin-brevo|confirm-mail|designation-brevo|designation-bulk\.server)'/)
       expect(text).not.toMatch(/deliverMail|confirm_token = /)
+      expect(text).not.toMatch(/(INSERT INTO|UPDATE) signups/)
     }
   })
 })

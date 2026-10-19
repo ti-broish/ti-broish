@@ -1,9 +1,8 @@
 import { BREVO_SECTIONS_HEADERS, buildBrevoContact, brevoContactCsvCells, normalizeBrevoSms } from './brevo-contact'
-import { IAZ_VIEW_SQL } from './partner-import'
 
 export { BREVO_SECTIONS_HEADERS, normalizeBrevoSms }
 
-export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls' | 'queue' | 'withdrawn' | 'iaz'
+export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls' | 'queue' | 'withdrawn'
 
 export interface RosterFields {
   id: string
@@ -21,8 +20,6 @@ export interface RosterFields {
   withdrawn: boolean
   emailConfirmed: boolean
   imported: boolean
-  /** Partner slug from an import, or the partner the person came from (source). */
-  partner?: string
   draftSection: string
   /** Saved with Запази. A later country draft keeps this row and rewrites the others. */
   draftLocked?: boolean
@@ -145,7 +142,6 @@ export function rosterWhere(view: RosterView, mir: string): { clause: string; bi
   if (view === 'calls') return { clause: OPEN_CALL_SQL, binds: [] }
   if (view === 'queue') return { clause: `${OPEN_CALL_SQL} AND COALESCE(staff_called_at, '') = ''`, binds: [] }
   if (view === 'withdrawn') return { clause: 'COALESCE(withdrawn, 0) = 1', binds: [] }
-  if (view === 'iaz') return { clause: IAZ_VIEW_SQL, binds: [] }
   if (view === 'mir') {
     const code = mir.trim()
     if (!/^\d{1,2}$/.test(code)) return { error: 'МИР е номер, например 23.' }

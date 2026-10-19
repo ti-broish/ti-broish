@@ -53,6 +53,8 @@ export interface DesignationFilePerson {
   lastName: string
   name: string
   hasDriveFile: boolean
+  /** Partner slug („И аз“): `section` holds only the МИР. */
+  partner?: string
 }
 
 /** Admin table row. Lives here so the page never imports the Worker server module. */
@@ -69,6 +71,16 @@ export interface DesignationPersonView {
   signedAt: string | null
   driveUrl: string | null
   hasDriveFile: boolean
+  /** Partner slug for „И аз“ people (not signups; only for пълномощни). */
+  partner?: string
+}
+
+/** „И аз“ partner people, counted apart from signups. */
+export interface DesignationPartnerCounts {
+  total: number
+  numbered: number
+  noMir: number
+  signed: number
 }
 
 export interface DesignationCounts {
@@ -95,6 +107,7 @@ export function toFilePerson(person: DesignationPersonView): DesignationFilePers
     lastName: person.lastName,
     name: person.name,
     hasDriveFile: person.hasDriveFile || Boolean(person.driveUrl),
+    ...(person.partner ? { partner: person.partner } : {}),
   }
 }
 
@@ -469,7 +482,7 @@ export function bulkManifestRow(person: DesignationFilePerson): BulkManifestRow 
     fileName: bulkDesignationFilename(person),
     personId: person.id,
     number: String(person.number),
-    section: sectionDigits(person.section) || person.section,
+    section: person.partner ? '' : sectionDigits(person.section) || person.section,
     mir: mirFromSection(person.section),
     name: person.name,
   }

@@ -16,6 +16,7 @@ import {
   zipBatchPlan,
   type DesignationCounts,
   type DesignationMirOption,
+  type DesignationPartnerCounts,
   type DesignationPersonView,
   type MatchedUpload,
   type SignedUploadMatch,
@@ -28,6 +29,10 @@ import {
   type BrevoStatus,
   type UploadBrevo,
 } from '../../signup/designation-brevo-ui'
+import { ELECTION_DISTRICTS } from '../../signup/designation-config'
+import { IAZ_LABEL, partnerBadge } from '../../signup/partner-import'
+import { adminPartnerSetMir } from '../../signup/partner-import-admin'
+import { PartnerImportPanel } from './-partner-import-panel'
 
 export const Route = createFileRoute('/admin/palnomoshtni')({
   component: PalnomoshtniPage,
@@ -38,9 +43,11 @@ const EXPORT_REASON = 'Нужно е право за експорт (редак�
 function PalnomoshtniPage() {
   const access = useAdminAccess()
   const canExport = access.permissions.exportCampaign
+  const canEdit = access.permissions.edit
   const [mir, setMir] = useState('')
   const [q, setQ] = useState('')
   const [counts, setCounts] = useState<DesignationCounts | null>(null)
+  const [partnerCounts, setPartnerCounts] = useState<DesignationPartnerCounts | null>(null)
   const [people, setPeople] = useState<DesignationPersonView[]>([])
   const [mirs, setMirs] = useState<DesignationMirOption[]>([])
   const [zipEligible, setZipEligible] = useState(0)
@@ -62,6 +69,7 @@ function PalnomoshtniPage() {
         return
       }
       setCounts(result.counts)
+      setPartnerCounts(result.partnerCounts ?? null)
       setPeople(result.people)
       setMirs(result.mirs)
       setZipEligible(result.zipEligible)
@@ -118,6 +126,24 @@ function PalnomoshtniPage() {
             <Stat label="Подписани" value={counts.signed} />
             <Stat label="Липсващи" value={counts.missing} />
           </div>
+          {partnerCounts && partnerCounts.total > 0 ? (
+            <p className="text-sm text-[#333]" data-testid="partner-counts">
+              Отделно, „{IAZ_LABEL}“ (не са записани доброволци и не отиват в Brevo): {partnerCounts.total} души, номерирани{' '}
+              {partnerCounts.numbered}, подписани {partnerCounts.signed}
+              {partnerCounts.noMir ? `, без МИР ${partnerCounts.noMir} (избери МИР в таблицата, за да получат номер)` : ''}.
+              {canExport && partnerCounts.numbered > 0
+                ? zipBatchPlan(partnerCounts.numbered, DESIGNATION_ZIP_BATCH_LIMIT).map((batch) => (
+                    <a
+                      key={`iaz-${batch.offset}`}
+                      className={`${adminGhost} ml-2`}
+                      href={`/admin/palnomoshtni/zip?partner=1&offset=${batch.offset}&limit=${batch.limit}`}
+                    >
+                      Изтегли ZIP „{IAZ_LABEL}“ {batch.from}–{batch.to}
+                    </a>
+                  ))
+                : null}
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -173,6 +199,19 @@ function PalnomoshtniPage() {
             )}
           </div>
         </div>
+      </section>
+
+      <section id="i-az" aria-labelledby="partner-import-heading" className="grid gap-3 rounded-2xl border-2 border-[#2b062f] bg-white p-4">
+        {canEdit ? (
+          <PartnerImportPanel onImported={reload} />
+        ) : (
+          <>
+            <h2 id="partner-import-heading" className="text-lg font-black text-[#1a1020]">
+              Внос от „{IAZ_LABEL}“
+            </h2>
+            <p className="text-sm font-bold text-[#8f1d1d]">Нужно е право за редакция (редактор или админ).</p>
+          </>
+        )}
       </section>
 
       <section aria-labelledby="palnomoshtni-upload" className="grid gap-3 rounded-2xl border-2 border-[#2b062f] bg-[#f6f1f7] p-4">
@@ -270,6 +309,7 @@ function PalnomoshtniPage() {
         </h2>
         <p className="text-sm text-[#333]">
           Качването вече праща линка към Brevo ({'DOCUMENT_URL'}). Този бутон праща наново всички качени подписани линкове ({signedCount}).
+          Хората от „{IAZ_LABEL}“ никога не отиват в Brevo.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -362,9 +402,22 @@ function PalnomoshtniPage() {
                 {people.map((row) => (
                   <tr key={row.id} className="border-b border-[#e7dce9]">
                     <td className="px-2 py-2">{row.number ?? '—'}</td>
-                    <td className="px-2 py-2 font-bold">{row.name}</td>
-                    <td className="px-2 py-2 font-mono text-xs">{row.section}</td>
-                    <td className="px-2 py-2">{row.mir}</td>
+                    <td className="px-2 py-2 font-bold">
+                      {row.name}
+                      {partnerBadge(row.partner) ? (
+                        <span className="ml-2 rounded-full border border-[#2b062f] bg-[#f4e4b3] px-2 py-0.5 text-xs font-bold text-[#1a1020]">
+                          {partnerBadge(row.partner)}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-2 font-mono text-xs">{row.partner ? '—' : row.section}</td>
+                    <td className="px-2 py-2">
+                      {row.partner && row.number == null ? (
+                        <PartnerMirSelect id={row.id} mir={row.mir} disabled={!canEdit || busy} onSaved={reload} setMessage={setMessage} />
+                      ) : (
+                        row.mir || '—'
+                      )}
+                    </td>
                     <td className="px-2 py-2">{formatWhen(row.generatedAt)}</td>
                     <td className="px-2 py-2">
                       {row.driveUrl ? (
@@ -384,6 +437,47 @@ function PalnomoshtniPage() {
       </section>
       {message ? <p className="text-sm font-bold text-[#1a1020]">{message}</p> : null}
     </div>
+  )
+}
+
+/** МИР for an „И аз“ person before numbering; the file may not say it (София без район). */
+function PartnerMirSelect({
+  id,
+  mir,
+  disabled,
+  onSaved,
+  setMessage,
+}: {
+  id: string
+  mir: string
+  disabled: boolean
+  onSaved: () => void
+  setMessage: (text: string) => void
+}) {
+  return (
+    <select
+      aria-label="МИР за пълномощното"
+      className={adminInput}
+      value={mir}
+      disabled={disabled}
+      onChange={(event) => {
+        const next = event.target.value
+        if (!next) return
+        void adminPartnerSetMir({ data: { id, mir: next } }).then((result) => {
+          setMessage(result.message)
+          if (result.ok) onSaved()
+        })
+      }}
+    >
+      <option value="">Няма МИР</option>
+      {Object.entries(ELECTION_DISTRICTS)
+        .filter(([code]) => code !== '32')
+        .map(([code, name]) => (
+          <option key={code} value={code}>
+            {code} {name}
+          </option>
+        ))}
+    </select>
   )
 }
 

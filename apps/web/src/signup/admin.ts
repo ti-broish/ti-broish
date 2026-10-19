@@ -60,7 +60,6 @@ interface RawPerson {
   withdrawn: number
   email_confirmed: number
   imported: number
-  partner?: string
   draft_section: string
   draft_locked: number
   published_section: string
@@ -183,7 +182,6 @@ function fieldsOf(row: RawPerson): RosterFields {
     withdrawn: row.withdrawn === 1,
     emailConfirmed: row.email_confirmed === 1,
     imported: row.imported === 1,
-    partner: row.partner ?? '',
     draftSection: row.draft_section,
     draftLocked: row.draft_locked === 1,
     publishedSection: row.published_section,
@@ -207,7 +205,6 @@ function fieldsOf(row: RawPerson): RosterFields {
 }
 
 const PERSON_SQL = `${PERSON_SQL_BASE}${NOTES_SQL},
-  COALESCE(NULLIF(partner, ''), lower(COALESCE(source, '')), '') AS partner,
   COALESCE(NULLIF(radius, ''), json_extract(payload, '$.radius'), '') AS radius,
   CASE
     WHEN COALESCE(travel_municipalities, '') NOT IN ('', '[]') THEN travel_municipalities

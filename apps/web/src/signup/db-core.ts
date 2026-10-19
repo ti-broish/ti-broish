@@ -7,6 +7,7 @@ import { normalizeCantReachSection } from './cant-reach'
 import { emptyProfile, type Profile } from './model'
 import { parseAdminEmails } from './staff'
 import { PRIORITY_SECTIONS_INDEXES, PRIORITY_SECTIONS_TABLE } from './priority-sections-sql'
+import { PARTNER_PEOPLE_INDEXES, PARTNER_PEOPLE_TABLE } from './partner-people-sql'
 
 export const SESSION_COOKIE = 'tb_session'
 
@@ -79,10 +80,6 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN withdrawn_by TEXT',
   'ALTER TABLE signups ADD COLUMN withdrawn_reason TEXT',
   'ALTER TABLE signups ADD COLUMN withdrawn_note TEXT',
-  // Partner import („И аз“). Also in sql/2026-10-19-partner-import.sql.
-  'ALTER TABLE signups ADD COLUMN partner TEXT',
-  'ALTER TABLE signups ADD COLUMN partner_submitted_at TEXT',
-  'ALTER TABLE signups ADD COLUMN partner_imported_at TEXT',
 ]
 
 const COMPANIONS = `
@@ -147,7 +144,6 @@ CREATE TABLE IF NOT EXISTS signup_audit (
 
 const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_signups_source ON signups(source)',
-  'CREATE INDEX IF NOT EXISTS idx_signups_partner ON signups(partner)',
   'CREATE INDEX IF NOT EXISTS idx_signups_mir ON signups(mir_code)',
   'CREATE INDEX IF NOT EXISTS idx_signups_role ON signups(role)',
   'CREATE INDEX IF NOT EXISTS idx_signups_confirm ON signups(confirm_token)',
@@ -206,6 +202,8 @@ export async function signupDatabase() {
   await db.prepare(ABROAD_PRIORITY).run()
   await db.prepare(PRIORITY_SECTIONS_TABLE).run()
   for (const sql of PRIORITY_SECTIONS_INDEXES) await db.prepare(sql).run()
+  await db.prepare(PARTNER_PEOPLE_TABLE).run()
+  for (const sql of PARTNER_PEOPLE_INDEXES) await db.prepare(sql).run()
   await db.prepare(STAFF).run()
   await db.prepare(AUDIT).run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_signup_audit_signup ON signup_audit(signup_id, created_at)').run()

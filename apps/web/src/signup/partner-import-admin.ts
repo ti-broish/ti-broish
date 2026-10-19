@@ -2,23 +2,27 @@ import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import {
-  EXISTING_SIGNUPS_SQL,
   IAZ_PARTNER,
+  IMPORTED_EGNS_SQL,
   PARTNER_IMPORT_MAX_BYTES,
   PARTNER_IMPORT_MAX_ROWS,
   PARTNER_MAPPING,
+  SIGNUP_OVERLAP_SQL,
   lookupKeys,
   parsePartnerCsv,
   partnerImportStatements,
   planPartnerImport,
   planSummary,
   previewRows,
-  type ExistingSignup,
   type PartnerRawRow,
+  type SignupOverlap,
 } from './partner-import'
+import { isPartnerPersonId } from './partner-people-sql'
+import { ELECTION_DISTRICTS } from './designation-config'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
-// No mail, Brevo or confirm-link code is imported here on purpose: the partner import is silent.
+// No mail, Brevo or confirm-link code is imported here on purpose: the partner import is silent,
+// and it writes only partner_people, never signups.
 
 type Database = SignupD1
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -26,21 +30,24 @@ type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | '
 const LOOKUP_CHUNK = 40
 const WRITE_CHUNK = 50
 
-/** Signups that share an email or ЕГН with the file. Chunked under the D1 bind limit. */
-export async function existingForPartnerRows(db: Database, rows: PartnerRawRow[]): Promise<ExistingSignup[]> {
+/** ЕГН already imported for the partner, and signups sharing an email or ЕГН. Chunked under the D1 bind limit. */
+export async function lookupForPartnerRows(db: Database, rows: PartnerRawRow[], partner = IAZ_PARTNER) {
   const { emails, egns } = lookupKeys(rows)
-  const found = new Map<string, ExistingSignup>()
+  const imported = new Set<string>()
+  const signups: SignupOverlap[] = []
   for (let start = 0; start < Math.max(emails.length, egns.length); start += LOOKUP_CHUNK) {
     const emailPart = emails.slice(start, start + LOOKUP_CHUNK)
     const egnPart = egns.slice(start, start + LOOKUP_CHUNK)
-    if (!emailPart.length && !egnPart.length) continue
-    const result = await db
-      .prepare(EXISTING_SIGNUPS_SQL(emailPart.length, egnPart.length))
-      .bind(...emailPart, ...egnPart)
-      .all<ExistingSignup>()
-    for (const row of result.results ?? []) found.set(row.id, row)
+    if (egnPart.length) {
+      const found = await db.prepare(IMPORTED_EGNS_SQL(egnPart.length)).bind(partner, ...egnPart).all<{ egn: string }>()
+      for (const row of found.results ?? []) imported.add(row.egn)
+    }
+    if (emailPart.length || egnPart.length) {
+      const found = await db.prepare(SIGNUP_OVERLAP_SQL(emailPart.length, egnPart.length)).bind(...emailPart, ...egnPart).all<SignupOverlap>()
+      signups.push(...(found.results ?? []))
+    }
   }
-  return [...found.values()]
+  return { imported: [...imported], signups }
 }
 
 export const adminPartnerImport = createServerFn({ method: 'POST' })
@@ -54,7 +61,8 @@ export const adminPartnerImport = createServerFn({ method: 'POST' })
     if (parsed.rows.length === 0) return { ok: false as const, message: 'Във файла няма редове.' }
     if (parsed.rows.length > PARTNER_IMPORT_MAX_ROWS) return { ok: false as const, message: `Най-много ${PARTNER_IMPORT_MAX_ROWS} реда наведнъж.` }
     const db = access.db
-    const plan = planPartnerImport(parsed.rows, await existingForPartnerRows(db, parsed.rows), IAZ_PARTNER)
+    const found = await lookupForPartnerRows(db, parsed.rows)
+    const plan = planPartnerImport(parsed.rows, found.imported, found.signups, IAZ_PARTNER)
     let written = 0
     if (data.commit) {
       const statements = partnerImportStatements(plan, new Date().toISOString())
@@ -75,6 +83,23 @@ export const adminPartnerImport = createServerFn({ method: 'POST' })
       mapping: PARTNER_MAPPING,
       rows: previewRows(plan),
     }
+  })
+
+/** Staff pick the МИР when the file did not give one (София без район). Fixed once the person has a number. */
+export const adminPartnerSetMir = createServerFn({ method: 'POST' })
+  .validator((input: { id: string; mir: string }) => ({ id: String(input?.id ?? ''), mir: String(input?.mir ?? '').trim() }))
+  .handler(async ({ data }) => {
+    if (!isPartnerPersonId(data.id)) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    const mir = data.mir.padStart(2, '0')
+    if (!/^\d{2}$/.test(mir) || !ELECTION_DISTRICTS[mir]) return { ok: false as const, message: 'Избери МИР.' }
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const result = (await access.db
+      .prepare('UPDATE partner_people SET designation_mir = ?, updated_at = ? WHERE id = ? AND designation_number IS NULL')
+      .bind(mir, new Date().toISOString(), data.id)
+      .run()) as { meta?: { changes?: number } }
+    if (!result?.meta?.changes) return { ok: false as const, message: 'МИР не се сменя след номериране.' }
+    return { ok: true as const, message: `МИР ${mir} е записан.` }
   })
 
 async function gate(action: StaffAction): Promise<{ ok: true; db: Database; email: string; role: StaffRole } | Denial> {

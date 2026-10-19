@@ -78,7 +78,7 @@ describe('designation numbering', () => {
 
   it('assigns in one guarded statement per person and reads stored maxima per МИР', () => {
     expect(DESIGNATION_ASSIGN_SQL).toContain('WHERE designation_mir = ?1')
-    expect(DESIGNATION_ASSIGN_SQL).toContain('500), 500) + 1')
+    expect(DESIGNATION_ASSIGN_SQL).toContain('FROM partner_people WHERE designation_mir = ?1')
     expect(DESIGNATION_ASSIGN_SQL).toContain('designation_number IS NULL')
     expect(maxPerMirFromRows([{ mir: '23', n: 503 }, { mir: '', n: 9 }, { mir: '01', n: null }])).toEqual(new Map([['23', 503]]))
   })

@@ -130,12 +130,13 @@ function layoutBlocks(fonts: Fonts, blocks: DesignationBlock[], bodySize: number
       continue
     }
     if (block.type === 'bullets') {
-      const marker = 'а) '
-      const hang = fonts.regular.widthOfTextAtSize(marker, bodySize)
+      // Template: dash at the margin, a tab to the first-line indent, continuation lines back at the margin.
+      const markerWidth = fonts.regular.widthOfTextAtSize(block.marker, bodySize)
       for (const item of block.items) {
-        const wrapped = wrapRuns([{ text: item }], fonts, bodySize, width, 0)
+        const wrapped = wrapRuns([{ text: item }], fonts, bodySize, width, FIRST_LINE_INDENT)
+        lines.push({ x: MARGIN, y, size: bodySize, words: [{ text: block.marker, bold: false, width: markerWidth }], justify: false })
         wrapped.forEach((words, index) => {
-          const x = MARGIN + (index === 0 ? 0 : hang)
+          const x = MARGIN + (index === 0 ? FIRST_LINE_INDENT : 0)
           const last = index === wrapped.length - 1
           push({ x, y, size: bodySize, words, justify: !last && words.length > 1 })
         })

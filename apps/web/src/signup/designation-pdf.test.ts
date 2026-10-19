@@ -1,6 +1,6 @@
 import { PDFDocument } from 'pdf-lib'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_DESIGNATION_CONFIG, TODO_GRANTOR_AUTHORISATION, TODO_GRANTOR_EGN, TODO_GRANTOR_NAME } from './designation-config'
+import { DEFAULT_DESIGNATION_CONFIG, TODO_GRANTOR_EGN, TODO_GRANTOR_NAME, TODO_PRINCIPAL_EGN, TODO_PRINCIPAL_NAME } from './designation-config'
 import { renderDesignationPdf } from './designation-pdf'
 import { buildDesignationBlocks, designationPlainText } from './designation-text'
 
@@ -9,7 +9,7 @@ describe('designation PDF', () => {
     const input = {
       number: 1,
       issuedOn: '18.10.2026',
-      grantor: { name: '', egn: '', capacity: 'пълномощник' as const, authorisation: '' },
+      grantor: { name: '', egn: '', capacity: 'пълномощник' as const, authorisation: '', principalName: '', principalEgn: '' },
       person: {
         firstName: 'Иван',
         middleName: 'Петров',
@@ -35,11 +35,11 @@ describe('designation PDF', () => {
     expect(text).toContain('Да бъде ПРЕДСТАВИТЕЛ')
   })
 
-  it('renders TODO placeholders with an empty grantor, empty authorisation and missing section place', async () => {
+  it('renders TODO placeholders with an empty grantor and principal and a missing section place', async () => {
     const input = {
       number: 1,
       issuedOn: '18.10.2026',
-      grantor: { name: '', egn: '', capacity: 'пълномощник' as const, authorisation: '' },
+      grantor: { name: '', egn: '', capacity: 'пълномощник' as const, authorisation: '', principalName: '', principalEgn: '' },
       person: {
         firstName: 'Иван',
         middleName: 'Петров',
@@ -55,9 +55,8 @@ describe('designation PDF', () => {
     const text = designationPlainText(buildDesignationBlocks(input, DEFAULT_DESIGNATION_CONFIG))
     expect(text).toContain(TODO_GRANTOR_NAME)
     expect(text).toContain(TODO_GRANTOR_EGN)
-    expect(text).toContain(TODO_GRANTOR_AUTHORISATION)
-    expect(text).toContain('[TODO: номер]')
-    expect(text).toContain('[TODO: дата]')
+    expect(text).toContain(TODO_PRINCIPAL_NAME)
+    expect(text).toContain(TODO_PRINCIPAL_EGN)
     expect(text).toContain('За информация: назначена секция № 234600001.')
     expect(text).not.toMatch(/секция № 234600001,/)
   })

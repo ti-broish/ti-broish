@@ -125,8 +125,36 @@ describe('csv import', () => {
     const people = parsePeopleCsv('име,презиме,фамилия,имейл,телефон\nИван,Иванов,Иванов,Ivan@Example.com,0888123456\nлош ред,,,\n')
     expect(people.rows).toHaveLength(1)
     expect(people.rows[0]?.email).toBe('ivan@example.com')
+    expect(people.rows[0]?.section).toBe('')
+    expect(people.rows[0]?.country).toBe('')
+    expect(people.rows[0]?.city).toBe('')
     expect(people.errors).toEqual(['Ред 3: имейлът не е валиден.'])
   })
+
+  it('reads optional abroad columns and keeps section as draft data only in the parse result',
+    () => {
+      const people = parsePeopleCsv(
+        'име,фамилия,имейл,държава,град,секция\nМария,Петрова,maria@example.com,Обединено кралство Великобритания и Северна Ирландия,Лондон,320922379\n',
+      )
+      expect(people.errors).toEqual([])
+      expect(people.rows).toHaveLength(1)
+      expect(people.rows[0]).toMatchObject({
+        email: 'maria@example.com',
+        country: 'Обединено кралство Великобритания и Северна Ирландия',
+        city: 'Лондон',
+        section: '320922379',
+        mir: '32',
+      })
+    },
+  )
+
+  it('rejects a malformed section code',
+    () => {
+      const people = parsePeopleCsv('имейл,секция\nok@example.com,32ABC\n')
+      expect(people.rows).toHaveLength(0)
+      expect(people.errors[0]).toContain('секцията трябва да е 9 цифри')
+    },
+  )
 })
 
 describe('normalizeBrevoSms', () => {

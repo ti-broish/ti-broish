@@ -69,6 +69,11 @@ export interface PersonImport {
   place: string
   note: string
   role: string
+  /** Optional 9-digit section; saved as DRAFT only (never published on import). */
+  section: string
+  /** Optional country name; with city sets region_code=32 for Чужбина view. */
+  country: string
+  city: string
 }
 
 const CAMPAIGN_HEADERS = ['email', 'first_name', 'last_name', 'phone', 'mir', 'place', 'published_section', 'role', 'notes', 'call_requested', 'call_message']
@@ -250,16 +255,28 @@ export function parsePeopleCsv(text: string): { rows: PersonImport[]; errors: st
       errors.push(`Ред ${index + 2}: имейлът не е валиден.`)
       return
     }
+    const sectionRaw = pick(row, ['секция', 'section', 'section_code', 'код_секция'])
+    const section = sectionRaw ? normalizeSection(sectionRaw) : ''
+    if (sectionRaw && !/^\d{9}$/.test(section)) {
+      errors.push(`Ред ${index + 2}: секцията трябва да е 9 цифри.`)
+      return
+    }
+    const country = pick(row, ['държава', 'country', 'country_name'])
+    const city = pick(row, ['град', 'city', 'town', 'населено_място'])
+    const mir = pick(row, ['мир', 'mir', 'mir_code']) || (section && mirFromSection(section)) || (country ? '32' : '')
     rows.push({
       firstName: pick(row, ['име', 'first', 'first_name', 'firstname']),
       middleName: pick(row, ['презиме', 'middle', 'middle_name']),
       lastName: pick(row, ['фамилия', 'last', 'last_name', 'lastname']),
       email,
       phone: pick(row, ['телефон', 'phone', 'tel']),
-      mir: pick(row, ['мир', 'mir', 'mir_code']),
-      place: pick(row, ['място', 'place', 'адрес']),
+      mir,
+      place: pick(row, ['място', 'place', 'адрес']) || city,
       note: pick(row, ['бележка', 'note', 'notes']),
       role: pick(row, ['роля', 'role']),
+      section,
+      country,
+      city,
     })
   })
   return { rows, errors }

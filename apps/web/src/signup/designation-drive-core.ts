@@ -1,3 +1,5 @@
+import { DEFAULT_BREVO_DESIGNATION_ATTRIBUTE } from './designation-config'
+
 export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -160,7 +162,7 @@ export async function probeDesignationDriveHealth(
   const folderId = designationDriveFolderId(env)
   const folderIdSource = designationDriveFolderSource(env)
   const brevoKey = Boolean((env.BREVO_API_KEY ?? '').trim())
-  const brevoAttribute = (env.BREVO_DESIGNATION_ATTRIBUTE ?? '').trim() || 'PALNOMOSHTNO_URL'
+  const brevoAttribute = (env.BREVO_DESIGNATION_ATTRIBUTE ?? '').trim() || DEFAULT_BREVO_DESIGNATION_ATTRIBUTE
   const listRaw = (env.BREVO_LIST_ID ?? '').trim()
   const brevoListId = /^\d+$/.test(listRaw) ? Number(listRaw) : null
   const health: DesignationDriveHealth = {

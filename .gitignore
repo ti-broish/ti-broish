@@ -11,3 +11,5 @@ apps/web/playwright-report/
 !apps/web/public/oznachenie-predstavitel.pdf
 # Tinos faces for the representative power of attorney (a global ignore skips *.ttf).
 !apps/web/src/signup/fonts/*.ttf
+# Synthetic abroad priority sample (a global ignore skips *.csv).
+!apps/web/src/signup/fixtures/abroad-priority-sample.csv

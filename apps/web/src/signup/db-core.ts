@@ -102,6 +102,23 @@ CREATE TABLE IF NOT EXISTS taken_sections (
   created_at TEXT NOT NULL
 )`
 
+/** Abroad coverage from Yana's priority workbook — counts only, no personal data. Re-upload replaces rows. */
+const ABROAD_PRIORITY = `
+CREATE TABLE IF NOT EXISTS abroad_priority_sections (
+  section_code TEXT PRIMARY KEY,
+  country TEXT NOT NULL,
+  city TEXT NOT NULL,
+  place_label TEXT NOT NULL DEFAULT '',
+  members INTEGER NOT NULL DEFAULT 0,
+  tier TEXT NOT NULL,
+  tier_letter TEXT NOT NULL,
+  ppdb_seats INTEGER NOT NULL DEFAULT 0,
+  da_seats INTEGER NOT NULL DEFAULT 0,
+  ppdb_seats_without_nominee INTEGER NOT NULL DEFAULT 0,
+  party_seats_allocated_in_file INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+)`
+
 const STAFF = `
 CREATE TABLE IF NOT EXISTS staff (
   email TEXT PRIMARY KEY,
@@ -129,6 +146,9 @@ const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_companions_signup ON companions(signup_id)',
   'CREATE INDEX IF NOT EXISTS idx_taken_mir ON taken_sections(mir_code)',
   'CREATE INDEX IF NOT EXISTS idx_signups_staff_called ON signups(staff_called_at)',
+  'CREATE INDEX IF NOT EXISTS idx_abroad_priority_country ON abroad_priority_sections(country)',
+  'CREATE INDEX IF NOT EXISTS idx_abroad_priority_city ON abroad_priority_sections(city)',
+  'CREATE INDEX IF NOT EXISTS idx_abroad_priority_tier ON abroad_priority_sections(tier_letter)',
 ]
 
 export interface SignupRow {
@@ -175,6 +195,7 @@ export async function signupDatabase() {
   await db.prepare(COMPANIONS).run()
   await migrateCompanionColumns(db)
   await db.prepare(TAKEN).run()
+  await db.prepare(ABROAD_PRIORITY).run()
   await db.prepare(STAFF).run()
   await db.prepare(AUDIT).run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_signup_audit_signup ON signup_audit(signup_id, created_at)').run()

@@ -351,7 +351,7 @@ function PalnomoshtniPage() {
                   <tr key={row.id} className="border-b border-[#e7dce9]">
                     <td className="px-2 py-2">{row.number ?? '—'}</td>
                     <td className="px-2 py-2 font-bold">{row.name}</td>
-                    <td className="px-2 py-2">{row.section}</td>
+                    <td className="px-2 py-2 font-mono text-xs">{row.section}</td>
                     <td className="px-2 py-2">{row.mir}</td>
                     <td className="px-2 py-2">{formatWhen(row.generatedAt)}</td>
                     <td className="px-2 py-2">

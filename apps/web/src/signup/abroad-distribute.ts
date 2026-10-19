@@ -21,8 +21,13 @@ export interface AbroadDistributeSection {
   city: string
   placeLabel: string
   tierLetter: AbroadTierLetter
-  /** Remaining open seats for volunteers; if unknown use 1 */
+  /**
+   * Volunteer slots in this run. One person per section: a second draft on the same
+   * section is a `duplicate` that blocks publish (see validateAssignment).
+   */
   capacity: number
+  /** Empty ПП-ДБ commission seats; ranks sections within a tier (more gaps first). */
+  emptyPpdbSeats?: number
 }
 
 export interface AbroadDraftAssignment {
@@ -70,7 +75,7 @@ export function distributeAbroad(input: {
     if (!id || !/^32\d{7}$/.test(id)) continue
     if (byId.has(id)) continue
     byId.set(id, { ...section, id })
-    remaining.set(id, Math.max(0, Math.floor(section.capacity)))
+    remaining.set(id, Math.min(1, Math.max(0, Math.floor(section.capacity))))
   }
 
   const assignments: AbroadDraftAssignment[] = []
@@ -104,11 +109,14 @@ export function distributeAbroad(input: {
 
     const free = matched
       .filter((section) => !blocked.has(section.id) && (remaining.get(section.id) ?? 0) > 0)
-      .sort((a, b) =>
-        compareAbroadSections(
-          { tierLetter: a.tierLetter, sectionCode: a.id },
-          { tierLetter: b.tierLetter, sectionCode: b.id },
-        ),
+      .sort(
+        (a, b) =>
+          TIER_RANK[a.tierLetter] - TIER_RANK[b.tierLetter] ||
+          (b.emptyPpdbSeats ?? 0) - (a.emptyPpdbSeats ?? 0) ||
+          compareAbroadSections(
+            { tierLetter: a.tierLetter, sectionCode: a.id },
+            { tierLetter: b.tierLetter, sectionCode: b.id },
+          ),
       )
 
     const pick = free[0]
@@ -163,7 +171,7 @@ export function scoreAbroadSuggestions(
       score -= 15
     }
 
-    if (section.capacity > 0) score += Math.min(section.capacity, 5)
+    score += Math.min(section.emptyPpdbSeats ?? 0, 5)
 
     scored.push({
       id,

@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers'
 import { BrevoApiError, readBrevoConfig } from './brevo'
 import {
   fetchBrevoAttributeNames,
+  pushDesignationLink,
   syncDesignationLinks,
   type DesignationBrevoContact,
   type DesignationBrevoResult,
@@ -253,7 +254,7 @@ async function brevoAttributeNote(bag: Record<string, string | undefined>, attri
 }
 
 /** People per Brevo resync call; each costs one or two Brevo subrequests. */
-export const DESIGNATION_BREVO_PAGE = 300
+export const DESIGNATION_BREVO_PAGE = 100
 
 export type DesignationSyncInput = { personIds: string[]; allSigned: boolean; offset: number }
 
@@ -309,22 +310,53 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
       results.push(...sync.results)
     } catch (error) {
       const message = errorMessage(error)
-      console.error('designation brevo sync failed', message)
-      return { ok: false as const, attribute, results, nextOffset, message: `Brevo: ${message}` }
+      console.error('designation brevo sync failed', JSON.stringify({ attribute, contacts: contacts.length, message }))
+      return { ok: false as const, attribute, total, results, nextOffset, message: `Brevo: ${message}` }
     }
   }
   const failed = results.filter((row) => !row.ok)
-  if (failed.length > 0) console.warn('designation brevo sync errors', failed.length, failed[0]?.error)
   const updated = results.length - failed.length
+  // Counts only, no emails: shows in Workers Logs whether a sync ran and what Brevo answered.
+  const log = failed.length > 0 ? console.warn : console.info
+  log('designation brevo sync', JSON.stringify({ attribute, updated, failed: failed.length, total, offset: data.offset, firstError: failed[0]?.error ?? null }))
   return {
     ok: failed.length === 0,
     attribute,
     updated,
     failed: failed.length,
+    total,
     results,
     nextOffset,
     message: designationBrevoMessage(attribute, updated, failed),
   }
+}
+
+export type SignedLinkBrevo =
+  | { ok: true; attribute: string; created?: boolean }
+  | { ok: false; attribute: string; skipped?: boolean; error: string }
+
+/**
+ * Right after a signed upload: put the new Drive link on the person's Brevo contact.
+ * The Drive link is already in D1, so a Brevo failure here never fails the upload;
+ * „Синхронизирай с Brevo“ re-sends it later.
+ */
+export async function syncSignedLinkToBrevo(person: { id: string; email: string; url: string }): Promise<SignedLinkBrevo> {
+  const attribute = configFromEnv(workerEnv()).brevoAttribute.trim().toUpperCase()
+  const config = readBrevoConfig()
+  if ('missing' in config) return { ok: false, attribute, skipped: true, error: 'липсва BREVO_API_KEY' }
+  const email = person.email.trim()
+  if (!email) return { ok: false, attribute, error: 'няма имейл' }
+  const result = await pushDesignationLink({
+    apiKey: config.apiKey,
+    listId: config.listId,
+    attribute,
+    contact: { personId: person.id, email, url: person.url },
+  })
+  if (!result.ok) {
+    console.warn('designation upload brevo failed', JSON.stringify({ attribute, error: result.error ?? null }))
+    return { ok: false, attribute, error: result.error ?? 'Brevo повикването се провали.' }
+  }
+  return { ok: true, attribute, created: result.created }
 }
 
 /** One line for the admin page: "Brevo (DOCUMENT_URL): 1 обновени / 0 грешки" plus the distinct reasons. */

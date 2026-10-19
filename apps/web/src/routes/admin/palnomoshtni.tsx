@@ -20,6 +20,14 @@ import {
   type MatchedUpload,
   type SignedUploadMatch,
 } from '../../signup/designation-files'
+import {
+  brevoCountsLine,
+  uploadBrevoCell,
+  uploadBrevoOf,
+  uploadSummary,
+  type BrevoStatus,
+  type UploadBrevo,
+} from '../../signup/designation-brevo-ui'
 
 export const Route = createFileRoute('/admin/palnomoshtni')({
   component: PalnomoshtniPage,
@@ -42,7 +50,8 @@ function PalnomoshtniPage() {
   const [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState<SignedUploadMatch | null>(null)
   const [uploadProgress, setUploadProgress] = useState('')
-  const [brevoSummary, setBrevoSummary] = useState('')
+  const [uploadTone, setUploadTone] = useState<BrevoStatus['tone']>('busy')
+  const [brevoStatus, setBrevoStatus] = useState<BrevoStatus | null>(null)
   const [uploadRows, setUploadRows] = useState<UploadResultRow[]>([])
   const [resyncFailures, setResyncFailures] = useState<string[]>([])
 
@@ -190,7 +199,6 @@ function PalnomoshtniPage() {
               }
               void readIncoming(list).then((files) => {
                 setPreview(matchSignedFiles(expandUploadFiles(files), numberedPeople))
-                setBrevoSummary('')
                 setUploadProgress('')
                 setUploadRows([])
               })
@@ -208,46 +216,38 @@ function PalnomoshtniPage() {
               if (!preview) return
               setBusy(true)
               setMessage('')
-              setBrevoSummary('')
+              setBrevoStatus(null)
               setResyncFailures([])
               setUploadRows([])
+              setUploadTone('busy')
               const matched = preview.matched
+              // Each upload also puts the new Drive link on the Brevo contact (DOCUMENT_URL) on the server.
               void uploadMatched(matched, (line) => setUploadProgress(line))
-                .then(async ({ uploaded, failed }) => {
+                .then(({ uploaded, failed }) => {
                   const rows: UploadResultRow[] = matched.map((row) => {
                     const failure = failed.find((item) => item.row.personId === row.personId)
+                    const done = uploaded.find((item) => item.row.personId === row.personId)
                     return {
                       personId: row.personId,
                       fileName: row.fileName,
                       person: `${row.number} · ${row.name}`,
                       drive: failure ? `грешка: ${failure.error}` : 'качен',
-                      brevo: failure ? '—' : 'чака',
-                      ok: !failure,
+                      brevo: done ? uploadBrevoCell(done.brevo) : '—',
+                      ok: Boolean(done && done.brevo.ok),
                     }
                   })
                   setUploadRows(rows)
-                  const head = `Качени ${uploaded.length} от ${matched.length}`
-                  if (uploaded.length === 0) {
-                    setUploadProgress(`${head}.`)
-                    return
-                  }
-                  const sync = await adminDesignationSyncBrevo({ data: { personIds: uploaded.map((row) => row.personId) } })
-                  const byPerson = new Map(('results' in sync && Array.isArray(sync.results) ? sync.results : []).map((item) => [item.personId, item]))
-                  setUploadRows(
-                    rows.map((row) => {
-                      if (row.brevo !== 'чака') return row
-                      const item = byPerson.get(row.personId)
-                      if (!item) return { ...row, brevo: `грешка: ${sync.message}`, ok: false }
-                      return item.ok
-                        ? { ...row, brevo: item.created ? 'създаден контакт' : 'обновен' }
-                        : { ...row, brevo: `грешка: ${item.error ?? 'неизвестна'}`, ok: false }
-                    }),
+                  const summary = uploadSummary(
+                    matched.length,
+                    uploaded.map((item) => item.brevo),
                   )
-                  setUploadProgress(`${head}; ${sync.message}`)
+                  setUploadTone(summary.tone)
+                  setUploadProgress(summary.text)
                   reload()
                 })
                 .catch((error) => {
-                  setMessage(error instanceof Error ? error.message : 'Качването се провали.')
+                  setUploadTone('error')
+                  setUploadProgress(error instanceof Error ? `Качването се провали: ${error.message}` : 'Качването се провали.')
                 })
                 .finally(() => setBusy(false))
             }}
@@ -257,7 +257,7 @@ function PalnomoshtniPage() {
           {uploadDisabledReason ? <p className="text-sm text-[#8f1d1d]">{uploadDisabledReason}</p> : null}
         </div>
         {uploadProgress ? (
-          <p role="status" className="text-sm font-bold text-[#1a1020]">
+          <p role="status" aria-live="polite" className={`text-sm font-bold ${toneClass(uploadTone)}`}>
             {uploadProgress}
           </p>
         ) : null}
@@ -268,8 +268,10 @@ function PalnomoshtniPage() {
         <h2 id="palnomoshtni-brevo" className="text-lg font-black text-[#1a1020]">
           Синхрон с Brevo
         </h2>
-        <p className="text-sm text-[#333]">След качването на подписаните PDF-и: праща вече качените линкове към Brevo наново.</p>
-        <div className="flex flex-wrap gap-2">
+        <p className="text-sm text-[#333]">
+          Качването вече праща линка към Brevo ({'DOCUMENT_URL'}). Този бутон праща наново всички качени подписани линкове ({signedCount}).
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             className={adminGhost}
@@ -278,22 +280,32 @@ function PalnomoshtniPage() {
             onClick={() => {
               setBusy(true)
               setMessage('')
-              setBrevoSummary('Синхронизираме с Brevo…')
+              setBrevoStatus({ tone: 'busy', text: 'Синхронизираме с Brevo…' })
               setResyncFailures([])
               const names = new Map(people.map((row) => [row.id, `${row.number ?? '—'} · ${row.name}`]))
-              void resyncAllSigned((line) => setBrevoSummary(line))
-                .then(({ summary, failures }) => {
-                  setBrevoSummary(summary)
+              void resyncAllSigned((line) => setBrevoStatus({ tone: 'busy', text: line }))
+                .then(({ summary, failures, ok }) => {
+                  setBrevoStatus({ tone: ok ? 'ok' : 'error', text: summary })
                   setResyncFailures(failures.map((row) => `${names.get(row.personId) ?? row.personId}: ${row.error ?? 'грешка'}`))
                 })
-                .catch((error) => setBrevoSummary(error instanceof Error ? `Brevo: ${error.message}` : 'Brevo синхронът се провали.'))
+                .catch((error) =>
+                  setBrevoStatus({
+                    tone: 'error',
+                    text: error instanceof Error ? `Brevo синхронът се провали: ${error.message}` : 'Brevo синхронът се провали.',
+                  }),
+                )
                 .finally(() => setBusy(false))
             }}
           >
             Синхронизирай с Brevo
           </button>
+          {canExport && signedCount === 0 ? <p className="text-sm text-[#333]">Още няма качени подписани пълномощни.</p> : null}
         </div>
-        {brevoSummary && uploadRows.length === 0 ? <p className="text-sm font-bold text-[#1a1020]">{brevoSummary}</p> : null}
+        {brevoStatus ? (
+          <p role="status" aria-live="polite" aria-label="Резултат от синхрона с Brevo" className={`text-sm font-bold ${toneClass(brevoStatus.tone)}`}>
+            {brevoStatus.text}
+          </p>
+        ) : null}
         {resyncFailures.length > 0 ? (
           <ul aria-label="Грешки при синхрон с Brevo" className="list-disc pl-5 text-sm text-[#8f1d1d]">
             {resyncFailures.slice(0, 50).map((line) => (
@@ -484,36 +496,40 @@ function UploadResults({ rows }: { rows: UploadResultRow[] }) {
 type SyncResponse = Awaited<ReturnType<typeof adminDesignationSyncBrevo>>
 type SyncFailure = { personId: string; error?: string }
 
+function toneClass(tone: BrevoStatus['tone']) {
+  if (tone === 'ok') return 'text-[#1d5f2f]'
+  if (tone === 'error') return 'text-[#8f1d1d]'
+  return 'text-[#1a1020]'
+}
+
 /** Re-send every stored Drive link to Brevo, page by page, without uploading again. */
 async function resyncAllSigned(onProgress: (line: string) => void) {
   let offset: number | null = 0
   let updated = 0
+  let total: number | undefined
   const failures: SyncFailure[] = []
   let attribute = ''
-  let lastMessage = ''
   while (offset !== null) {
     const sync: SyncResponse = await adminDesignationSyncBrevo({ data: { allSigned: true, offset } })
-    lastMessage = sync.message
     if (!('results' in sync) || !Array.isArray(sync.results)) {
-      return { summary: sync.message, failures }
+      return { ok: false, summary: sync.message || 'Brevo синхронът не върна резултат.', failures }
     }
     attribute = 'attribute' in sync && typeof sync.attribute === 'string' ? sync.attribute : attribute
+    if ('total' in sync && typeof sync.total === 'number') total = sync.total
     for (const item of sync.results) {
       if (item.ok) updated += 1
       else failures.push({ personId: item.personId, error: item.error })
     }
-    if (!sync.ok && sync.results.length === 0) return { summary: sync.message, failures }
+    if (!sync.ok && sync.results.length === 0) return { ok: false, summary: sync.message, failures }
     offset = 'nextOffset' in sync && typeof sync.nextOffset === 'number' ? sync.nextOffset : null
-    if (offset !== null) onProgress(`Синхронизираме с Brevo… ${updated + failures.length} готови`)
+    if (offset !== null) onProgress(`Синхронизираме с Brevo… ${updated + failures.length}${total ? ` от ${total}` : ''} готови`)
   }
-  if (!attribute) return { summary: lastMessage, failures }
-  const reasons = [...new Set(failures.map((row) => row.error ?? 'грешка'))].slice(0, 3)
-  const summary = `Brevo (${attribute}): ${updated} обновени / ${failures.length} грешки${reasons.length ? `: ${reasons.join('; ')}` : '.'}`
-  return { summary, failures }
+  const summary = brevoCountsLine(attribute, updated, failures.map((row) => row.error ?? 'грешка'), total)
+  return { ok: failures.length === 0, summary, failures }
 }
 
 async function uploadMatched(rows: MatchedUpload[], onProgress: (line: string) => void) {
-  const uploaded: MatchedUpload[] = []
+  const uploaded: Array<{ row: MatchedUpload; brevo: UploadBrevo }> = []
   const failed: Array<{ row: MatchedUpload; error: string }> = []
   let index = 0
   const workers = Array.from({ length: Math.min(3, rows.length) }, async () => {
@@ -531,7 +547,7 @@ async function uploadMatched(rows: MatchedUpload[], onProgress: (line: string) =
         })
         const json = (await response.json().catch(() => ({}))) as { ok?: boolean; message?: string }
         if (!response.ok || !json.ok) throw new Error(json.message || `Качването на ${row.fileName} се провали.`)
-        uploaded.push(row)
+        uploaded.push({ row, brevo: uploadBrevoOf(json) })
       } catch (error) {
         failed.push({ row, error: error instanceof Error ? error.message : 'неизвестна грешка' })
       }

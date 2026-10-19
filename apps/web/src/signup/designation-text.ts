@@ -1,5 +1,4 @@
 import {
-  RIGHTS_BULLET,
   REPRESENTATIVE_RIGHTS,
   TODO_GRANTOR_EGN,
   TODO_GRANTOR_NAME,
@@ -15,6 +14,7 @@ import {
   type DesignationConfig,
   type DesignationGrantorFields,
 } from './designation-config'
+import { formatNumberWithDate } from './designation-number'
 
 export type DesignationGrantor = DesignationGrantorFields
 
@@ -34,17 +34,33 @@ export interface DesignationRenderInput {
   person: DesignationPersonInput
 }
 
-export type TextRun = { text: string; bold?: boolean }
+/** `sans` is Calibri in the template (Carlito here), at 14 pt; everything else is Times New Roman 12 pt. */
+export type TextRun = { text: string; bold?: boolean; sans?: boolean }
 
+/**
+ * Layout follows the committee's .docx (all lengths in pt, from twips / 20):
+ * paragraph spacing before, alignment, first-line and left indents, and the
+ * list items' marker and text positions.
+ */
 export type DesignationBlock =
-  | { type: 'title'; text: string }
-  | { type: 'center'; text: string; bold?: boolean }
-  | { type: 'paragraph'; runs: TextRun[]; firstLineIndent?: boolean }
-  | { type: 'left'; runs: TextRun[] }
-  | { type: 'bullets'; marker: string; items: string[] }
-  | { type: 'spacer' }
-  | { type: 'signature'; grantorName: string }
-  | { type: 'info'; text: string }
+  | { type: 'title'; text: string; numberLine: string; spaceBefore: number }
+  | {
+      type: 'paragraph'
+      runs: TextRun[]
+      align: 'justify' | 'center'
+      spaceBefore: number
+      indentLeft?: number
+      firstLineIndent?: number
+    }
+  | { type: 'bullet'; marker: string; text: string; markerAt: number; textAt: number }
+  | { type: 'blank'; spaceBefore: number }
+
+/** Template paragraph spacing: w:before="276" (13.8 pt) on most paragraphs. */
+export const SPACE_BEFORE = 13.8
+/** w:ind w:left="23": body paragraphs sit 1.15 pt in from the margin. */
+export const BODY_INDENT = 1.15
+/** w:firstLine="705" on the mandate paragraph. */
+export const MANDATE_FIRST_LINE = 35.25
 
 export function personFullName(person: Pick<DesignationPersonInput, 'firstName' | 'middleName' | 'lastName'>) {
   const name = [person.firstName, person.middleName, person.lastName].map((part) => part.trim()).filter(Boolean).join(' ')
@@ -56,7 +72,7 @@ export function visibleOrTodo(value: string, todo: string) {
   return trimmed || todo
 }
 
-/** Optional clause about the grantor's own authorisation; the current template has none. */
+/** Optional clause about the grantor's own authorisation; the template has none. */
 export function grantorAuthorisationClause(grantor: DesignationGrantor) {
   if (grantor.capacity !== 'пълномощник') return ''
   const clause = grantor.authorisation.trim().replace(/^[,\s]+/, '').replace(/[.\s]+$/, '')
@@ -81,22 +97,17 @@ export function termParagraph(config: DesignationConfig) {
   return `Настоящото пълномощно се издава със срок до ${formatBgDate(config.validUntil)} г. и следва да се тълкува разширително в полза на упълномощеното лице.`
 }
 
-export function sectionInfoLine(person: DesignationPersonInput) {
-  const code = person.sectionCode.trim() || '—'
-  const place = person.sectionPlace.trim()
-  return place ? `За информация: назначена секция № ${code}, ${place}.` : `За информация: назначена секция № ${code}.`
-}
-
+/** The template's opening paragraph, which ends on „(ИК)“ with no full stop. */
 export function grantorOpening(grantor: DesignationGrantor, config: DesignationConfig) {
   const name = visibleOrTodo(grantor.name, TODO_GRANTOR_NAME)
   const egn = visibleOrTodo(grantor.egn, TODO_GRANTOR_EGN)
   const committee = `${committeeWithRegistration(config)} (ИК)`
   if (grantor.capacity === 'представляващ') {
-    return `Подписаният ${name}, ЕГН ${egn}, в качеството ми на представляващ самостоятелно ${committee}.`
+    return `Подписаният ${name}, ЕГН ${egn}, в качеството ми на представляващ самостоятелно ${committee}`
   }
   const principalName = visibleOrTodo(grantor.principalName, TODO_PRINCIPAL_NAME)
   const principalEgn = visibleOrTodo(grantor.principalEgn, TODO_PRINCIPAL_EGN)
-  return `Подписаният ${name}, ЕГН ${egn}, в качеството ми на пълномощник на ${principalName}, ЕГН ${principalEgn}, в качеството му на представляващ самостоятелно ${committee}${grantorAuthorisationClause(grantor)}.`
+  return `Подписаният ${name}, ЕГН ${egn}, в качеството ми на пълномощник на ${principalName}, ЕГН ${principalEgn}, в качеството му на представляващ самостоятелно ${committee}${grantorAuthorisationClause(grantor)}`
 }
 
 export function displayedNumber(input: DesignationRenderInput, config: DesignationConfig) {
@@ -107,56 +118,68 @@ export function displayedNumber(input: DesignationRenderInput, config: Designati
   return raw || TODO_NUMBER
 }
 
+/** „№   <<Номер с дата>>“ → „№   501/19.10.2026“ (the three spaces are the template's). */
+export function numberLine(input: DesignationRenderInput, config: DesignationConfig) {
+  return `№   ${formatNumberWithDate(displayedNumber(input, config), formatBgDate(input.issuedOn))}`
+}
+
+/**
+ * List items as in the template: items 1–3 have the marker at the body indent and a
+ * tab to the 36 pt default tab stop; item 4 („-“) and item 5 („–“) carry their own
+ * hanging indents (w:left 162 and 203 twips).
+ */
+export const RIGHTS_LAYOUT = [
+  { marker: '–', textAt: 36 },
+  { marker: '-', textAt: 36 },
+  { marker: '–', textAt: 36 },
+  { marker: '-', textAt: 8.1 },
+  { marker: '–', textAt: 10.15 },
+] as const
+
 export function buildDesignationBlocks(input: DesignationRenderInput, config: DesignationConfig): DesignationBlock[] {
-  const number = displayedNumber(input, config)
-  const issuedOn = formatBgDate(input.issuedOn)
   const verb = verbForCapacity(input.grantor.capacity)
   const fullName = personFullName(input.person)
   const egn = visibleOrTodo(input.person.egn, TODO_PERSON_EGN)
-  const grantorName = visibleOrTodo(input.grantor.name, TODO_GRANTOR_NAME)
-  const mandate = rightsMandateParagraph(input.person, config)
-  const territory = territoryParagraph(config)
   const blocks: DesignationBlock[] = [
-    { type: 'title', text: 'П Ъ Л Н О М О Щ Н О' },
-    { type: 'center', text: `№ ${number} / ${issuedOn} г.` },
-    { type: 'spacer' },
-    { type: 'paragraph', runs: [{ text: grantorOpening(input.grantor, config) }] },
-    { type: 'spacer' },
-    { type: 'center', text: `${verb}:` },
-    { type: 'left', runs: [{ text: `${fullName}, ЕГН ${egn}` }] },
-    { type: 'spacer' },
-    { type: 'center', text: 'СЪС СЛЕДНИТЕ ПРАВА:' },
-    { type: 'spacer' },
-    { type: 'paragraph', runs: [{ text: mandate }], firstLineIndent: true },
-    { type: 'spacer' },
-    { type: 'left', runs: [{ text: 'Представителят има право:' }] },
-    { type: 'bullets', marker: RIGHTS_BULLET, items: [...REPRESENTATIVE_RIGHTS] },
-    { type: 'spacer' },
-    { type: 'paragraph', runs: [{ text: territory }] },
-    { type: 'spacer' },
-    { type: 'paragraph', runs: [{ text: termParagraph(config) }] },
-    { type: 'spacer' },
-    { type: 'paragraph', runs: [{ text: config.sealLine }] },
-    { type: 'spacer' },
-    { type: 'signature', grantorName },
+    { type: 'title', text: 'П Ъ Л Н О М О Щ Н О', numberLine: numberLine(input, config), spaceBefore: 3.8 },
+    { type: 'paragraph', runs: [{ text: grantorOpening(input.grantor, config) }], align: 'justify', spaceBefore: SPACE_BEFORE, indentLeft: BODY_INDENT },
+    { type: 'paragraph', runs: [{ text: `${verb}:` }], align: 'center', spaceBefore: SPACE_BEFORE },
+    {
+      type: 'paragraph',
+      runs: [{ text: fullName, sans: true }, { text: ', ЕГН  ' }, { text: egn, sans: true }],
+      align: 'justify',
+      spaceBefore: 0,
+    },
+    { type: 'blank', spaceBefore: 13.75 },
+    { type: 'paragraph', runs: [{ text: 'СЪС СЛЕДНИТЕ ПРАВА:' }], align: 'center', spaceBefore: 0.05 },
+    {
+      type: 'paragraph',
+      runs: [{ text: rightsMandateParagraph(input.person, config) }],
+      align: 'justify',
+      spaceBefore: SPACE_BEFORE,
+      indentLeft: BODY_INDENT,
+      firstLineIndent: MANDATE_FIRST_LINE,
+    },
+    { type: 'paragraph', runs: [{ text: 'Представителят има право:' }], align: 'justify', spaceBefore: SPACE_BEFORE, indentLeft: BODY_INDENT },
+    ...REPRESENTATIVE_RIGHTS.map((text, index): DesignationBlock => {
+      const layout = RIGHTS_LAYOUT[index] ?? RIGHTS_LAYOUT[0]
+      return { type: 'bullet', marker: layout.marker, text, markerAt: BODY_INDENT, textAt: layout.textAt }
+    }),
+    { type: 'paragraph', runs: [{ text: territoryParagraph(config) }], align: 'justify', spaceBefore: SPACE_BEFORE, indentLeft: BODY_INDENT },
+    { type: 'paragraph', runs: [{ text: termParagraph(config) }], align: 'justify', spaceBefore: SPACE_BEFORE, indentLeft: BODY_INDENT },
+    { type: 'paragraph', runs: [{ text: config.sealLine }], align: 'justify', spaceBefore: 13.75, indentLeft: BODY_INDENT },
   ]
-  if (config.includeSectionInfoLine) {
-    blocks.push({ type: 'info', text: sectionInfoLine(input.person) })
-  }
   return blocks
 }
 
+/** One line per template paragraph; list items as „<marker> <text>“. */
 export function designationPlainText(blocks: DesignationBlock[]) {
   const lines: string[] = []
   for (const block of blocks) {
-    if (block.type === 'title' || block.type === 'center' || block.type === 'info') lines.push(block.text)
-    else if (block.type === 'paragraph' || block.type === 'left') lines.push(block.runs.map((run) => run.text).join(''))
-    else if (block.type === 'bullets') lines.push(...block.items.map((item) => `${block.marker} ${item}`))
-    else if (block.type === 'signature') {
-      lines.push('УПЪЛНОМОЩИТЕЛ:')
-      lines.push('........................')
-      lines.push(`/ ${block.grantorName} /`)
-    }
+    if (block.type === 'title') lines.push(`${block.text} ${block.numberLine}`)
+    else if (block.type === 'paragraph') lines.push(block.runs.map((run) => run.text).join(''))
+    else if (block.type === 'bullet') lines.push(`${block.marker} ${block.text}`)
+    else lines.push('')
   }
   return lines.join('\n')
 }

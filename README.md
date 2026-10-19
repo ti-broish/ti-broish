@@ -143,7 +143,8 @@ The wording follows the committee's own пълномощно template. The уп�
 | `DESIGNATION_VALID_UNTIL` | Default `01.11.2026` (as in the template) |
 | `DESIGNATION_SEAL_LINE` | Default `Инициативният комитет не разполага с печат!` |
 | `DESIGNATION_NUMBER_PREFIX` | Optional prefix in front of the sequential integer |
-| `DESIGNATION_SECTION_INFO` | Set to `0` to omit the non-operative section info line |
+
+Numbering: each МИР (first two digits of the section code) has its own consecutive sequence from 501. The PDF prints `№   501/19.10.2026`, the number and the Sofia date it was assigned; both stay fixed. Numbers are assigned with one guarded `UPDATE` per person and a unique index on `(designation_mir, designation_number)`; the schema change is in `apps/web/sql/2026-10-19-designation-number-per-mir.sql` and must be applied to each D1 database by hand.
 
 Service accounts have no My Drive quota. Put the folder on a Shared Drive and add the service account as Editor or Content manager. Option B (manual upload + `--import`) does not need a service account. The Brevo contact attribute `DOCUMENT_URL` (text) must exist before the first sync.
 

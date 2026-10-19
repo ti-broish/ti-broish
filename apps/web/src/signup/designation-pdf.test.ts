@@ -35,7 +35,7 @@ describe('designation PDF', () => {
     expect(text).toContain('Да бъде ПРЕДСТАВИТЕЛ')
   })
 
-  it('renders TODO placeholders with an empty grantor and principal and a missing section place', async () => {
+  it('renders TODO placeholders with an empty grantor and principal', async () => {
     const input = {
       number: 1,
       issuedOn: '18.10.2026',
@@ -57,7 +57,5 @@ describe('designation PDF', () => {
     expect(text).toContain(TODO_GRANTOR_EGN)
     expect(text).toContain(TODO_PRINCIPAL_NAME)
     expect(text).toContain(TODO_PRINCIPAL_EGN)
-    expect(text).toContain('За информация: назначена секция № 234600001.')
-    expect(text).not.toMatch(/секция № 234600001,/)
   })
 })

@@ -1,6 +1,8 @@
 export interface DesignationFontBytes {
   regular: Uint8Array
   bold: Uint8Array
+  /** Carlito (metric-compatible with Calibri), used by the template for the representative's name and ЕГН. */
+  sans: Uint8Array
 }
 
 type FontProvider = () => Promise<DesignationFontBytes>
@@ -24,7 +26,7 @@ async function loadFontsFromFiles(): Promise<DesignationFontBytes> {
   const { readFile } = await import('node:fs/promises')
   const read = async (name: string) =>
     new Uint8Array(await readFile(new URL(/* @vite-ignore */ `./fonts/${name}`, import.meta.url)))
-  return { regular: await read('Tinos-Regular.ttf'), bold: await read('Tinos-Bold.ttf') }
+  return { regular: await read('Tinos-Regular.ttf'), bold: await read('Tinos-Bold.ttf'), sans: await read('Carlito-Regular.ttf') }
 }
 
 export function dataUrlBytes(dataUrl: string) {

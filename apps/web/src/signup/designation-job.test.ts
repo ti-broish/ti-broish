@@ -25,8 +25,8 @@ function memoryData(rows: DesignationPersonRow[], max = 0) {
     async list() {
       return rows
     },
-    async maxNumber() {
-      return max
+    async maxNumbers() {
+      return new Map([['23', max]])
     },
     async save(row) {
       saved.push(row)
@@ -38,9 +38,10 @@ function memoryData(rows: DesignationPersonRow[], max = 0) {
 describe('designation job', () => {
   it('dry-run prints a plan, keeps existing numbers, and writes nothing', async () => {
     const logs: string[] = []
-    const existing = person({ designationNumber: 7, egn: '8001010000' })
+    const existing = person({ designationNumber: 507, designationMir: '23', egn: '8001010000' })
     const fresh = person({ id: 'p2', designationNumber: null, firstName: 'Мария', lastName: 'Георгиева', egn: '8002020000' })
-    const { data, saved } = memoryData([existing, fresh], 7)
+    const elsewhere = person({ id: 'p3', designationNumber: null, sectionCode: '010100001', egn: '8003030000' })
+    const { data, saved } = memoryData([existing, fresh, elsewhere], 507)
     const render = async () => {
       throw new Error('dry-run must not render')
     }
@@ -55,12 +56,13 @@ describe('designation job', () => {
         render,
       },
     )
-    expect(summary.total).toBe(2)
-    expect(summary.generated).toBe(2)
+    expect(summary.total).toBe(3)
+    expect(summary.generated).toBe(3)
     expect(summary.uploaded).toBe(0)
     expect(saved).toEqual([])
-    expect(logs.some((line) => line.includes('№ 7') && line.includes('p1'))).toBe(true)
-    expect(logs.some((line) => line.includes('№ 8') && line.includes('p2'))).toBe(true)
+    expect(logs.some((line) => line.includes('№ 507') && line.includes('p1'))).toBe(true)
+    expect(logs.some((line) => line.includes('№ 508') && line.includes('p2'))).toBe(true)
+    expect(logs.some((line) => line.includes('№ 501') && line.includes('p3'))).toBe(true)
     expect(logs.join('\n')).not.toContain('8001010000')
     expect(logs.join('\n')).not.toContain('8002020000')
   })

@@ -12,16 +12,14 @@ import {
   verbForCapacity,
 } from './designation-config'
 import {
+  RIGHTS_LAYOUT,
   buildDesignationBlocks,
   designationPlainText,
   displayedNumber,
   grantorAuthorisationClause,
   grantorOpening,
+  numberLine,
   personFullName,
-  rightsMandateParagraph,
-  sectionInfoLine,
-  termParagraph,
-  territoryParagraph,
 } from './designation-text'
 
 const person = {
@@ -50,10 +48,54 @@ const dummyGrantor = {
   principalEgn: '2222222222',
 }
 
-const committee =
-  'Инициативен комитет за издигане на кандидатурата на Андрей Атанасов Гюров за президент и Георги Димитров Кандев за вицепрезидент, регистриран за участие в изборите за президент и вицепрезидент на 25 октомври 2026 г. с Решение № 199-ПВР/11.09.2026 г. на ЦИК'
+/**
+ * The committee's template („[Шаблон] … .docx“, Oct 2026), paragraph by paragraph,
+ * with its placeholders filled by dummy data. Only <<Номер с дата>>, <<Имена>>,
+ * <<ЕГН>>, <<МИР Име>> and the signer data differ from the template.
+ */
+const TEMPLATE_WITH_DUMMY_DATA = [
+  'П Ъ Л Н О М О Щ Н О №   501/19.10.2026',
+  'Подписаният Петър Петров Петров, ЕГН 1111111111, в качеството ми на пълномощник на Георги Георгиев Георгиев, ЕГН 2222222222, в качеството му на представляващ самостоятелно Инициативен комитет за издигане на кандидатурата на Андрей Атанасов Гюров за президент и Георги Димитров Кандев за вицепрезидент, регистриран за участие в изборите за президент и вицепрезидент на 25 октомври 2026 г. с Решение № 199-ПВР/11.09.2026 г. на ЦИК (ИК)',
+  'ПРЕУПЪЛНОМОЩАВАМ:',
+  'Иван Петров Иванов, ЕГН  0000000000',
+  '',
+  'СЪС СЛЕДНИТЕ ПРАВА:',
+  'Да бъде ПРЕДСТАВИТЕЛ на Инициативен комитет за издигане на кандидатурата на Андрей Атанасов Гюров за президент и Георги Димитров Кандев за вицепрезидент, регистриран за участие в изборите за президент и вицепрезидент на 25 октомври 2026 г. с Решение № 199-ПВР/11.09.2026 г. на ЦИК в 23 изборен район – София-град.',
+  'Представителят има право:',
+  '– да присъства в изборното помещение при откриването и закриването на изборния ден, по време на гласуването, както и при отварянето на избирателните кутии и при установяване на резултатите от гласуването, като му се осигури пряка видимост, включително чрез видеозаснемане или видеоизлъчване по ред, определен от Централната избирателна комисия;',
+  '- да присъства при въвеждането в районната избирателна комисия на данните от протоколите на СИК с резултатите от гласуването в избирателните секции и при приемане и проверка на протоколите на СИК, като му се осигурява пряка видимост при приемането и проверката на протоколите, включително чрез видеозаснемане или видеоизлъчване по ред, определен от Централната избирателна комисия;',
+  '– да получи срещу подпис, копие от подписания от членовете на СИК протокол с резултатите от гласуването в избирателната секция, подпечатано на всяка страница с печата на комисията и подписано от председателя, заместник-председателя и секретаря;',
+  '- да присъстват на заседанията на избирателните комисии.',
+  '– да подава жалби и сигнали за нарушения на изборния процес.',
+  'Представителят разполага с гореизброените права за всяка от избирателните секции на територията на района, при условие, че носи утвърдения от ЦИК отличителен знак и в съответното изборно помещение не присъства друг упълномощен представител на Инициативния комитет.',
+  'Настоящото пълномощно се издава със срок до 01.11.2026 г. и следва да се тълкува разширително в полза на упълномощеното лице.',
+  'Инициативният комитет не разполага с печат!',
+].join('\n')
 
 describe('designation text', () => {
+  it('matches the committee template word for word, placeholders aside', () => {
+    const text = designationPlainText(
+      buildDesignationBlocks({ number: 501, issuedOn: '19.10.2026', grantor: dummyGrantor, person }, DEFAULT_DESIGNATION_CONFIG),
+    )
+    expect(text).toBe(TEMPLATE_WITH_DUMMY_DATA)
+  })
+
+  it('has no signature block and no section footer', () => {
+    const text = designationPlainText(
+      buildDesignationBlocks({ number: 501, issuedOn: '19.10.2026', grantor: dummyGrantor, person }, DEFAULT_DESIGNATION_CONFIG),
+    )
+    expect(text).not.toContain('УПЪЛНОМОЩИТЕЛ')
+    expect(text).not.toContain('За информация')
+    expect(text).not.toContain('....')
+    expect(text.trimEnd().endsWith('Инициативният комитет не разполага с печат!')).toBe(true)
+  })
+
+  it('renders the number line as „№   501/19.10.2026“', () => {
+    expect(numberLine({ number: 501, issuedOn: '19.10.2026', grantor, person }, DEFAULT_DESIGNATION_CONFIG)).toBe('№   501/19.10.2026')
+    expect(numberLine({ number: 502, issuedOn: '2026-10-20', grantor, person }, DEFAULT_DESIGNATION_CONFIG)).toBe('№   502/20.10.2026')
+    expect(numberLine({ number: null, issuedOn: '19.10.2026', grantor, person }, DEFAULT_DESIGNATION_CONFIG)).toBe('№   [TODO: номер]/19.10.2026')
+  })
+
   it('uses placeholders when grantor and principal fields are empty', () => {
     const text = designationPlainText(
       buildDesignationBlocks({ number: null, issuedOn: '2026-10-18', grantor, person }, DEFAULT_DESIGNATION_CONFIG),
@@ -64,20 +106,6 @@ describe('designation text', () => {
     expect(text).toContain(TODO_PRINCIPAL_EGN)
     expect(text).toContain('[TODO: номер]')
     expect(text).toMatch(/^ПРЕУПЪЛНОМОЩАВАМ:$/m)
-    expect(text).not.toMatch(/^УПЪЛНОМОЩАВАМ:$/m)
-  })
-
-  it('has no TODO placeholders once grantor, principal, number and section are known', () => {
-    const text = designationPlainText(
-      buildDesignationBlocks({ number: 1, issuedOn: '19.10.2026', grantor: dummyGrantor, person }, DEFAULT_DESIGNATION_CONFIG),
-    )
-    expect(text).not.toContain('[TODO')
-  })
-
-  it('words the opening as in the committee template', () => {
-    expect(grantorOpening(dummyGrantor, DEFAULT_DESIGNATION_CONFIG)).toBe(
-      `Подписаният Петър Петров Петров, ЕГН 1111111111, в качеството ми на пълномощник на Георги Георгиев Георгиев, ЕГН 2222222222, в качеството му на представляващ самостоятелно ${committee} (ИК).`,
-    )
   })
 
   it('switches the verb and opening with grantor capacity', () => {
@@ -85,56 +113,37 @@ describe('designation text', () => {
     expect(verbForCapacity('представляващ')).toBe('УПЪЛНОМОЩАВАМ')
     const representative = { ...dummyGrantor, capacity: 'представляващ' as const, authorisation: 'пълномощно № 1' }
     const text = designationPlainText(
-      buildDesignationBlocks({ number: 12, issuedOn: '18.10.2026', grantor: representative, person }, mergeDesignationConfig({ grantorCapacity: 'представляващ' })),
+      buildDesignationBlocks({ number: 512, issuedOn: '18.10.2026', grantor: representative, person }, mergeDesignationConfig({ grantorCapacity: 'представляващ' })),
     )
     expect(text).toMatch(/^УПЪЛНОМОЩАВАМ:$/m)
-    expect(text).toContain(`в качеството ми на представляващ самостоятелно ${committee} (ИК).`)
+    expect(text).toMatch(/в качеството ми на представляващ самостоятелно .* \(ИК\)$/m)
     expect(text).not.toContain('Георги Георгиев Георгиев')
     expect(grantorAuthorisationClause(representative)).toBe('')
   })
 
-  it('adds an optional authorisation clause only when set, for a пълномощник', () => {
+  it('adds an optional authorisation clause only when set, still with no full stop', () => {
     expect(grantorAuthorisationClause(grantor)).toBe('')
     const withAuth = { ...dummyGrantor, authorisation: 'упълномощен с пълномощно № 3 от 01.10.2026 г.' }
-    expect(grantorAuthorisationClause(withAuth)).toBe(', упълномощен с пълномощно № 3 от 01.10.2026 г')
-    expect(grantorOpening(withAuth, DEFAULT_DESIGNATION_CONFIG)).toMatch(/\(ИК\), упълномощен с пълномощно № 3 от 01\.10\.2026 г\.$/)
+    expect(grantorOpening(withAuth, DEFAULT_DESIGNATION_CONFIG)).toMatch(/\(ИК\), упълномощен с пълномощно № 3 от 01\.10\.2026 г$/)
+    expect(grantorOpening(dummyGrantor, DEFAULT_DESIGNATION_CONFIG).endsWith('(ИК)')).toBe(true)
   })
 
-  it('builds the district line and mandate from the section code', () => {
+  it('keeps the template list markers and indents', () => {
+    expect(REPRESENTATIVE_RIGHTS).toHaveLength(5)
+    expect(RIGHTS_LAYOUT.map((item) => item.marker)).toEqual(['–', '-', '–', '-', '–'])
+    expect(RIGHTS_LAYOUT.map((item) => item.textAt)).toEqual([36, 36, 36, 8.1, 10.15])
+  })
+
+  it('builds the district line from the section code', () => {
     expect(districtLineOf('234600001')).toBe('23 изборен район – София-град')
     expect(districtLineOf('320000001')).toBe('32 изборен район – Чужбина')
-    expect(districtLineOf('99')).toBe('99 изборен район')
     expect(districtLineOf('')).toBe('[TODO: изборен район]')
-    expect(rightsMandateParagraph(person, DEFAULT_DESIGNATION_CONFIG)).toBe(
-      `Да бъде ПРЕДСТАВИТЕЛ на ${committee} в 23 изборен район – София-град.`,
-    )
   })
 
-  it('formats dates, the number, validity and territory as in the template', () => {
+  it('formats dates and names', () => {
     expect(formatBgDate('2026-10-18')).toBe('18.10.2026')
-    expect(formatBgDate('18.10.2026')).toBe('18.10.2026')
-    expect(displayedNumber({ number: 4, issuedOn: '', grantor, person }, mergeDesignationConfig({ numberPrefix: 'ИК-' }))).toBe('ИК-4')
+    expect(displayedNumber({ number: 504, issuedOn: '', grantor, person }, DEFAULT_DESIGNATION_CONFIG)).toBe('504')
     expect(personFullName({ firstName: 'Иван', middleName: '', lastName: 'Иванов' })).toBe('Иван Иванов')
-    expect(termParagraph(DEFAULT_DESIGNATION_CONFIG)).toBe(
-      'Настоящото пълномощно се издава със срок до 01.11.2026 г. и следва да се тълкува разширително в полза на упълномощеното лице.',
-    )
-    expect(territoryParagraph(DEFAULT_DESIGNATION_CONFIG)).toBe(
-      'Представителят разполага с гореизброените права за всяка от избирателните секции на територията на района, при условие, че носи утвърдения от ЦИК отличителен знак и в съответното изборно помещение не присъства друг упълномощен представител на Инициативния комитет.',
-    )
-    expect(DEFAULT_DESIGNATION_CONFIG.sealLine).toBe('Инициативният комитет не разполага с печат!')
-    expect(sectionInfoLine(person)).toBe('За информация: назначена секция № 234600001, гр. София, район Младост.')
-  })
-
-  it('lists the five rights from the template with en-dash bullets', () => {
-    expect(REPRESENTATIVE_RIGHTS).toHaveLength(5)
-    const text = designationPlainText(buildDesignationBlocks({ number: 1, issuedOn: '18.10.2026', grantor: dummyGrantor, person }, DEFAULT_DESIGNATION_CONFIG))
-    expect(text).toContain('– да присъства в изборното помещение при откриването и закриването на изборния ден, по време на гласуването,')
-    expect(text).toContain('– да получи срещу подпис, копие от подписания от членовете на СИК протокол')
-    expect(text).toContain('– да присъстват на заседанията на избирателните комисии.')
-    expect(text).toContain('– да подава жалби и сигнали за нарушения на изборния процес.')
-    expect(text).toContain('УПЪЛНОМОЩИТЕЛ:')
-    expect(text).toContain('/ Петър Петров Петров /')
-    expect(text).toContain('За информация: назначена секция № 234600001')
   })
 
   it('reads grantor, principal and config from env without inventing values', () => {
@@ -142,7 +151,6 @@ describe('designation text', () => {
     expect(grantorFromEnv({ DESIGNATION_PRINCIPAL_NAME: ' Г ', DESIGNATION_PRINCIPAL_EGN: ' 2 ' })).toMatchObject({ principalName: 'Г', principalEgn: '2' })
     expect(configFromEnv({}).validUntil).toBe('01.11.2026')
     expect(configFromEnv({ DESIGNATION_VALID_UNTIL: ' 03.11.2026 ' }).validUntil).toBe('03.11.2026')
-    expect(configFromEnv({ DESIGNATION_SECTION_INFO: '0' }).includeSectionInfoLine).toBe(false)
     expect(configFromEnv({ BREVO_DESIGNATION_ATTRIBUTE: 'CUSTOM_URL' }).brevoAttribute).toBe('CUSTOM_URL')
     expect(grantorFromEnv({ DESIGNATION_GRANTOR_CAPACITY: 'представляващ' }).capacity).toBe('представляващ')
   })

@@ -35,7 +35,6 @@ export interface DesignationConfig {
   validUntil: string
   numberPrefix: string
   grantorCapacity: GrantorCapacity
-  includeSectionInfoLine: boolean
   brevoAttribute: string
 }
 
@@ -60,7 +59,6 @@ export const DEFAULT_DESIGNATION_CONFIG: DesignationConfig = {
   validUntil: '01.11.2026',
   numberPrefix: '',
   grantorCapacity: 'пълномощник',
-  includeSectionInfoLine: true,
   brevoAttribute: DEFAULT_BREVO_DESIGNATION_ATTRIBUTE,
 }
 
@@ -102,7 +100,7 @@ export const ELECTION_DISTRICTS: Record<string, string> = {
 
 /**
  * Rights exactly as worded in the committee's пълномощно template (Oct 2026),
- * rendered as an en-dash list under "Представителят има право:".
+ * listed under "Представителят има право:" (markers and indents: RIGHTS_LAYOUT).
  */
 export const REPRESENTATIVE_RIGHTS = [
   'да присъства в изборното помещение при откриването и закриването на изборния ден, по време на гласуването, както и при отварянето на избирателните кутии и при установяване на резултатите от гласуването, като му се осигури пряка видимост, включително чрез видеозаснемане или видеоизлъчване по ред, определен от Централната избирателна комисия;',
@@ -112,7 +110,6 @@ export const REPRESENTATIVE_RIGHTS = [
   'да подава жалби и сигнали за нарушения на изборния процес.',
 ] as const
 
-export const RIGHTS_BULLET = '–'
 
 export const TODO_GRANTOR_NAME = '[TODO: имена на упълномощителя]'
 export const TODO_GRANTOR_EGN = '[TODO: ЕГН на упълномощителя]'
@@ -163,7 +160,6 @@ export function configFromEnv(env: Record<string, string | undefined>): Designat
   if (env.DESIGNATION_VALID_UNTIL?.trim()) overrides.validUntil = env.DESIGNATION_VALID_UNTIL.trim()
   if (env.DESIGNATION_SEAL_LINE?.trim()) overrides.sealLine = env.DESIGNATION_SEAL_LINE.trim()
   if (env.DESIGNATION_GRANTOR_CAPACITY?.trim() === 'представляващ') overrides.grantorCapacity = 'представляващ'
-  if (env.DESIGNATION_SECTION_INFO === '0') overrides.includeSectionInfoLine = false
   if (env.BREVO_DESIGNATION_ATTRIBUTE?.trim()) overrides.brevoAttribute = env.BREVO_DESIGNATION_ATTRIBUTE.trim()
   return mergeDesignationConfig(overrides)
 }

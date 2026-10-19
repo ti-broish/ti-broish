@@ -10,22 +10,31 @@ import {
   type TextRun,
 } from './designation-text'
 
+/** Page geometry from the template's .docx: A4, 1417-twip side margins, 1640-twip top margin. */
 const A4: [number, number] = [595.28, 841.89]
-const MARGIN = 72
+const MARGIN_X = 70.85
+const MARGIN_TOP = 82
+const MIN_BOTTOM = 36
 const BLACK = rgb(0, 0, 0)
 const BODY_SIZE = 12
-const INFO_SIZE = 9
-const FIRST_LINE_INDENT = 36
+const SANS_SIZE = 14
+/** Single line spacing: Times New Roman ≈ 1.149 em, Calibri ≈ 1.221 em. */
+const SERIF_LINE = 1.149
+const SANS_LINE = 1.221
+/** Heading 1 in the template is indented 3196 / 3208 twips, so the number wraps under the title. */
+const TITLE_INDENT_LEFT = 159.8
+const TITLE_INDENT_RIGHT = 160.4
 const TITLE = 'Пълномощно'
 
-type Fonts = { regular: PDFFont; bold: PDFFont }
+type Fonts = { regular: PDFFont; bold: PDFFont; sans: PDFFont }
+type Word = { text: string; font: PDFFont; size: number; width: number; spaceBefore: boolean }
 
 interface DrawnLine {
   x: number
+  /** Baseline. */
   y: number
-  size: number
-  words: Array<{ text: string; bold: boolean; width: number }>
-  justify: boolean
+  words: Word[]
+  justifyTo: number | null
 }
 
 export async function renderDesignationPdf(input: DesignationRenderInput, config: DesignationConfig): Promise<Uint8Array> {
@@ -36,6 +45,7 @@ export async function renderDesignationPdf(input: DesignationRenderInput, config
   const fonts: Fonts = {
     regular: await doc.embedFont(files.regular, { subset: true }),
     bold: await doc.embedFont(files.bold, { subset: true }),
+    sans: await doc.embedFont(files.sans, { subset: true }),
   }
   const page = doc.addPage(A4)
   const number = displayedNumber(input, config)
@@ -44,257 +54,164 @@ export async function renderDesignationPdf(input: DesignationRenderInput, config
   doc.setCreator('Ти Броиш')
   doc.setProducer('Ти Броиш')
   doc.setLanguage('bg')
-  layoutAndDraw(page, fonts, blocks)
+  const lines = layoutBlocks(fonts, blocks)
+  if (Math.min(...lines.map((line) => line.y), A4[1]) < MIN_BOTTOM) {
+    throw new Error('Пълномощното не се побра на една страница.')
+  }
+  for (const line of lines) drawLine(page, line)
   if (doc.getPageCount() !== 1) {
     throw new Error('Пълномощното не се побра на една страница.')
   }
   return doc.save()
 }
 
-function layoutAndDraw(page: PDFPage, fonts: Fonts, blocks: DesignationBlock[]) {
-  const sizes = [BODY_SIZE, 11.5, 11, 10.5, 10]
-  let fitted: DrawnLine[] | null = null
-  for (const size of sizes) {
-    const lines = layoutBlocks(fonts, blocks, size)
-    fitted = lines
-    const minY = Math.min(...lines.map((line) => line.y), A4[1])
-    if (minY >= MARGIN - 1) {
-      for (const line of lines) drawLine(page, fonts, line)
-      return
-    }
-  }
-  if (!fitted || Math.min(...fitted.map((line) => line.y), A4[1]) < 0) {
-    throw new Error('Пълномощното не се побра на една страница.')
-  }
-  for (const line of fitted) drawLine(page, fonts, line)
+function fontOf(run: TextRun, fonts: Fonts) {
+  if (run.sans) return { font: fonts.sans, size: SANS_SIZE }
+  return { font: run.bold ? fonts.bold : fonts.regular, size: BODY_SIZE }
 }
 
-function layoutBlocks(fonts: Fonts, blocks: DesignationBlock[], bodySize: number): DrawnLine[] {
-  const { height } = { height: A4[1] }
-  const width = A4[0] - MARGIN * 2
-  const leading = bodySize * 1.22
-  const paraGap = bodySize * 0.85
-  let y = height - MARGIN - bodySize
-  const lines: DrawnLine[] = []
-  const info = blocks.find((block) => block.type === 'info')
+function lineHeight(words: Word[]) {
+  let height = BODY_SIZE * SERIF_LINE
+  for (const word of words) height = Math.max(height, word.size * (word.size === SANS_SIZE ? SANS_LINE : SERIF_LINE))
+  return height
+}
 
-  const push = (line: DrawnLine) => {
-    lines.push(line)
-    y -= leading
+function layoutBlocks(fonts: Fonts, blocks: DesignationBlock[]): DrawnLine[] {
+  const left = MARGIN_X
+  const right = A4[0] - MARGIN_X
+  /** Top of the next line box. */
+  let top = A4[1] - MARGIN_TOP
+  const lines: DrawnLine[] = []
+
+  const place = (words: Word[], x: number, justifyTo: number | null) => {
+    const height = lineHeight(words)
+    const ascent = height * 0.78
+    lines.push({ x, y: top - ascent, words, justifyTo })
+    top -= height
   }
 
   for (const block of blocks) {
-    if (block.type === 'info') continue
-    if (block.type === 'spacer') {
-      y -= paraGap
+    if (block.type === 'blank') {
+      top -= block.spaceBefore + 11 * SERIF_LINE
       continue
     }
     if (block.type === 'title') {
-      const titleSize = bodySize + 1
-      const titleWidth = fonts.bold.widthOfTextAtSize(block.text, titleSize)
-      push({
-        x: (A4[0] - titleWidth) / 2,
-        y,
-        size: titleSize,
-        words: [{ text: block.text, bold: true, width: titleWidth }],
-        justify: false,
-      })
-      continue
-    }
-    if (block.type === 'center') {
-      const font = block.bold ? fonts.bold : fonts.regular
-      const textWidth = font.widthOfTextAtSize(block.text, bodySize)
-      push({
-        x: (A4[0] - textWidth) / 2,
-        y,
-        size: bodySize,
-        words: [{ text: block.text, bold: Boolean(block.bold), width: textWidth }],
-        justify: false,
-      })
-      continue
-    }
-    if (block.type === 'left') {
-      for (const wrapped of wrapRuns(block.runs, fonts, bodySize, width, 0)) {
-        push({ x: MARGIN, y, size: bodySize, words: wrapped, justify: false })
+      top -= block.spaceBefore
+      const colLeft = left + TITLE_INDENT_LEFT
+      const colRight = right - TITLE_INDENT_RIGHT
+      const center = (colLeft + colRight) / 2
+      for (const [text, font] of [
+        [block.text, fonts.bold],
+        [block.numberLine, fonts.regular],
+      ] as const) {
+        const width = font.widthOfTextAtSize(text, BODY_SIZE)
+        place([{ text, font, size: BODY_SIZE, width, spaceBefore: false }], center - width / 2, null)
       }
       continue
     }
-    if (block.type === 'paragraph') {
-      const indent = block.firstLineIndent ? FIRST_LINE_INDENT : 0
-      const wrapped = wrapRuns(block.runs, fonts, bodySize, width, indent)
+    if (block.type === 'bullet') {
+      const markerWidth = fonts.regular.widthOfTextAtSize(block.marker, BODY_SIZE)
+      const textX = left + Math.max(block.textAt, block.markerAt + markerWidth)
+      const wrapped = wrapRuns([{ text: block.text }], fonts, right - textX, right - left)
       wrapped.forEach((words, index) => {
-        const x = MARGIN + (index === 0 ? indent : 0)
         const last = index === wrapped.length - 1
-        push({ x, y, size: bodySize, words, justify: !last && words.length > 1 })
+        if (index === 0) {
+          lines.push({
+            x: left + block.markerAt,
+            y: top - lineHeight(words) * 0.78,
+            words: [{ text: block.marker, font: fonts.regular, size: BODY_SIZE, width: markerWidth, spaceBefore: false }],
+            justifyTo: null,
+          })
+        }
+        place(words, index === 0 ? textX : left, last ? null : right)
       })
       continue
     }
-    if (block.type === 'bullets') {
-      // Template: dash at the margin, a tab to the first-line indent, continuation lines back at the margin.
-      const markerWidth = fonts.regular.widthOfTextAtSize(block.marker, bodySize)
-      for (const item of block.items) {
-        const wrapped = wrapRuns([{ text: item }], fonts, bodySize, width, FIRST_LINE_INDENT)
-        lines.push({ x: MARGIN, y, size: bodySize, words: [{ text: block.marker, bold: false, width: markerWidth }], justify: false })
-        wrapped.forEach((words, index) => {
-          const x = MARGIN + (index === 0 ? FIRST_LINE_INDENT : 0)
-          const last = index === wrapped.length - 1
-          push({ x, y, size: bodySize, words, justify: !last && words.length > 1 })
-        })
-      }
+    top -= block.spaceBefore
+    const indentLeft = block.indentLeft ?? 0
+    const firstLine = block.firstLineIndent ?? 0
+    const lineLeft = left + indentLeft
+    if (block.align === 'center') {
+      const words = toWords(block.runs, fonts)
+      const width = rowWidth(words)
+      place(words, (left + right) / 2 - width / 2, null)
       continue
     }
-    if (block.type === 'signature') {
-      y -= leading * 0.4
-      const heading = 'УПЪЛНОМОЩИТЕЛ:'
-      const headingWidth = fonts.regular.widthOfTextAtSize(heading, bodySize)
-      push({
-        x: (A4[0] - headingWidth) / 2,
-        y,
-        size: bodySize,
-        words: [{ text: heading, bold: false, width: headingWidth }],
-        justify: false,
-      })
-      y -= leading * 1.6
-      const dots = '........................'
-      const dotsWidth = fonts.regular.widthOfTextAtSize(dots, bodySize)
-      push({
-        x: (A4[0] - dotsWidth) / 2,
-        y,
-        size: bodySize,
-        words: [{ text: dots, bold: false, width: dotsWidth }],
-        justify: false,
-      })
-      const signed = `/ ${block.grantorName} /`
-      const signedWidth = fonts.regular.widthOfTextAtSize(signed, bodySize)
-      push({
-        x: (A4[0] - signedWidth) / 2,
-        y,
-        size: bodySize,
-        words: [{ text: signed, bold: false, width: signedWidth }],
-        justify: false,
-      })
-    }
-  }
-
-  if (info && info.type === 'info') {
-    const infoWidth = A4[0] - MARGIN * 2
-    const wrapped = wrapRuns([{ text: info.text }], fonts, INFO_SIZE, infoWidth, 0)
-    let infoY = MARGIN - 4 + wrapped.length * (INFO_SIZE * 1.25)
-    infoY = Math.min(infoY, y - leading)
-    lines.push({
-      x: MARGIN,
-      y: infoY + INFO_SIZE * 1.6,
-      size: INFO_SIZE,
-      words: [{ text: '—', bold: false, width: fonts.regular.widthOfTextAtSize('—', INFO_SIZE) }],
-      justify: false,
-    })
-    wrapped.forEach((words) => {
-      lines.push({ x: MARGIN, y: infoY, size: INFO_SIZE, words, justify: false })
-      infoY -= INFO_SIZE * 1.25
+    const wrapped = wrapRuns(block.runs, fonts, right - lineLeft - firstLine, right - lineLeft)
+    wrapped.forEach((words, index) => {
+      const last = index === wrapped.length - 1
+      place(words, lineLeft + (index === 0 ? firstLine : 0), last ? null : right)
     })
   }
   return lines
 }
 
-function wrapRuns(runs: TextRun[], fonts: Fonts, size: number, maxWidth: number, firstLineIndent: number) {
-  const tokens = tokenize(runs)
-  const space = fonts.regular.widthOfTextAtSize(' ', size)
-  const lines: Array<Array<{ text: string; bold: boolean; width: number }>> = []
-  let current: Array<{ text: string; bold: boolean; width: number }> = []
-  let used = 0
-  let lineWidth = maxWidth - firstLineIndent
-
-  const commit = () => {
-    if (current.length === 0) return
-    lines.push(current)
-    current = []
-    used = 0
-    lineWidth = maxWidth
-  }
-
-  for (const token of tokens) {
-    const font = token.bold ? fonts.bold : fonts.regular
-    let width = font.widthOfTextAtSize(token.text, size)
-    if (width > lineWidth && token.text.length > 1) {
-      if (current.length) commit()
-      const pieces = breakLong(token.text, font, size, lineWidth)
-      for (let i = 0; i < pieces.length; i++) {
-        const pieceWidth = font.widthOfTextAtSize(pieces[i] ?? '', size)
-        current.push({ text: pieces[i] ?? '', bold: token.bold, width: pieceWidth })
-        used = pieceWidth
-        if (i < pieces.length - 1) commit()
-      }
-      continue
-    }
-    const extra = current.length === 0 || isPunct(token.text) ? width : space + width
-    if (current.length > 0 && used + extra > lineWidth + 0.5) {
-      commit()
-      current.push({ text: token.text, bold: token.bold, width })
-      used = width
-      continue
-    }
-    current.push({ text: token.text, bold: token.bold, width })
-    used += extra
-  }
-  commit()
-  return lines
-}
-
-function breakLong(text: string, font: PDFFont, size: number, maxWidth: number) {
-  const pieces: string[] = []
-  let rest = text
-  while (rest.length > 0) {
-    if (font.widthOfTextAtSize(rest, size) <= maxWidth) {
-      pieces.push(rest)
-      break
-    }
-    let cut = rest.length - 1
-    while (cut > 1 && font.widthOfTextAtSize(rest.slice(0, cut), size) > maxWidth) cut -= 1
-    pieces.push(rest.slice(0, cut))
-    rest = rest.slice(cut)
-  }
-  return pieces
-}
-
-function tokenize(runs: TextRun[]) {
-  const tokens: Array<{ text: string; bold: boolean }> = []
+/** Words keep their exact spacing: a run boundary or a space before a word is recorded, runs of spaces are kept. */
+function toWords(runs: TextRun[], fonts: Fonts): Word[] {
+  const words: Word[] = []
+  let pendingSpaces = 0
   for (const run of runs) {
-    const parts = run.text.split(/(\s+)/)
-    for (const part of parts) {
-      if (!part || /^\s+$/.test(part)) continue
-      tokens.push({ text: part, bold: Boolean(run.bold) })
+    const { font, size } = fontOf(run, fonts)
+    for (const part of run.text.split(/( +)/)) {
+      if (!part) continue
+      if (/^ +$/.test(part)) {
+        pendingSpaces += part.length
+        continue
+      }
+      if (pendingSpaces > 1 && words.length > 0) {
+        // Extra spaces (e.g. „ЕГН  “) are drawn as part of the gap.
+        words[words.length - 1] = { ...words[words.length - 1]!, text: words[words.length - 1]!.text + ' '.repeat(pendingSpaces - 1) }
+        const prev = words[words.length - 1]!
+        prev.width = prev.font.widthOfTextAtSize(prev.text, prev.size)
+      }
+      words.push({ text: part, font, size, width: font.widthOfTextAtSize(part, size), spaceBefore: pendingSpaces > 0 && words.length > 0 })
+      pendingSpaces = 0
     }
   }
-  return tokens
+  return words
 }
 
-function isPunct(text: string) {
-  return /^[.,;:!?)]/.test(text)
+function spaceWidth(word: Word) {
+  return word.font.widthOfTextAtSize(' ', word.size)
 }
 
-function drawLine(page: PDFPage, fonts: Fonts, line: DrawnLine) {
+function rowWidth(words: Word[]) {
+  return words.reduce((sum, word, index) => sum + word.width + (index > 0 && word.spaceBefore ? spaceWidth(word) : 0), 0)
+}
+
+function wrapRuns(runs: TextRun[], fonts: Fonts, firstWidth: number, restWidth: number) {
+  const words = toWords(runs, fonts)
+  const lines: Word[][] = []
+  let current: Word[] = []
+  let used = 0
+  let limit = firstWidth
+  for (const word of words) {
+    const extra = current.length > 0 && word.spaceBefore ? spaceWidth(word) : 0
+    if (current.length > 0 && used + extra + word.width > limit + 0.01) {
+      lines.push(current)
+      current = [{ ...word, spaceBefore: false }]
+      used = word.width
+      limit = restWidth
+      continue
+    }
+    current.push(current.length === 0 ? { ...word, spaceBefore: false } : word)
+    used += extra + word.width
+  }
+  if (current.length) lines.push(current)
+  return lines
+}
+
+function drawLine(page: PDFPage, line: DrawnLine) {
   if (line.words.length === 0) return
-  const space = fonts.regular.widthOfTextAtSize(' ', line.size)
-  const wordWidth = line.words.reduce((sum, word) => sum + word.width, 0)
-  const spaceSlots = line.words.filter((_, index) => index < line.words.length - 1 && !isPunct(line.words[index + 1]?.text ?? '')).length
-  let gap = space
-  if (line.justify && spaceSlots > 0) {
-    const maxWidth = line.x === MARGIN + FIRST_LINE_INDENT ? A4[0] - MARGIN - (MARGIN + FIRST_LINE_INDENT) : A4[0] - MARGIN - line.x
-    const raw = (maxWidth - wordWidth) / spaceSlots
-    gap = Math.min(space * 2.1, Math.max(space * 0.85, raw))
+  const slots = line.words.filter((word, index) => index > 0 && word.spaceBefore).length
+  let stretch = 0
+  if (line.justifyTo != null && slots > 0) {
+    stretch = Math.max(0, (line.justifyTo - line.x - rowWidth(line.words)) / slots)
   }
   let x = line.x
-  for (let i = 0; i < line.words.length; i++) {
-    const word = line.words[i]
-    if (!word) continue
-    page.drawText(word.text, {
-      x,
-      y: line.y,
-      size: line.size,
-      font: word.bold ? fonts.bold : fonts.regular,
-      color: BLACK,
-    })
+  line.words.forEach((word, index) => {
+    if (index > 0 && word.spaceBefore) x += spaceWidth(word) + stretch
+    page.drawText(word.text, { x, y: line.y, size: word.size, font: word.font, color: BLACK })
     x += word.width
-    if (i < line.words.length - 1 && !isPunct(line.words[i + 1]?.text ?? '')) x += gap
-  }
+  })
 }

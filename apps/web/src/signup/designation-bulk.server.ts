@@ -22,7 +22,7 @@ import {
   type DesignationMirOption,
   type DesignationPersonView,
 } from './designation-files'
-import { parseStoredNumber, planDesignationNumbering } from './designation-number'
+import { DESIGNATION_ASSIGN_SQL, designationMirOf, parseStoredNumber } from './designation-number'
 import { runSqlBatches } from './designation-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
@@ -192,32 +192,34 @@ export async function handleDesignationNumber() {
   const access = await gateDesignation('exportCampaign')
   if (!access.ok) return access
   const listed = await listPublished(access.db)
-  const maxRow = await access.db.prepare('SELECT MAX(designation_number) AS n FROM signups').first<{ n: number | string | null }>()
-  const existingMax = parseStoredNumber(maxRow?.n) ?? 0
   const issuedOn = todayInSofia()
-  const plan = planDesignationNumbering(
-    listed.map((row) => ({
-      id: row.id,
-      publishedSection: row.section,
-      createdAt: row.createdAt,
-      number: row.number,
-      issuedAt: row.issuedAt,
-    })),
-    existingMax,
-    issuedOn,
-  )
   const now = new Date().toISOString()
-  const statements = plan.updates.map((row) =>
-    access.db
-      .prepare('UPDATE signups SET designation_number = ?, designation_issued_at = ?, updated_at = ? WHERE id = ?')
-      .bind(row.number, row.issuedAt, now, row.id),
+  const ordered = [...listed].sort((a, b) => {
+    const section = a.section.localeCompare(b.section)
+    if (section) return section
+    const created = a.createdAt.localeCompare(b.createdAt)
+    if (created) return created
+    return a.id.localeCompare(b.id)
+  })
+  // Per-МИР MAX+1 from 501 inside each UPDATE, so concurrent runs cannot collide.
+  const toAssign = ordered.filter((row) => row.number == null && designationMirOf(row.section))
+  const assignStatements = toAssign.map((row) =>
+    access.db.prepare(DESIGNATION_ASSIGN_SQL).bind(designationMirOf(row.section), issuedOn, now, row.id),
   )
-  await runSqlBatches(access.db, statements)
+  const dateStatements = ordered
+    .filter((row) => row.number != null && !row.issuedAt)
+    .map((row) =>
+      access.db
+        .prepare('UPDATE signups SET designation_issued_at = ?, updated_at = ? WHERE id = ? AND designation_issued_at IS NULL')
+        .bind(issuedOn, now, row.id),
+    )
+  await runSqlBatches(access.db, [...assignStatements, ...dateStatements])
+  const assigned = toAssign.length
   return {
     ok: true as const,
-    assigned: plan.assigned,
-    updated: plan.updates.length,
-    message: plan.assigned === 0 ? 'Всички с публикувана секция вече имат номер.' : `Номерирани ${plan.assigned} души.`,
+    assigned,
+    updated: assigned + dateStatements.length,
+    message: assigned === 0 ? 'Всички с публикувана секция вече имат номер.' : `Номерирани ${assigned} души.`,
   }
 }
 

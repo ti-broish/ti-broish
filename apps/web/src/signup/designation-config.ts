@@ -36,6 +36,9 @@ export interface DesignationConfig {
   brevoAttribute: string
 }
 
+/** Brevo contact attribute that holds the signed пълномощно Drive link. Override with BREVO_DESIGNATION_ATTRIBUTE. */
+export const DEFAULT_BREVO_DESIGNATION_ATTRIBUTE = 'DOCUMENT_URL'
+
 export const DEFAULT_DESIGNATION_CONFIG: DesignationConfig = {
   committeeFullName:
     'Инициативен комитет за издигане на Андрей Атанасов Гюров за независим кандидат за президент и Георги Димитров Кандев за независим кандидат за вицепрезидент на републиката',
@@ -53,7 +56,7 @@ export const DEFAULT_DESIGNATION_CONFIG: DesignationConfig = {
   numberPrefix: '',
   grantorCapacity: 'пълномощник',
   includeSectionInfoLine: true,
-  brevoAttribute: 'PALNOMOSHTNO_URL',
+  brevoAttribute: DEFAULT_BREVO_DESIGNATION_ATTRIBUTE,
 }
 
 /** МИР / изборен район from the first two digits of a 9-digit section code. */

@@ -430,9 +430,42 @@ test.describe('staff admin', () => {
     await expect(page.getByText('няма човек с този номер')).toBeVisible()
     await expect(page.getByText('не е PDF (разширение)')).toBeVisible()
     await page.getByRole('button', { name: 'Качи 1 подписани' }).click()
-    await expect(page.getByText(/Brevo: обновени 1 контакт/)).toBeVisible()
+    await expect(page.getByRole('status')).toHaveText('Качени 1 от 1; Brevo (DOCUMENT_URL): 1 обновени / 0 грешки.')
+    await expect(page.getByRole('table', { name: 'Резултат от качването' }).getByRole('cell', { name: 'обновен', exact: true })).toBeVisible()
     expect(uploads).toEqual(['e2e-ivanov'])
     expect(brevoBody).toContain('e2e-ivanov')
+  })
+
+  test('Пълномощни shows a Brevo sync failure next to the uploaded file', async ({ page }) => {
+    const uploads: string[] = []
+    await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads, brevoFails: true })
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/palnomoshtni')
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    await page.getByLabel('Подписани PDF или ZIP').setInputFiles([
+      { name: '0002_234600102_Ivanov_signed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 test') },
+    ])
+    await page.getByRole('button', { name: 'Качи 1 подписани' }).click()
+    await expect(page.getByRole('status')).toContainText('Качени 1 от 1; Brevo (DOCUMENT_URL): 0 обновени / 1 грешки')
+    const results = page.getByRole('table', { name: 'Резултат от качването' })
+    await expect(results.getByRole('cell', { name: 'качен', exact: true })).toBeVisible()
+    await expect(results.getByRole('cell', { name: 'грешка: В Brevo няма атрибут DOCUMENT_URL.' })).toBeVisible()
+  })
+
+  test('Пълномощни re-syncs stored Drive links to Brevo without uploading', async ({ page }) => {
+    const uploads: string[] = []
+    const brevoCalls: string[] = []
+    await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads, brevoCalls, signed: true })
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/palnomoshtni')
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    await page.getByRole('button', { name: 'Синхронизирай с Brevo' }).click()
+    await expect(page.getByText('Brevo (DOCUMENT_URL): 1 обновени / 1 грешки: Contact does not exist')).toBeVisible()
+    await expect(page.getByRole('list', { name: 'Грешки при синхрон с Brevo' })).toContainText('Contact does not exist')
+    expect(uploads).toEqual([])
+    expect(brevoCalls.some((body) => body.includes('allSigned'))).toBe(true)
   })
 })
 
@@ -473,7 +506,7 @@ const MOCK_PALNOMOSHTNI_PEOPLE = [
 
 async function mockPalnomoshtniServerFns(
   page: Page,
-  opts: { missingHealth: boolean; uploads: string[]; onBrevo?: (body: string) => void },
+  opts: { missingHealth: boolean; uploads: string[]; onBrevo?: (body: string) => void; brevoFails?: boolean; brevoCalls?: string[]; signed?: boolean },
 ) {
   const missingMessage =
     'Липсват GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN. Липсва DESIGNATION_DRIVE_FOLDER_ID (или DRIVE_FOLDER_ID). Качването към Drive е изключено.'
@@ -499,7 +532,9 @@ async function mockPalnomoshtniServerFns(
     if (exported.startsWith('adminDesignationStatus_')) {
       return reply({
         ok: true,
-        counts: { published: 2, numbered: 2, generated: 1, signed: 0, missing: 2 },
+        counts: opts.signed
+          ? { published: 2, numbered: 2, generated: 2, signed: 2, missing: 0 }
+          : { published: 2, numbered: 2, generated: 1, signed: 0, missing: 2 },
         people: MOCK_PALNOMOSHTNI_PEOPLE,
         mirs: [{ code: '23', label: '23 София-град', count: 2 }],
         zipEligible: 2,
@@ -528,7 +563,7 @@ async function mockPalnomoshtniServerFns(
             folderIsFolder: false,
             folderError: 'Липсва DESIGNATION_DRIVE_FOLDER_ID (или DRIVE_FOLDER_ID).',
             brevoKey: false,
-            brevoAttribute: 'PALNOMOSHTNO_URL',
+            brevoAttribute: 'DOCUMENT_URL',
             brevoListId: null,
           },
         })
@@ -536,7 +571,7 @@ async function mockPalnomoshtniServerFns(
       return reply({
         ok: true,
         canUpload: true,
-        message: 'Услуга: служебен акаунт; токенът е получен; папка „ТЕСТ пълномощни“ е достъпна. Brevo: PALNOMOSHTNO_URL, списък 94.',
+        message: 'Услуга: служебен акаунт; токенът е получен; папка „ТЕСТ пълномощни“ е достъпна. Brevo: DOCUMENT_URL, списък 94.',
         health: {
           credentialKind: 'service-account',
           missingSecrets: [],
@@ -548,14 +583,49 @@ async function mockPalnomoshtniServerFns(
           folderIsFolder: true,
           folderError: '',
           brevoKey: true,
-          brevoAttribute: 'PALNOMOSHTNO_URL',
+          brevoAttribute: 'DOCUMENT_URL',
           brevoListId: 94,
         },
       })
     }
     if (exported.startsWith('adminDesignationSyncBrevo_')) {
       opts.onBrevo?.(route.request().postData() ?? '')
-      return reply({ ok: true, sent: 1, rejected: [], pending: [], errors: [], processReports: [], message: 'Brevo: обновени 1 контакт (PALNOMOSHTNO_URL).' })
+      const body = route.request().postData() ?? ''
+      opts.brevoCalls?.push(body)
+      if (body.includes('allSigned')) {
+        return reply({
+          ok: false,
+          attribute: 'DOCUMENT_URL',
+          updated: 1,
+          failed: 1,
+          nextOffset: null,
+          results: [
+            { personId: 'e2e-maria', ok: true },
+            { personId: 'e2e-ivanov', ok: false, error: 'Contact does not exist' },
+          ],
+          message: 'Brevo (DOCUMENT_URL): 1 обновени / 1 грешки: Contact does not exist',
+        })
+      }
+      if (opts.brevoFails) {
+        return reply({
+          ok: false,
+          attribute: 'DOCUMENT_URL',
+          updated: 0,
+          failed: 1,
+          nextOffset: null,
+          results: [{ personId: 'e2e-ivanov', ok: false, error: 'В Brevo няма атрибут DOCUMENT_URL.' }],
+          message: 'Brevo (DOCUMENT_URL): 0 обновени / 1 грешки: В Brevo няма атрибут DOCUMENT_URL.',
+        })
+      }
+      return reply({
+        ok: true,
+        attribute: 'DOCUMENT_URL',
+        updated: 1,
+        failed: 0,
+        nextOffset: null,
+        results: [{ personId: 'e2e-ivanov', ok: true }],
+        message: 'Brevo (DOCUMENT_URL): 1 обновени / 0 грешки.',
+      })
     }
     return route.continue()
   })

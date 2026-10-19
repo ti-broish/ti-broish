@@ -95,7 +95,7 @@ describe('checkBrevoAttributes', () => {
       { name: 'SECTION_ADDRESS', type: 'text' },
       { name: 'SECTION_PLACE', type: 'text' },
       { name: 'SECTION_PUBLISHED', type: 'boolean' },
-      { name: 'PALNOMOSHTNO_URL', type: 'text' },
+      { name: 'DOCUMENT_URL', type: 'text' },
     ]
     expect(checkBrevoAttributes(attrs).ok).toBe(true)
   })
@@ -192,7 +192,7 @@ describe('Brevo attribute shapes as the API returns them', () => {
       { name: 'SECTION_ADDRESS', category: 'normal', type: 'text' },
       { name: 'SECTION_PLACE', category: 'normal', type: 'text' },
       { name: 'SECTION_PUBLISHED', category: 'normal', type: 'boolean' },
-      { name: 'PALNOMOSHTNO_URL', category: 'normal', type: 'text' },
+      { name: 'DOCUMENT_URL', category: 'normal', type: 'text' },
     ]
     expect(checkBrevoAttributes([...base, categoryRole]).ok).toBe(true)
     expect(checkBrevoAttributes([...base, multiRole]).ok).toBe(true)

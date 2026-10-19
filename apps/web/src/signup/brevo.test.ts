@@ -90,7 +90,7 @@ describe('fetchBrevoHealth', () => {
             { name: 'SECTION_ADDRESS', type: 'text' },
             { name: 'SECTION_PLACE', type: 'text' },
             { name: 'SECTION_PUBLISHED', type: 'boolean' },
-            { name: 'PALNOMOSHTNO_URL', type: 'text' },
+            { name: 'DOCUMENT_URL', type: 'text' },
           ],
         })
       }

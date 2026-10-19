@@ -22,6 +22,8 @@ import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
 import { BulkUnregisterBar } from './-bulk-unregister'
 import { useDebouncedQuery } from './-debounced-query'
 import { downloadCsv } from './-brevo-sections-export'
+import { PartnerImportPanel } from './-partner-import-panel'
+import { IAZ_LABEL, partnerBadge } from '../../signup/partner-import'
 
 export const Route = createFileRoute('/admin/signups')({
   validateSearch: (search: Record<string, unknown>): SignupSearch => parseSignupSearch(search),
@@ -37,6 +39,7 @@ const views = [
   ['abroad', 'Чужбина'],
   ['calls', 'Искат обаждане'],
   ['withdrawn', 'Отписани'],
+  ['iaz', IAZ_LABEL],
 ] as const
 
 const columnHelper = createColumnHelper<RosterFields>()
@@ -452,6 +455,7 @@ function SignupsPage() {
               {message && phase !== 'error' ? <p className="text-sm font-bold text-[#1a1020]">{message}</p> : null}
             </section>
           ) : null}
+          {canEdit ? <PartnerImportPanel onImported={() => setReloadKey((key) => key + 1)} /> : null}
         </div>
       </details>
     </div>
@@ -562,6 +566,8 @@ function StatusChips({ person }: { person: RosterFields }) {
     chips.push({ label: `Не може да стигне (${person.cantReachSection})`, className: 'bg-[#7a1f4b] text-white' })
   }
   if (person.staffCalledAt) chips.push({ label: CALLED_LABEL, className: 'bg-[#1f4d7a] text-white' })
+  const partner = partnerBadge(person.partner)
+  if (partner) chips.push({ label: partner, className: 'bg-[#f4e4b3] text-[#1a1020] border border-[#2b062f]' })
   if (person.imported && !person.emailConfirmed) chips.push({ label: 'Чака имейл', className: 'bg-[#efe8f2] text-[#1a1020]' })
   return (
     <div className="flex flex-wrap gap-1">

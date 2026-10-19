@@ -26,7 +26,7 @@ import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './
 type Database = SignupD1
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
 
-const VIEWS: RosterView[] = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'queue', 'mir', 'draft', 'withdrawn']
+const VIEWS: RosterView[] = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'queue', 'mir', 'draft', 'withdrawn', 'iaz']
 
 async function gate(action: StaffAction): Promise<{ ok: true; db: Database; email: string; role: StaffRole } | Denial> {
   const db = await signupDatabase()

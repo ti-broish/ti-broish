@@ -12,17 +12,20 @@ function egn(yy: number, mm: number, dd: number, serial: number) {
 }
 
 const EXISTING_EGN = egn(81, 6, 6, 606)
+const TODOR_EGN = egn(88, 1, 2, 101)
+const SAMPLE_EGNS = [TODOR_EGN, egn(5, 44, 4, 202), EXISTING_EGN, egn(77, 7, 7, 707), egn(66, 6, 16, 616)]
 const SAMPLE = [
   'Име;Имейл;ЕГН;Телефон;Област;Общини;IP;Подадено',
-  `Тодор Иванов Пробов;iaz.one-e2e@example.com;${egn(88, 1, 2, 101)};888100101;Бургас;Бургас, Созопол;198.51.100.1;19 окт 2026 · 7:21`,
+  `Тодор Иванов Пробов;iaz.one-e2e@example.com;${TODOR_EGN};888100101;Бургас;Бургас, Созопол;198.51.100.1;19 окт 2026 · 7:21`,
   `Сия Петрова Пробова;IAZ.two-e2e@example.com;${egn(5, 44, 4, 202).replace(/^0+/, '')};359888100202;София град;Младост 3;198.51.100.2;18 окт 2026 · 20:31`,
-  `Тодор Иванов Пробов;iaz.one-e2e@example.com;${egn(88, 1, 2, 101)};888100101;Бургас;Бургас;198.51.100.1;15 окт 2026 · 8:53`,
+  `Тодор Иванов Пробов;iaz.one-e2e@example.com;${TODOR_EGN};888100101;Бургас;Бургас;198.51.100.1;15 окт 2026 · 8:53`,
   `Вече Записан Човек;iaz.existing-e2e@example.com;${EXISTING_EGN};888100303;Варна;Варна;198.51.100.3;17 окт 2026 · 3:33`,
   `Грешен Телефон Човек;iaz.badphone-e2e@example.com;${egn(77, 7, 7, 707)};6312345;Русе;Русе;198.51.100.4;16 окт 2026 · 9:00`,
+  `Без Район Човек;iaz.sofia-e2e@example.com;${egn(66, 6, 16, 616)};888100606;София град;София;198.51.100.6;16 окт 2026 · 9:05`,
   `Грешно Егн Човек;iaz.badegn-e2e@example.com;1234567890;888100505;Шумен;Шумен;198.51.100.5;16 окт 2026 · 9:10`,
 ].join('\n')
 
-test.describe('partner import („И аз“)', () => {
+test.describe('partner import („И аз“) for пълномощни only', () => {
   test.beforeAll(async ({ browser }) => {
     const page = await browser.newPage()
     await page.goto('/admin')
@@ -31,48 +34,71 @@ test.describe('partner import („И аз“)', () => {
     seed()
   })
 
-  test('admin previews the file, confirms, filters „И аз“, and a second upload adds nobody', async ({ page }) => {
+  test('previews, imports into the „И аз“ list, numbers with signups, zips, and a second upload adds nobody', async ({ page }) => {
     await signIn(page)
     await page.setViewportSize({ width: 1280, height: 900 })
+    // Записани only links to the import.
     await page.goto('/admin/signups')
     await openTools(page)
+    await expect(page.getByLabel('CSV от „И аз“')).toHaveCount(0)
+    await page.getByRole('link', { name: 'Пълномощни → Внос от „И аз“' }).click()
+    await expect(page).toHaveURL(/\/admin\/palnomoshtni#i-az/)
+
     const input = page.getByLabel('CSV от „И аз“')
     await input.setInputFiles({ name: 'i-az.csv', mimeType: 'text/csv', buffer: Buffer.from(`\uFEFF${SAMPLE}`, 'utf8') })
-
     const preview = page.getByTestId('partner-import-preview')
     await expect(preview.getByText('Проверка без запис')).toBeVisible()
     const summary = preview.getByRole('list', { name: 'Обобщение' })
-    await expect(summary).toContainText('Нови: 2')
-    await expect(summary).toContainText('Вече записани (само етикет): 1')
+    await expect(summary).toContainText('Нови: 5')
+    await expect(summary).toContainText('Вече внесени (дубликати): 0')
     await expect(summary).toContainText('Повторени във файла: 1')
-    await expect(summary).toContainText('Невалидни: 2')
-    await expect(preview).toContainText('телефонът не е валиден')
+    await expect(summary).toContainText('Невалидни: 1')
+    await expect(summary).toContainText('И записани доброволци: 1')
+    await expect(summary).toContainText('Нови без МИР: 1')
     await expect(preview).toContainText('ЕГН не е валидно')
-    await expect(preview).toContainText('Как се попълват полетата')
-    // ЕГН is masked in the preview.
     await expect(preview).not.toContainText(EXISTING_EGN)
     await expect(preview).toContainText(`******${EXISTING_EGN.slice(-4)}`)
 
-    await preview.getByRole('button', { name: /Потвърди вноса \(2 нови, 1 с етикет\)/ }).click()
-    await expect(page.getByText('Готово. Внесени 2 нови, отбелязани 1 вече записани. Писма не са пращани.')).toBeVisible()
+    await preview.getByRole('button', { name: 'Потвърди вноса (5 нови)' }).click()
+    await expect(page.getByText('Готово. Внесени 5 нови в „И аз“. Писма не са пращани, нищо не е пратено към Brevo.')).toBeVisible()
 
-    await page.getByRole('button', { name: 'И аз', exact: true }).click()
-    await expect(page).toHaveURL(/view=iaz/)
-    const table = page.locator('table').first()
-    await expect(table.getByRole('link', { name: 'Тодор Иванов Пробов' })).toBeVisible()
-    await expect(table.getByRole('link', { name: 'Сия Петрова Пробова' })).toBeVisible()
-    await expect(table.getByRole('link', { name: 'Стара Собствена Фамилия' })).toBeVisible()
-    await expect(table.getByText('0888100202')).toBeVisible()
-    await expect(table.getByText('И аз', { exact: true }).first()).toBeVisible()
-    await expect(table.getByRole('link', { name: 'Грешен Телефон Човек' })).toHaveCount(0)
-    // The existing signup keeps its own data.
-    await expect(table.getByText('0899999999')).toBeVisible()
-    await expect(table.getByRole('link', { name: 'Вече Записан Човек' })).toHaveCount(0)
+    // Nobody became a signup; the existing signup is untouched.
+    expect(d1(`SELECT COUNT(*) AS n FROM signups WHERE email LIKE 'iaz.%-e2e@example.com' AND id != 'e2e-iaz-admin'`)[0]).toMatchObject({ n: 1 })
+    expect(d1(`SELECT COUNT(*) AS n FROM partner_people WHERE email LIKE 'iaz.%-e2e@example.com'`)[0]).toMatchObject({ n: 5 })
+    expect(d1(`SELECT json_extract(payload, '$.phone') AS phone FROM signups WHERE id = 'e2e-iaz-existing'`)[0]).toMatchObject({ phone: '0899999999' })
 
-    await openTools(page)
+    const status = page.getByTestId('partner-counts')
+    await expect(status).toContainText('„И аз“ (не са записани доброволци и не отиват в Brevo): 5 души')
+    await expect(status).toContainText('без МИР 1')
+    const row = page.getByRole('row').filter({ hasText: 'Без Район Човек' })
+    await expect(row.getByText('И аз', { exact: true })).toBeVisible()
+    await row.getByLabel('МИР за пълномощното').selectOption('24')
+    await expect(page.getByText('МИР 24 е записан.')).toBeVisible()
+    await expect(status).not.toContainText('без МИР')
+
+    await page.getByRole('button', { name: 'Номерирай' }).click()
+    await expect(status).toContainText('номерирани 5')
+    const todor = page.getByRole('row').filter({ hasText: 'Тодор Иванов Пробов' })
+    await expect(todor.getByRole('cell').first()).toHaveText(/^\d{3,}$/)
+    await expect(todor.getByRole('cell').nth(3)).toHaveText('02')
+
+    // Numbers are shared with signups per МИР: no number appears twice in one МИР.
+    const clashes = d1(`SELECT designation_mir AS mir, designation_number AS n, COUNT(*) AS c FROM (
+      SELECT designation_mir, designation_number FROM signups WHERE designation_number IS NOT NULL
+      UNION ALL SELECT designation_mir, designation_number FROM partner_people WHERE designation_number IS NOT NULL
+    ) GROUP BY designation_mir, designation_number HAVING COUNT(*) > 1`)
+    expect(clashes).toEqual([])
+
+    const zip = await page.request.get('/admin/palnomoshtni/zip?mir=02&offset=0&limit=50')
+    expect(zip.status()).toBe(200)
+    const body = await zip.body()
+    // Same naming as signups: МИР_НОМЕР_ИМЕ_ПРЕЗИМЕ_ФАМИЛИЯ.pdf; the manifest has no section for „И аз“.
+    expect(body.toString('utf8')).toMatch(/02_\d+_Тодор_Иванов_Пробов\.pdf/)
+    expect(body.toString('utf8')).toMatch(/,\d+,,02,Тодор Иванов Пробов/)
+
     await page.getByLabel('CSV от „И аз“').setInputFiles({ name: 'i-az.csv', mimeType: 'text/csv', buffer: Buffer.from(SAMPLE, 'utf8') })
     await expect(summary).toContainText('Нови: 0')
-    await expect(summary).toContainText('Вече с „И аз“: 3')
+    await expect(summary).toContainText('Вече внесени (дубликати): 5')
     await expect(preview.getByRole('button', { name: /Потвърди вноса/ })).toBeDisabled()
   })
 })
@@ -86,28 +112,41 @@ async function signIn(page: Page) {
   await page.context().addCookies([{ name: 'tb_session', value: SESSION, url: 'http://127.0.0.1:3000', httpOnly: true, sameSite: 'Lax' }])
 }
 
-function seed() {
-  const sql = `
-DELETE FROM signups WHERE email IN ('iaz.one-e2e@example.com', 'iaz.two-e2e@example.com');
-INSERT INTO signups (id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, created_at, updated_at)
-VALUES
-  ('e2e-iaz-admin', '${STAFF_EMAIL}', '${SESSION}', 'e2eiazad', '{"firstName":"Админ","lastName":"Иаз","email":"${STAFF_EMAIL}","phone":"0888000999"}', 1, 0, 1, '', datetime('now'), datetime('now')),
-  ('e2e-iaz-existing', 'iaz.existing-e2e@example.com', 'e2e-iaz-existing-session', 'e2eiazex', '{"firstName":"Стара","middleName":"Собствена","lastName":"Фамилия","email":"iaz.existing-e2e@example.com","phone":"0899999999"}', 1, 0, 1, '${EXISTING_EGN}', datetime('now'), datetime('now'))
-ON CONFLICT(email) DO UPDATE SET session_token = excluded.session_token, payload = excluded.payload, email_confirmed = 1, egn = excluded.egn, partner = NULL, partner_submitted_at = NULL, partner_imported_at = NULL;
-INSERT INTO staff (email, role, invited_by, created_at) VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
-ON CONFLICT(email) DO UPDATE SET role = 'admin';
-`
+const WEB_DIR = new URL('.', import.meta.url).pathname.replace(/e2e\/$/, '')
+
+function d1(sql: string): Array<Record<string, unknown>> {
+  const output = wranglerLocal(['--json', '--command', sql])
+  const parsed = JSON.parse(output.slice(output.indexOf('['))) as Array<{ results?: Array<Record<string, unknown>> }>
+  return parsed.flatMap((item) => item.results ?? [])
+}
+
+/** Local D1 through wrangler, retried while another spec holds the SQLite lock. */
+function wranglerLocal(args: string[]) {
   for (let attempt = 1; ; attempt += 1) {
     try {
-      execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'ti-broish-signup-staging', '--local', '--command', sql], {
-        cwd: new URL('.', import.meta.url).pathname.replace(/e2e\/$/, ''),
+      return execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'ti-broish-signup-staging', '--local', ...args], {
+        cwd: WEB_DIR,
         stdio: 'pipe',
-      })
-      return
+      }).toString()
     } catch (error) {
       const text = String((error as { stdout?: unknown }).stdout ?? '') + String((error as { stderr?: unknown }).stderr ?? '') + String(error)
       if (!/SQLITE_BUSY|database is locked/.test(text) || attempt >= 5) throw error
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500 * attempt)
     }
   }
+}
+
+function seed() {
+  const sql = `
+DELETE FROM signups WHERE email LIKE 'iaz.%-e2e@example.com' AND id NOT IN ('e2e-iaz-existing', 'e2e-iaz-admin');
+DELETE FROM partner_people WHERE egn IN (${SAMPLE_EGNS.map((value) => `'${value}'`).join(', ')});
+INSERT INTO signups (id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, created_at, updated_at)
+VALUES
+  ('e2e-iaz-admin', '${STAFF_EMAIL}', '${SESSION}', 'e2eiazad', '{"firstName":"Админ","lastName":"Иаз","email":"${STAFF_EMAIL}","phone":"0888000999"}', 1, 0, 1, '', datetime('now'), datetime('now')),
+  ('e2e-iaz-existing', 'iaz.existing-e2e@example.com', 'e2e-iaz-existing-session', 'e2eiazex', '{"firstName":"Стара","middleName":"Собствена","lastName":"Фамилия","email":"iaz.existing-e2e@example.com","phone":"0899999999"}', 1, 0, 1, '${EXISTING_EGN}', datetime('now'), datetime('now'))
+ON CONFLICT(email) DO UPDATE SET session_token = excluded.session_token, payload = excluded.payload, email_confirmed = 1, egn = excluded.egn;
+INSERT INTO staff (email, role, invited_by, created_at) VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
+ON CONFLICT(email) DO UPDATE SET role = 'admin';
+`
+  wranglerLocal(['--command', sql])
 }

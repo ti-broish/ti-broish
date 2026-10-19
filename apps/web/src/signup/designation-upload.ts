@@ -7,6 +7,7 @@ import { gateDesignation, syncSignedLinkToBrevo, workerEnv, type SignedLinkBrevo
 import { bulkDesignationSignedFilename, isPdfBytes, personIdOk } from './designation-files'
 import { parseStoredNumber } from './designation-number'
 import { httpStatusForStaffDenial, namesFromPayload } from './designation-preview'
+import { PARTNER_DESIGNATION_COLUMNS, isPartnerPersonId } from './partner-people-sql'
 
 /** Drive simple/multipart uploads (uploadType=multipart|media) take at most 5 MB; signed PDFs are ~170 KB. */
 export const MAX_SIGNED_PDF_BYTES = 5 * 1024 * 1024
@@ -35,9 +36,12 @@ export async function serveDesignationUpload(request: Request): Promise<Response
   if (bytes.byteLength > MAX_BYTES) return json({ ok: false, message: 'Файлът е над 5 MB (лимит на Google Drive за това качване).' }, 413)
   if (!isPdfBytes(bytes)) return json({ ok: false, message: 'Файлът трябва да започва с %PDF-.' }, 400)
 
+  const partner = isPartnerPersonId(personId)
   const row = await access.db
     .prepare(
-      `SELECT id, email, payload, COALESCE(published_section, '') AS published_section,
+      partner
+        ? `SELECT ${PARTNER_DESIGNATION_COLUMNS}, email, designation_drive_file_id, designation_pdf_url FROM partner_people WHERE id = ?`
+        : `SELECT id, email, payload, COALESCE(published_section, '') AS published_section,
         designation_number, designation_drive_file_id, designation_pdf_url
         FROM signups WHERE id = ?`,
     )
@@ -71,17 +75,23 @@ export async function serveDesignationUpload(request: Request): Promise<Response
     const now = new Date().toISOString()
     await access.db
       .prepare(
-        `UPDATE signups SET designation_pdf_url = ?, designation_drive_file_id = ?, designation_signed_at = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE ${partner ? 'partner_people' : 'signups'} SET designation_pdf_url = ?, designation_drive_file_id = ?, designation_signed_at = ?, updated_at = ? WHERE id = ?`,
       )
       .bind(file.webViewLink, file.id, now, now, personId)
       .run()
-    const brevo = await brevoAfterUpload({ id: personId, email: row.email ?? '', url: file.webViewLink }, access.db)
+    // „И аз“ partner people never reach Brevo: the link stays in D1 and Drive only.
+    const brevo: SignedLinkBrevo | PartnerNoBrevo = partner
+      ? PARTNER_NO_BREVO
+      : await brevoAfterUpload({ id: personId, email: row.email ?? '', url: file.webViewLink }, access.db)
     return json({ ok: true, url: file.webViewLink, replaced, fileId: file.id, brevo })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Drive качването се провали.'
     return json({ ok: false, message }, 502)
   }
 }
+
+export type PartnerNoBrevo = { ok: true; attribute: string; partner: true }
+export const PARTNER_NO_BREVO: PartnerNoBrevo = { ok: true, attribute: 'DOCUMENT_URL', partner: true }
 
 /** The signed link goes to Brevo with the upload itself; a Brevo failure is reported, never thrown. */
 async function brevoAfterUpload(person: { id: string; email: string; url: string }, db: Parameters<typeof syncSignedLinkToBrevo>[1]): Promise<SignedLinkBrevo> {

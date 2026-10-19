@@ -6,7 +6,7 @@ import { adminPartnerImport } from '../../signup/partner-import-admin'
 type Preview = {
   committed: boolean
   written: number
-  counts: Record<PlanKind, number>
+  counts: Record<PlanKind, number> & { alsoSignup: number; noMir: number }
   total: number
   summary: string
   mapping: ReadonlyArray<{ column: string; field: string }>
@@ -15,20 +15,19 @@ type Preview = {
 
 const KIND_LABEL: Record<PlanKind, string> = {
   new: 'Нови',
-  tag: 'Вече записани (само етикет)',
-  already: `Вече с „${IAZ_LABEL}“`,
+  already: 'Вече внесени (дубликати)',
   repeat: 'Повторени във файла',
   invalid: 'Невалидни',
 }
 
-const KIND_ORDER: PlanKind[] = ['new', 'tag', 'already', 'repeat', 'invalid']
+const KIND_ORDER: PlanKind[] = ['new', 'already', 'repeat', 'invalid']
 
-function sofiaTime(iso: string) {
-  if (!iso) return '—'
-  return new Intl.DateTimeFormat('bg-BG', { timeZone: 'Europe/Sofia', dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))
-}
+const SIGNUP_LABEL = { egn: 'ЕГН', email: 'имейл', both: 'ЕГН и имейл' } as const
 
-/** Upload → dry run → confirm. Nobody gets a letter: the import only writes rows and tags. */
+/**
+ * Upload → dry run → confirm. People go only to the „И аз“ list for пълномощни: they are not
+ * signups and never go to Brevo. Nobody gets a letter.
+ */
 export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
   const [csv, setCsv] = useState('')
   const [fileName, setFileName] = useState('')
@@ -49,7 +48,7 @@ export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
         }
         setPreview(result)
         if (commit) {
-          setMessage(`Готово. Внесени ${result.counts.new} нови, отбелязани ${result.counts.tag} вече записани. Писма не са пращани.`)
+          setMessage(`Готово. Внесени ${result.written} нови в „${IAZ_LABEL}“. Писма не са пращани, нищо не е пратено към Brevo.`)
           onImported()
         }
       })
@@ -59,17 +58,18 @@ export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
       })
   }
 
-  const writes = preview ? preview.counts.new + preview.counts.tag : 0
+  const writes = preview ? preview.counts.new : 0
 
   return (
     <section className="grid gap-3" aria-labelledby="partner-import-heading">
       <h2 id="partner-import-heading" className="text-lg font-black text-[#1a1020]">
-        Внос от партньор „{IAZ_LABEL}“
+        Внос от „{IAZ_LABEL}“
       </h2>
       <p className="text-sm text-[#333]">
-        CSV с точка и запетая: Име;Имейл;ЕГН;Телефон;Област;Общини;IP;Подадено. Първо виждаш проверка без запис. Вече записаните
-        не се променят, само получават етикета „{IAZ_LABEL}“. Повторното качване на същия файл не създава нови хора. Никой не получава
-        писмо. IP не се пази.
+        CSV с точка и запетая: Име;Имейл;ЕГН;Телефон;Област;Общини;IP;Подадено. Хората влизат само в този списък за пълномощни: не
+        стават записани доброволци, не се броят, не се разпределят и не отиват в Brevo. Никой не получава писмо. Първо виждаш проверка
+        без запис. Вече внесените (същото ЕГН) не се променят, затова повторното качване е безопасно. Ако някой е и записан
+        доброволец, това се показва, но записите не се сливат. IP не се пази.
       </p>
       <input
         className={`${adminInput} w-full`}
@@ -107,6 +107,8 @@ export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
                 {KIND_LABEL[kind]}: {preview.counts[kind]}
               </li>
             ))}
+            <li className="rounded-full bg-[#f4e4b3] px-3 py-1 font-bold text-[#1a1020]">И записани доброволци: {preview.counts.alsoSignup}</li>
+            <li className="rounded-full bg-[#f4e4b3] px-3 py-1 font-bold text-[#1a1020]">Нови без МИР: {preview.counts.noMir}</li>
           </ul>
           <details>
             <summary className="cursor-pointer text-sm font-bold text-[#1a1020]">Как се попълват полетата</summary>
@@ -127,7 +129,7 @@ export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
             const rows = preview.rows.filter((row) => row.kind === kind)
             if (!rows.length) return null
             return (
-              <details key={kind} open={kind === 'invalid' || kind === 'tag'}>
+              <details key={kind} open={kind === 'invalid'}>
                 <summary className="cursor-pointer text-sm font-bold text-[#1a1020]">
                   {KIND_LABEL[kind]} ({rows.length})
                 </summary>
@@ -139,9 +141,9 @@ export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
                         <th className="py-1 pr-2">Човек</th>
                         <th className="py-1 pr-2">Имейл</th>
                         <th className="py-1 pr-2">ЕГН</th>
-                        <th className="py-1 pr-2">Телефон</th>
+                        <th className="py-1 pr-2">МИР</th>
                         <th className="py-1 pr-2">Място</th>
-                        <th className="py-1 pr-2">Подадено</th>
+                        <th className="py-1 pr-2">И записан</th>
                         <th className="py-1">Бележка</th>
                       </tr>
                     </thead>
@@ -152,9 +154,9 @@ export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
                           <td className="py-1 pr-2">{row.name || '—'}</td>
                           <td className="py-1 pr-2">{row.email || '—'}</td>
                           <td className="py-1 pr-2 font-mono">{row.egn || '—'}</td>
-                          <td className="py-1 pr-2">{row.phone || '—'}</td>
+                          <td className="py-1 pr-2">{row.mir || '—'}</td>
                           <td className="py-1 pr-2">{row.place || '—'}</td>
-                          <td className="py-1 pr-2">{sofiaTime(row.submittedAt)}</td>
+                          <td className="py-1 pr-2">{row.signup ? `да (${SIGNUP_LABEL[row.signup]})` : '—'}</td>
                           <td className="py-1">{[...row.reasons, ...row.warnings].join('; ') || '—'}</td>
                         </tr>
                       ))}
@@ -167,7 +169,7 @@ export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
           {!preview.committed ? (
             <div className="flex flex-wrap gap-2">
               <button type="button" className={adminChipOn} disabled={busy || writes === 0} onClick={() => run(csv, true)}>
-                Потвърди вноса ({preview.counts.new} нови, {preview.counts.tag} с етикет)
+                Потвърди вноса ({preview.counts.new} нови)
               </button>
               <button
                 type="button"

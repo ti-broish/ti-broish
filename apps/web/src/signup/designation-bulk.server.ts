@@ -23,10 +23,12 @@ import {
   mirFromSection,
   mirLabel,
   type DesignationCounts,
+  type DesignationPartnerCounts,
   type DesignationMirOption,
   type DesignationPersonView,
 } from './designation-files'
-import { DESIGNATION_ASSIGN_SQL, designationMirOf, parseStoredNumber } from './designation-number'
+import { DESIGNATION_ASSIGN_SQL, PARTNER_DESIGNATION_ASSIGN_SQL, designationMirOf, parseStoredNumber } from './designation-number'
+import { brevoSignupIds } from './partner-people-sql'
 import { runSqlBatches } from './designation-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
@@ -48,6 +50,8 @@ interface ListedPerson {
   driveUrl: string | null
   driveFileId: string | null
   createdAt: string
+  /** Partner slug for people from partner_people („И аз“); their `section` is only the МИР. */
+  partner?: string
 }
 
 export function workerEnv(): Record<string, string | undefined> {
@@ -91,6 +95,17 @@ const LIST_SQL = `SELECT id,
   FROM signups
   WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0`
 
+/**
+ * „И аз“ partner people: not signups, only here for пълномощни. Their МИР stands in for the
+ * section (the document names only the МИР), so numbering, filenames and the ZIP work the same.
+ */
+const PARTNER_LIST_SQL = `SELECT id, first_name, middle_name, last_name, email,
+  COALESCE(designation_mir, '') AS section,
+  designation_number, designation_issued_at, designation_generated_at, designation_signed_at,
+  designation_pdf_url, designation_drive_file_id,
+  imported_at AS created_at, partner
+  FROM partner_people`
+
 interface RawListed {
   id: string
   first_name: string
@@ -105,6 +120,7 @@ interface RawListed {
   designation_pdf_url: string | null
   designation_drive_file_id: string | null
   created_at: string
+  partner?: string | null
 }
 
 function fromRaw(row: RawListed): ListedPerson {
@@ -125,6 +141,7 @@ function fromRaw(row: RawListed): ListedPerson {
     driveUrl: (row.designation_pdf_url ?? '').trim() || null,
     driveFileId: (row.designation_drive_file_id ?? '').trim() || null,
     createdAt: row.created_at ?? '',
+    ...(row.partner ? { partner: String(row.partner) } : {}),
   }
 }
 
@@ -147,13 +164,14 @@ function toView(person: ListedPerson): DesignationPersonView {
     signedAt: person.signedAt,
     driveUrl: person.driveUrl,
     hasDriveFile: Boolean(person.driveFileId),
+    ...(person.partner ? { partner: person.partner } : {}),
   }
 }
 
 function matchesFilter(person: ListedPerson, mir: string, q: string) {
   if (mir && mirFromSection(person.section) !== mir) return false
   if (!q) return true
-  const hay = `${displayName(person)} ${person.section} ${person.number ?? ''}`.toLowerCase()
+  const hay = `${displayName(person)} ${person.section} ${person.number ?? ''} ${person.partner ? 'и аз' : ''}`.toLowerCase()
   return hay.includes(q.toLowerCase())
 }
 
@@ -162,10 +180,16 @@ async function listPublished(db: Database): Promise<ListedPerson[]> {
   return (result.results ?? []).map(fromRaw)
 }
 
+async function listPartnerPeople(db: Database): Promise<ListedPerson[]> {
+  const result = await db.prepare(PARTNER_LIST_SQL).all<RawListed>()
+  return (result.results ?? []).map(fromRaw)
+}
+
 export async function handleDesignationStatus(data: { mir: string; q: string }) {
   const access = await gateDesignation('view')
   if (!access.ok) return access
   const all = await listPublished(access.db)
+  const partners = await listPartnerPeople(access.db)
   const counts: DesignationCounts = {
     published: all.length,
     numbered: all.filter((row) => row.number != null).length,
@@ -173,8 +197,16 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
     signed: all.filter((row) => row.signedAt).length,
     missing: all.filter((row) => !row.signedAt).length,
   }
+  // Partner people are counted apart: they are not signups and never part of the signup counts.
+  const partnerCounts: DesignationPartnerCounts = {
+    total: partners.length,
+    numbered: partners.filter((row) => row.number != null).length,
+    noMir: partners.filter((row) => !row.section).length,
+    signed: partners.filter((row) => row.signedAt).length,
+  }
+  const everyone = [...all, ...partners]
   const mirsMap = new Map<string, number>()
-  for (const row of all) {
+  for (const row of everyone) {
     const code = mirFromSection(row.section)
     if (!code) continue
     mirsMap.set(code, (mirsMap.get(code) ?? 0) + 1)
@@ -182,11 +214,12 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
   const mirs: DesignationMirOption[] = [...mirsMap.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([code, count]) => ({ code, label: mirLabel(code) || `${code} ${ELECTION_DISTRICTS[code] ?? ''}`.trim(), count }))
-  const people = all.filter((row) => matchesFilter(row, data.mir, data.q)).map(toView)
+  const people = everyone.filter((row) => matchesFilter(row, data.mir, data.q)).map(toView)
   const zipEligible = people.filter((row) => row.number != null).length
   return {
     ok: true as const,
     counts,
+    partnerCounts,
     people,
     mirs,
     zipEligible,
@@ -197,7 +230,7 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
 export async function handleDesignationNumber() {
   const access = await gateDesignation('exportCampaign')
   if (!access.ok) return access
-  const listed = await listPublished(access.db)
+  const listed = [...(await listPublished(access.db)), ...(await listPartnerPeople(access.db))]
   const issuedOn = todayInSofia()
   const now = new Date().toISOString()
   const ordered = [...listed].sort((a, b) => {
@@ -209,14 +242,19 @@ export async function handleDesignationNumber() {
   })
   // Per-МИР MAX+1 from 501 inside each UPDATE, so concurrent runs cannot collide.
   const toAssign = ordered.filter((row) => row.number == null && designationMirOf(row.section))
+  // Partner people share the counter (PARTNER_DESIGNATION_ASSIGN_SQL), so numbers never collide.
   const assignStatements = toAssign.map((row) =>
-    access.db.prepare(DESIGNATION_ASSIGN_SQL).bind(designationMirOf(row.section), issuedOn, now, row.id),
+    access.db
+      .prepare(row.partner ? PARTNER_DESIGNATION_ASSIGN_SQL : DESIGNATION_ASSIGN_SQL)
+      .bind(designationMirOf(row.section), issuedOn, now, row.id),
   )
   const dateStatements = ordered
     .filter((row) => row.number != null && !row.issuedAt)
     .map((row) =>
       access.db
-        .prepare('UPDATE signups SET designation_issued_at = ?, updated_at = ? WHERE id = ? AND designation_issued_at IS NULL')
+        .prepare(
+          `UPDATE ${row.partner ? 'partner_people' : 'signups'} SET designation_issued_at = ?, updated_at = ? WHERE id = ? AND designation_issued_at IS NULL`,
+        )
         .bind(issuedOn, now, row.id),
     )
   await runSqlBatches(access.db, [...assignStatements, ...dateStatements])
@@ -264,6 +302,9 @@ export type DesignationSyncInput = { personIds: string[]; allSigned: boolean; of
 export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   const access = await gateDesignation('exportCampaign')
   if (!access.ok) return access
+  // „И аз“ partner people never go to Brevo: only signup ids get through, and the
+  // all-signed page reads the signups table only.
+  data = { ...data, personIds: brevoSignupIds(data.personIds) }
   if (!data.allSigned && data.personIds.length === 0) return { ok: false as const, message: 'Няма хора за синхрон към Brevo.' }
   const config = readBrevoConfig()
   if ('missing' in config) {

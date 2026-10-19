@@ -12,6 +12,7 @@ import { registerWorkerDesignationFonts } from './designation-fonts-worker'
 import { parseStoredNumber } from './designation-number'
 import { httpStatusForStaffDenial, namesFromPayload, previewDesignationPdf, previewNumber } from './designation-preview'
 import { runSqlBatches } from './designation-sql'
+import { PARTNER_DESIGNATION_COLUMNS, isPartnerPersonId } from './partner-people-sql'
 import { streamZipWriter } from './designation-zip-stream'
 
 registerWorkerDesignationFonts()
@@ -45,21 +46,30 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
   const asked = Number(url.searchParams.get('limit') ?? DESIGNATION_ZIP_BATCH_LIMIT) || DESIGNATION_ZIP_BATCH_LIMIT
   const limit = Math.min(DESIGNATION_ZIP_BATCH_LIMIT, Math.max(1, Math.floor(asked)))
   const mirDigits = mir.padStart(2, '0')
+  // Signups with a published section plus „И аз“ partner people with a МИР, in one numbered list.
   const rows = await access.db
     .prepare(
-      `SELECT id, payload, egn,
-        COALESCE(published_section, '') AS published_section,
-        COALESCE(NULLIF(section_place, ''), json_extract(payload, '$.place.sectionPlace'), '') AS section_place,
-        designation_number, designation_issued_at
-        FROM signups
-        WHERE COALESCE(published_section, '') != ''
-          AND designation_number IS NOT NULL
-          AND COALESCE(withdrawn, 0) = 0
-          AND (? = '' OR substr(published_section, 1, 2) = ?)
+      `SELECT * FROM (
+        SELECT id, payload, egn,
+          COALESCE(published_section, '') AS published_section,
+          COALESCE(NULLIF(section_place, ''), json_extract(payload, '$.place.sectionPlace'), '') AS section_place,
+          designation_number, designation_issued_at
+          FROM signups
+          WHERE COALESCE(published_section, '') != ''
+            AND designation_number IS NOT NULL
+            AND COALESCE(withdrawn, 0) = 0
+            AND (?1 = '' OR substr(published_section, 1, 2) = ?1)
+        UNION ALL
+        SELECT ${PARTNER_DESIGNATION_COLUMNS}
+          FROM partner_people
+          WHERE COALESCE(designation_mir, '') != ''
+            AND designation_number IS NOT NULL
+            AND (?1 = '' OR designation_mir = ?1)
+      )
         ORDER BY designation_number, id
-        LIMIT ? OFFSET ?`,
+        LIMIT ?2 OFFSET ?3`,
     )
-    .bind(mir ? mirDigits : '', mir ? mirDigits : '', limit, offset)
+    .bind(mir ? mirDigits : '', limit, offset)
     .all<ZipRow>()
   const people = rows.results ?? []
   if (people.length === 0) {
@@ -102,6 +112,7 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
         lastName: names.lastName,
         name: [names.firstName, names.middleName, names.lastName].filter(Boolean).join(' '),
         hasDriveFile: false,
+        ...(isPartnerPersonId(row.id) ? { partner: 'iaz.bg' } : {}),
       }
       await add(bulkDesignationFilename(filePerson), bytes)
       manifestPeople.push(filePerson)
@@ -112,7 +123,9 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
     await add('manifest.csv', new TextEncoder().encode(manifest))
     const now = new Date().toISOString()
     const statements = ids.map((id) =>
-      access.db.prepare('UPDATE signups SET designation_generated_at = ?, updated_at = ? WHERE id = ?').bind(now, now, id),
+      access.db
+        .prepare(`UPDATE ${isPartnerPersonId(id) ? 'partner_people' : 'signups'} SET designation_generated_at = ?, updated_at = ? WHERE id = ?`)
+        .bind(now, now, id),
     )
     await runSqlBatches(access.db, statements)
   })

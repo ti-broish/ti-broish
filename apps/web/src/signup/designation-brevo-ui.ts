@@ -1,7 +1,7 @@
 /** Client-safe wording for the Brevo part of /admin/palnomoshtni (no server imports). */
 
 export type UploadBrevo =
-  | { ok: true; attribute: string; created?: boolean }
+  | { ok: true; attribute: string; created?: boolean; partner?: boolean }
   | { ok: false; attribute: string; skipped?: boolean; error: string }
 
 export type BrevoTone = 'ok' | 'error' | 'busy'
@@ -14,7 +14,7 @@ export function uploadBrevoOf(body: unknown): UploadBrevo {
     | undefined
   const attribute = typeof brevo?.attribute === 'string' && brevo.attribute ? brevo.attribute : 'DOCUMENT_URL'
   if (!brevo) return { ok: false, attribute, error: 'сървърът не върна резултат за Brevo' }
-  if (brevo.ok === true) return { ok: true, attribute, created: brevo.created === true }
+  if (brevo.ok === true) return { ok: true, attribute, created: brevo.created === true, ...((brevo as { partner?: unknown }).partner === true ? { partner: true } : {}) }
   return {
     ok: false,
     attribute,
@@ -25,6 +25,7 @@ export function uploadBrevoOf(body: unknown): UploadBrevo {
 
 /** Text of the Brevo cell next to an uploaded file. */
 export function uploadBrevoCell(brevo: UploadBrevo) {
+  if (brevo.ok && brevo.partner) return 'без Brevo („И аз“)'
   if (brevo.ok) return brevo.created ? 'създаден контакт' : 'обновен'
   if (brevo.skipped) return `пропуснат: ${brevo.error}`
   return `грешка: ${brevo.error}`
@@ -44,7 +45,10 @@ export function uploadSummary(matched: number, uploaded: UploadBrevo[]) {
   if (uploaded.length === 0) return { tone: 'error' as const, text: `${head}.` }
   const attribute = uploaded[0]?.attribute ?? 'DOCUMENT_URL'
   const errors = uploaded.filter((row): row is Extract<UploadBrevo, { ok: false }> => !row.ok).map((row) => row.error)
-  const updated = uploaded.length - errors.length
+  const partners = uploaded.filter((row) => row.ok && row.partner).length
+  const updated = uploaded.length - errors.length - partners
   const tone = errors.length === 0 && uploaded.length === matched ? ('ok' as const) : ('error' as const)
-  return { tone, text: `${head}; ${brevoCountsLine(attribute, updated, errors)}` }
+  const partnerNote = partners ? ` „И аз“ без Brevo: ${partners}.` : ''
+  if (partners === uploaded.length) return { tone, text: `${head}.${partnerNote}` }
+  return { tone, text: `${head}; ${brevoCountsLine(attribute, updated, errors)}${partnerNote}` }
 }

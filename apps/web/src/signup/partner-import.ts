@@ -1,11 +1,12 @@
-// Import of people who signed up with a partner organisation („И аз“, iaz.bg).
-// Pure module: no D1, no mail, no Brevo. The admin server function and the one-off
-// script both run the same parse → plan → statements path, so a dry run shows exactly
-// what a commit writes. Nothing here sends a letter to the imported people.
-import { emptyProfile, type HomePlace, type Profile, type TravelStop } from './model'
+// Import of people from a partner organisation („И аз“, iaz.bg) for пълномощни only.
+// They go to their own table (partner_people), never into signups: they are not signups,
+// are not counted or assigned and never reach Brevo. Pure module: no D1, no mail, no Brevo.
+// The admin server function and the one-off script run the same parse → plan → statements
+// path, so a dry run shows exactly what a commit writes.
+import type { HomePlace, TravelStop } from './model'
+import { PARTNER_ID_PREFIX } from './partner-people-sql'
 import { IMPORT_REGIONS, type ImportRegion } from './partner-import-regions.data'
-import { signupColumns } from './record'
-import { districtKey, sofiaMir, validEgn } from './rules'
+import { districtKey, mirOf, sofiaMir, validEgn } from './rules'
 
 export const IAZ_PARTNER = 'iaz.bg'
 export const IAZ_LABEL = 'И аз'
@@ -14,13 +15,10 @@ export const PARTNER_IMPORT_MAX_BYTES = 1_000_000
 
 const PARTNER_BADGES: Record<string, string> = { [IAZ_PARTNER]: IAZ_LABEL }
 
-/** Badge text for a partner slug or signup source, or '' when it is not a known partner. */
+/** Badge text for a partner slug, or '' when it is not a known partner. */
 export function partnerBadge(slug: string | null | undefined) {
   return PARTNER_BADGES[(slug ?? '').trim().toLowerCase()] ?? ''
 }
-
-/** Rows of the „И аз“ view: imported from the partner file, or arrived on the site with ?source=iaz.bg. */
-export const IAZ_VIEW_SQL = "(COALESCE(partner, '') = 'iaz.bg' OR lower(COALESCE(source, '')) = 'iaz.bg') AND COALESCE(withdrawn, 0) = 0"
 
 export const PARTNER_COLUMNS = {
   name: ['име', 'имена', 'name', 'full name'],
@@ -33,14 +31,14 @@ export const PARTNER_COLUMNS = {
 } as const
 
 export const PARTNER_MAPPING: ReadonlyArray<{ column: string; field: string }> = [
-  { column: 'Име', field: 'Име, презиме, фамилия (първа дума, втора, останалите)' },
-  { column: 'Имейл', field: 'Имейл (малки букви, без интервали)' },
-  { column: 'ЕГН', field: 'ЕГН (проверка на датата и контролната цифра; изпуснати водещи нули се връщат)' },
-  { column: 'Телефон', field: 'Телефон като 08xxxxxxxx (+359/359/без нула се нормализират)' },
-  { column: 'Област', field: 'Област / МИР (София град → София-град, Софийска → София област)' },
-  { column: 'Общини', field: 'Първата разпозната община е мястото, другите са общини, до които може да пътува; неразпознатото отива в бележката на екипа' },
-  { column: 'Подадено', field: 'Час на записване (created_at) и час при партньора (Europe/Sofia → UTC)' },
-  { column: 'IP', field: 'Не се пази (приложението не пази IP)' },
+  { column: 'Име', field: 'Име, презиме, фамилия (първа дума, втора, останалите) — за пълномощното' },
+  { column: 'ЕГН', field: 'ЕГН — за пълномощното и ключ срещу повторен внос (проверка на датата и контролната цифра; изпуснати водещи нули се връщат)' },
+  { column: 'Област', field: 'МИР на пълномощното (София град → 23/24/25 само по район в „Общини“; Пловдив → 16 или 17 по общината)' },
+  { column: 'Общини', field: 'Община и бележка; за София — районът определя МИР' },
+  { column: 'Имейл', field: 'Само за справка (без писма); невалиден имейл не спира реда' },
+  { column: 'Телефон', field: 'Само за справка, като 08xxxxxxxx; невалиден телефон не спира реда' },
+  { column: 'Подадено', field: 'Час при партньора (Europe/Sofia → UTC)' },
+  { column: 'IP', field: 'Не се пази' },
 ]
 
 export interface PartnerRawRow {
@@ -66,27 +64,29 @@ export interface PartnerPerson {
   travel: TravelStop[]
   /** Общини values that did not match a municipality of the oblast. */
   unmatched: string[]
+  /** МИР for the пълномощно, or '' when the file does not say (София без район). */
+  mir: string
   submittedAt: string | null
   warnings: string[]
 }
 
 export type MapResult = { ok: true; person: PartnerPerson } | { ok: false; line: number; email: string; reasons: string[] }
 
-export interface ExistingSignup {
-  id: string
+/** Signups that share an email or ЕГН with the file. Reported only, never merged. */
+export interface SignupOverlap {
   email: string
-  egn: string | null
-  partner: string | null
+  egn: string
 }
 
-export type PlanKind = 'new' | 'tag' | 'already' | 'repeat' | 'invalid'
+export type PlanKind = 'new' | 'already' | 'repeat' | 'invalid'
 
 export interface PlanRow {
   line: number
   kind: PlanKind
   email: string
   person?: PartnerPerson
-  existingId?: string
+  /** Also a signup: same ЕГН and/or email. Not merged, only reported. */
+  signup?: 'egn' | 'email' | 'both'
   reasons: string[]
 }
 
@@ -94,7 +94,7 @@ export interface PartnerPlan {
   partner: string
   total: number
   rows: PlanRow[]
-  counts: Record<PlanKind, number>
+  counts: Record<PlanKind, number> & { alsoSignup: number; noMir: number }
   headerErrors: string[]
 }
 
@@ -374,27 +374,40 @@ export function mapPlace(oblast: string, municipalities: string, regions: Readon
 
 // ---------- row mapping ----------
 
+/** МИР the пълномощно is for: the oblast's МИР, Пловдив by municipality, София only by district. */
+export function partnerMir(place: HomePlace | null) {
+  if (!place) return ''
+  if (place.regionCode === 'sofia-merged') return sofiaMir(place.cityRegionName) ?? ''
+  return mirOf(place) ?? ''
+}
+
+/** Only a name and a valid ЕГН are required: that is what the пълномощно needs. */
 export function mapPartnerRow(raw: PartnerRawRow, regions: ReadonlyArray<ImportRegion> = IMPORT_REGIONS): MapResult {
   const reasons: string[] = []
   const warnings: string[] = []
   const names = splitFullName(raw.name)
   if (!names.firstName) reasons.push('липсва име')
   else if (!names.lastName) warnings.push('само едно име')
-  const email = normalizeEmail(raw.email)
+  let email = normalizeEmail(raw.email)
   const emailIssue = emailProblem(email)
-  if (emailIssue) reasons.push(emailIssue)
+  if (emailIssue) {
+    if (email) warnings.push('имейлът не е валиден (не се пази)')
+    email = ''
+  }
   const egn = normalizeEgn(raw.egn)
   if (egn.problem) reasons.push(egn.problem)
   else if (egn.padded) warnings.push('ЕГН с върнати водещи нули')
   const phone = normalizePhone(raw.phone)
-  if (phone.problem) reasons.push(phone.problem)
+  if (phone.problem) warnings.push('телефонът не е валиден (не се пази)')
   else if (!phone.phone) warnings.push('няма телефон')
   const place = mapPlace(raw.oblast, raw.municipalities, regions)
   if (raw.oblast && !place.oblastKnown) warnings.push('непозната област')
   if (place.unmatched.length) warnings.push('част от общините не са разпознати')
+  const mir = partnerMir(place.place)
+  if (!mir) warnings.push(place.place?.regionCode === 'sofia-merged' ? 'няма МИР: София без район (23/24/25)' : 'няма МИР')
   const submittedAt = parseSubmitted(raw.submitted)
   if (raw.submitted && !submittedAt) warnings.push('часът „Подадено“ не се разчита')
-  if (reasons.length) return { ok: false, line: raw.line, email, reasons }
+  if (reasons.length) return { ok: false, line: raw.line, email: normalizeEmail(raw.email), reasons }
   return {
     ok: true,
     person: {
@@ -406,6 +419,7 @@ export function mapPartnerRow(raw: PartnerRawRow, regions: ReadonlyArray<ImportR
       place: place.place,
       travel: place.travel,
       unmatched: place.unmatched,
+      mir,
       submittedAt,
       warnings,
     },
@@ -422,11 +436,17 @@ function later(a: PartnerPerson, b: PartnerPerson) {
 }
 
 /**
- * Classifies every row. `existing` are signups that share an email or ЕГН with the file.
- * new: insert. tag: an existing signup gets only the partner tag. already: tagged before (re-import).
- * repeat: the same person again in the file (the latest submission wins). invalid: skipped, with reasons.
+ * Classifies every row. The ЕГН is the person: one person per ЕГН per partner.
+ * new: insert into partner_people. already: that ЕГН is in partner_people already (re-import, untouched).
+ * repeat: the same ЕГН again in the file (the latest submission wins). invalid: skipped, with reasons.
+ * `imported` are ЕГН already in partner_people; `signups` share an ЕГН or email (reported, not merged).
  */
-export function planPartnerImport(rawRows: PartnerRawRow[], existing: ExistingSignup[], partner = IAZ_PARTNER): PartnerPlan {
+export function planPartnerImport(
+  rawRows: PartnerRawRow[],
+  imported: ReadonlyArray<string>,
+  signups: ReadonlyArray<SignupOverlap>,
+  partner = IAZ_PARTNER,
+): PartnerPlan {
   const rows: PlanRow[] = []
   const valid: PartnerPerson[] = []
   for (const raw of rawRows) {
@@ -434,65 +454,42 @@ export function planPartnerImport(rawRows: PartnerRawRow[], existing: ExistingSi
     if (mapped.ok) valid.push(mapped.person)
     else rows.push({ line: mapped.line, kind: 'invalid', email: mapped.email, reasons: mapped.reasons })
   }
-  // One email used for different ЕГН is several people on one address: the app keeps one signup per email.
-  const byEmail = new Map<string, PartnerPerson[]>()
-  for (const person of valid) byEmail.set(person.email, [...(byEmail.get(person.email) ?? []), person])
-  const byEgn = new Map<string, Set<string>>()
-  for (const person of valid) byEgn.set(person.egn, new Set([...(byEgn.get(person.egn) ?? []), person.email]))
-  const keep: PartnerPerson[] = []
-  for (const [email, group] of byEmail) {
-    const egns = new Set(group.map((person) => person.egn))
-    if (egns.size > 1) {
-      for (const person of group) {
-        rows.push({ line: person.line, kind: 'invalid', email, reasons: [`един имейл за ${egns.size} различни ЕГН във файла`] })
-      }
-      continue
-    }
-    const egnEmails = byEgn.get(group[0]!.egn)
-    if (egnEmails && egnEmails.size > 1) {
-      for (const person of group) {
-        rows.push({ line: person.line, kind: 'invalid', email, reasons: ['едно ЕГН с различни имейли във файла'] })
-      }
-      continue
-    }
+  const byEgn = new Map<string, PartnerPerson[]>()
+  for (const person of valid) byEgn.set(person.egn, [...(byEgn.get(person.egn) ?? []), person])
+  const emailCount = new Map<string, number>()
+  for (const [, group] of byEgn) {
+    const email = group.reduce(later).email
+    if (email) emailCount.set(email, (emailCount.get(email) ?? 0) + 1)
+  }
+  const importedSet = new Set(imported.map((egn) => egn.replace(/\D/g, '')))
+  const signupEgn = new Set(signups.map((row) => row.egn.replace(/\D/g, '')).filter(Boolean))
+  const signupEmail = new Set(signups.map((row) => row.email.trim().toLowerCase()).filter(Boolean))
+  for (const [, group] of byEgn) {
     const latest = group.reduce(later)
     for (const person of group) {
-      if (person !== latest) rows.push({ line: person.line, kind: 'repeat', email, reasons: [`същият човек отново, взет е ред ${latest.line}`] })
+      if (person !== latest) rows.push({ line: person.line, kind: 'repeat', email: person.email, person, reasons: [`същото ЕГН отново, взет е ред ${latest.line}`] })
     }
-    keep.push(latest)
-  }
-  const existingByEmail = new Map(existing.map((row) => [row.email.trim().toLowerCase(), row]))
-  const existingByEgn = new Map<string, ExistingSignup>()
-  for (const row of existing) if (row.egn) existingByEgn.set(row.egn.replace(/\D/g, ''), row)
-  for (const person of keep) {
-    const emailHit = existingByEmail.get(person.email)
-    const egnHit = existingByEgn.get(person.egn)
-    if (emailHit && egnHit && emailHit.id !== egnHit.id) {
-      rows.push({ line: person.line, kind: 'invalid', email: person.email, person, reasons: ['имейлът и ЕГН са на две различни записвания'] })
-      continue
+    if (new Set(group.map((person) => person.email).filter(Boolean)).size > 1) latest.warnings.push('същото ЕГН с различни имейли във файла')
+    const shared = latest.email ? (emailCount.get(latest.email) ?? 0) : 0
+    if (shared > 1) latest.warnings.push(`имейлът е общ за ${shared} души във файла`)
+    const byEgnHit = signupEgn.has(latest.egn)
+    const byEmailHit = Boolean(latest.email) && signupEmail.has(latest.email)
+    const signup = byEgnHit && byEmailHit ? 'both' : byEgnHit ? 'egn' : byEmailHit ? 'email' : undefined
+    const reasons: string[] = []
+    if (signup) reasons.push(signup === 'email' ? 'има записване с този имейл (не се сливат)' : 'има записване с това ЕГН (не се сливат)')
+    if (importedSet.has(latest.egn)) {
+      rows.push({ line: latest.line, kind: 'already', email: latest.email, person: latest, signup, reasons: ['вече е внесен (не се променя)', ...reasons] })
+    } else {
+      rows.push({ line: latest.line, kind: 'new', email: latest.email, person: latest, signup, reasons })
     }
-    if (emailHit && emailHit.egn && emailHit.egn !== person.egn) {
-      rows.push({ line: person.line, kind: 'invalid', email: person.email, person, reasons: ['имейлът вече е записан с друго ЕГН'] })
-      continue
-    }
-    const hit = emailHit ?? egnHit
-    if (!hit) {
-      rows.push({ line: person.line, kind: 'new', email: person.email, person, reasons: [] })
-      continue
-    }
-    const tagged = (hit.partner ?? '').trim().toLowerCase() === partner
-    rows.push({
-      line: person.line,
-      kind: tagged ? 'already' : 'tag',
-      email: person.email,
-      person,
-      existingId: hit.id,
-      reasons: [tagged ? `вече е с „${partnerBadge(partner) || partner}“` : emailHit ? 'има записване с този имейл' : 'има записване с това ЕГН'],
-    })
   }
   rows.sort((a, b) => a.line - b.line)
-  const counts: Record<PlanKind, number> = { new: 0, tag: 0, already: 0, repeat: 0, invalid: 0 }
-  for (const row of rows) counts[row.kind] += 1
+  const counts = { new: 0, already: 0, repeat: 0, invalid: 0, alsoSignup: 0, noMir: 0 }
+  for (const row of rows) {
+    counts[row.kind] += 1
+    if ((row.kind === 'new' || row.kind === 'already') && row.signup) counts.alsoSignup += 1
+    if (row.kind === 'new' && row.person && !row.person.mir) counts.noMir += 1
+  }
   return { partner, total: rawRows.length, rows, counts, headerErrors: [] }
 }
 
@@ -502,18 +499,23 @@ export function lookupKeys(rawRows: PartnerRawRow[]) {
   const egns = new Set<string>()
   for (const raw of rawRows) {
     const email = normalizeEmail(raw.email)
-    if (email) emails.add(email)
+    if (email && !emailProblem(email)) emails.add(email)
     const egn = normalizeEgn(raw.egn)
     if (egn.egn) egns.add(egn.egn)
   }
   return { emails: [...emails], egns: [...egns] }
 }
 
-export const EXISTING_SIGNUPS_SQL = (emailCount: number, egnCount: number) => {
+/** ЕГН already in partner_people for this partner. Binds: partner, then the ЕГН. */
+export const IMPORTED_EGNS_SQL = (egnCount: number) =>
+  `SELECT egn FROM partner_people WHERE partner = ? AND egn IN (${Array(Math.max(egnCount, 1)).fill('?').join(', ')})`
+
+/** Signups sharing an email or ЕГН. Only email and ЕГН come back, to report the overlap. */
+export const SIGNUP_OVERLAP_SQL = (emailCount: number, egnCount: number) => {
   const parts: string[] = []
   if (emailCount) parts.push(`lower(email) IN (${Array(emailCount).fill('?').join(', ')})`)
   if (egnCount) parts.push(`REPLACE(COALESCE(egn, ''), ' ', '') IN (${Array(egnCount).fill('?').join(', ')})`)
-  return `SELECT id, lower(email) AS email, egn, partner FROM signups WHERE ${parts.join(' OR ') || '1 = 0'}`
+  return `SELECT lower(COALESCE(email, '')) AS email, REPLACE(COALESCE(egn, ''), ' ', '') AS egn FROM signups WHERE ${parts.join(' OR ') || '1 = 0'}`
 }
 
 // ---------- statements ----------
@@ -523,95 +525,51 @@ export interface SqlStatement {
   params: Array<string | number | null>
 }
 
-const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+export const randomPartnerId = () => `${PARTNER_ID_PREFIX}${crypto.randomUUID()}`
 
-export interface StatementIds {
-  id: () => string
-  token: () => string
-  referral: () => string
+/** Insert only; a person already in the table (same partner and ЕГН) is never touched. */
+export const INSERT_PARTNER_PERSON_SQL = `INSERT INTO partner_people (
+  id, partner, egn, email, phone, first_name, middle_name, last_name,
+  region_code, region_name, municipality_name, place_note, designation_mir,
+  submitted_at, imported_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(partner, egn) DO NOTHING`
+
+function placeNote(person: PartnerPerson) {
+  const bits = [
+    person.place?.cityRegionName ? `район ${person.place.cityRegionName}` : '',
+    person.travel.length ? `и: ${person.travel.map((stop) => stop.name).join(', ')}` : '',
+    person.unmatched.length ? `неразпознати: ${person.unmatched.join(', ')}` : '',
+  ].filter(Boolean)
+  return bits.join('; ').slice(0, 400)
 }
 
-export const randomIds: StatementIds = {
-  id: () => crypto.randomUUID(),
-  token: () => crypto.randomUUID(),
-  referral: () => [...crypto.getRandomValues(new Uint8Array(6))].map((byte) => ALPHABET[byte % ALPHABET.length]).join(''),
-}
-
-export function partnerProfile(person: PartnerPerson, partner: string, referralCode: string): Profile {
-  return {
-    ...emptyProfile(),
-    firstName: person.firstName,
-    middleName: person.middleName,
-    lastName: person.lastName,
-    email: person.email,
-    phone: person.phone,
-    egn: person.egn,
-    place: person.place,
-    travelMunicipalities: person.travel,
-    referralCode,
-    source: partner,
-  }
-}
-
-function staffNoteOf(person: PartnerPerson) {
-  if (!person.unmatched.length) return null
-  return `${IAZ_LABEL}, общини: ${person.unmatched.join(', ')}`.slice(0, 400)
-}
-
-export const INSERT_PARTNER_SQL = `INSERT INTO signups (
-  id, email, session_token, referral_code, source, partner, partner_submitted_at, partner_imported_at, egn,
-  rounds_first, rounds_runoff, region_code, mir_code, municipality_name, town_name, city_region_name,
-  travel_municipalities, payload, email_confirmed, consent, submitted, withdrawn, imported, signup_mail_at,
-  staff_note, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 1, 'skipped', ?, ?, ?)
-ON CONFLICT(email) DO NOTHING`
-
-/** Only the tag: never touches the person's own fields, and never re-tags. */
-export const TAG_PARTNER_SQL = `UPDATE signups SET partner = ?, partner_submitted_at = COALESCE(partner_submitted_at, ?), partner_imported_at = COALESCE(partner_imported_at, ?)
-WHERE id = ? AND COALESCE(partner, '') = ''`
-
-/**
- * New people are imported, not confirmed: email_confirmed 0, no confirm_token, so no letter goes out
- * and „Изпрати чакащите писма“ skips them. signup_mail_at = skipped keeps the receipt letter off.
- * They can still sign in with a code on their address and take the signup over.
- */
-export function partnerImportStatements(plan: PartnerPlan, now: string, ids: StatementIds = randomIds): SqlStatement[] {
+export function partnerImportStatements(plan: PartnerPlan, now: string, newId: () => string = randomPartnerId): SqlStatement[] {
   const statements: SqlStatement[] = []
   for (const row of plan.rows) {
-    if (row.kind === 'new' && row.person) {
-      const person = row.person
-      const referral = ids.referral()
-      const columns = signupColumns(partnerProfile(person, plan.partner, referral))
-      statements.push({
-        sql: INSERT_PARTNER_SQL,
-        params: [
-          ids.id(),
-          columns.email,
-          ids.token(),
-          referral,
-          plan.partner,
-          plan.partner,
-          person.submittedAt,
-          now,
-          columns.egn,
-          columns.roundsFirst,
-          columns.roundsRunoff,
-          columns.regionCode,
-          columns.mirCode,
-          columns.municipalityName,
-          columns.townName,
-          columns.cityRegionName,
-          columns.travelMunicipalities,
-          columns.payload,
-          staffNoteOf(person),
-          person.submittedAt ?? now,
-          now,
-        ],
-      })
-    }
-    if (row.kind === 'tag' && row.existingId) {
-      statements.push({ sql: TAG_PARTNER_SQL, params: [plan.partner, row.person?.submittedAt ?? null, now, row.existingId] })
-    }
+    if (row.kind !== 'new' || !row.person) continue
+    const person = row.person
+    statements.push({
+      sql: INSERT_PARTNER_PERSON_SQL,
+      params: [
+        newId(),
+        plan.partner,
+        person.egn,
+        person.email,
+        person.phone,
+        person.firstName,
+        person.middleName,
+        person.lastName,
+        person.place?.regionCode ?? '',
+        person.place?.regionName ?? '',
+        person.place?.municipalityName ?? '',
+        placeNote(person),
+        person.mir || null,
+        person.submittedAt,
+        now,
+        now,
+      ],
+    })
   }
   return statements
 }
@@ -638,7 +596,7 @@ export function maskEgn(egn: string) {
 
 export function maskEmail(email: string) {
   const [user = '', domain = ''] = email.split('@')
-  return `${user.slice(0, 1)}***@${domain}`
+  return email ? `${user.slice(0, 1)}***@${domain}` : ''
 }
 
 export interface PreviewRow {
@@ -647,9 +605,9 @@ export interface PreviewRow {
   name: string
   email: string
   egn: string
-  phone: string
+  mir: string
   place: string
-  submittedAt: string
+  signup: '' | 'egn' | 'email' | 'both'
   reasons: string[]
   warnings: string[]
 }
@@ -659,15 +617,13 @@ export function previewRows(plan: PartnerPlan, limit = 500): PreviewRow[] {
     line: row.line,
     kind: row.kind,
     name: row.person ? [row.person.firstName, row.person.middleName, row.person.lastName].filter(Boolean).join(' ') : '',
-    email: row.email,
+    email: maskEmail(row.email),
     egn: maskEgn(row.person?.egn ?? ''),
-    phone: row.person?.phone ?? '',
+    mir: row.person?.mir ?? '',
     place: row.person?.place
-      ? [row.person.place.regionName, row.person.place.municipalityName, row.person.place.cityRegionName, ...row.person.travel.map((stop) => `+ ${stop.name}`)]
-          .filter(Boolean)
-          .join(', ')
+      ? [row.person.place.regionName, row.person.place.municipalityName, row.person.place.cityRegionName].filter(Boolean).join(', ')
       : '',
-    submittedAt: row.person?.submittedAt ?? '',
+    signup: row.signup ?? '',
     reasons: row.reasons,
     warnings: row.person?.warnings ?? [],
   }))
@@ -675,5 +631,5 @@ export function previewRows(plan: PartnerPlan, limit = 500): PreviewRow[] {
 
 export function planSummary(plan: PartnerPlan) {
   const { counts } = plan
-  return `Редове ${plan.total}: нови ${counts.new}, вече записани (само етикет) ${counts.tag}, вече внесени ${counts.already}, повторени във файла ${counts.repeat}, невалидни ${counts.invalid}.`
+  return `Редове ${plan.total}: нови ${counts.new}, вече внесени ${counts.already}, повторени във файла ${counts.repeat}, невалидни ${counts.invalid}. Също записани доброволци (не се сливат): ${counts.alsoSignup}. Нови без МИР: ${counts.noMir}.`
 }

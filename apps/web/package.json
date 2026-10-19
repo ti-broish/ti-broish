@@ -25,6 +25,7 @@
 		"@tanstack/react-router-devtools": "latest",
 		"@tanstack/react-start": "latest",
 		"@tanstack/react-table": "8.21.3",
+		"fflate": "^0.8.3",
 		"leaflet": "^1.9.4",
 		"pdf-lib": "^1.17.1",
 		"react": "^19.2.0",

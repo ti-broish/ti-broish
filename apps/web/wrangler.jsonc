@@ -38,7 +38,9 @@
 	"vars": {
 		"BREVO_LIST_ID": "94",
 		"BREVO_SENDER_EMAIL": "team@tibroish.bg",
-		"BREVO_SENDER_NAME": "Ти броиш"
+		"BREVO_SENDER_NAME": "Ти броиш",
+		// Drive folder „ТЕСТ пълномощни staging“. Share it with the service account (Editor).
+		"DESIGNATION_DRIVE_FOLDER_ID": "14Iw8TBaKKLNa357xDy8PDunhFOloulPb"
 	},
 	"env": {
 		// Workers Builds must set CLOUDFLARE_ENV=production before `pnpm build`.
@@ -69,6 +71,7 @@
 				}
 			],
 			// Production Brevo settings. List 95 is „Представители със секция ПВР 2026“. BREVO_API_KEY is a secret.
+			// DESIGNATION_DRIVE_FOLDER_ID must be set for production (do not reuse the staging folder id).
 			"vars": {
 				"BREVO_LIST_ID": "95",
 				"BREVO_SENDER_EMAIL": "team@tibroish.bg",
@@ -103,6 +106,12 @@
 	// Optional: DESIGNATION_GRANTOR_AUTHORISATION, DESIGNATION_GRANTOR_CAPACITY,
 	//   DESIGNATION_VALID_UNTIL, DESIGNATION_SEAL_LINE, DESIGNATION_ISSUED_ON,
 	//   DESIGNATION_NUMBER_PREFIX, DESIGNATION_SECTION_INFO, BREVO_DESIGNATION_ATTRIBUTE
+	// Bulk signed PDFs (admin /admin/palnomoshtni):
+	//   wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
+	//   wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON --env production
+	//   Optional OAuth instead of the JSON: GOOGLE_OAUTH_CLIENT_ID / SECRET / REFRESH_TOKEN
+	//   DESIGNATION_DRIVE_FOLDER_ID (staging var below; set for production), or DRIVE_FOLDER_ID
+	//   Optional GOOGLE_DRIVE_SCOPE (default https://www.googleapis.com/auth/drive)
 	// "vars": {  "BREVO_LIST_ID": "123", "BREVO_TEMPLATE_ID": "456", "BREVO_SENDER_EMAIL": "team@tibroish.bg", "BREVO_SENDER_NAME": "Ти броиш" }
 	/**
 	 * Static Assets

@@ -16,6 +16,17 @@ export function sqlBatches<T>(items: readonly T[], size: number) {
   return batches
 }
 
+export async function runSqlBatches<T>(
+  db: { batch: (statements: T[]) => Promise<unknown> },
+  statements: T[],
+  size = 40,
+) {
+  for (const chunk of sqlBatches(statements, size)) {
+    if (chunk.length === 0) continue
+    await db.batch(chunk)
+  }
+}
+
 /** Lookup for the Drive-link import. Never selects ЕГН. */
 export function designationImportLookupSql(ids: string[], emails: string[]) {
   const clauses: string[] = []

@@ -142,7 +142,18 @@ export function rosterWhere(view: RosterView, mir: string): { clause: string; bi
     if (!/^\d{1,2}$/.test(code)) return { error: 'МИР е номер, например 23.' }
     return { clause: 'mir_code = ? AND COALESCE(withdrawn, 0) = 0', binds: [code.padStart(2, '0')] }
   }
+  // Admin „Всички“ keeps withdrawn people (badge + restore). Exports apply exportWithdrawnGuard.
   return { clause: '1 = 1', binds: [] }
+}
+
+/**
+ * Extra AND so Brevo sync/campaign never re-adds withdrawn people.
+ * CSV excludes them too, except the explicit view=withdrawn export.
+ */
+export function exportWithdrawnGuard(view: RosterView, kind: 'brevo' | 'csv'): string {
+  if (kind === 'brevo') return ' AND COALESCE(withdrawn, 0) = 0'
+  if (view === 'withdrawn') return ''
+  return ' AND COALESCE(withdrawn, 0) = 0'
 }
 
 /** Section distribution only lists people who finished signup. */

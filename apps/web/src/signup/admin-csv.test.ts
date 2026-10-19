@@ -6,6 +6,7 @@ import {
   csvCell,
   distributionWhere,
   egnLast4,
+  exportWithdrawnGuard,
   internalCsv,
   normalizeBrevoSms,
   parsePeopleCsv,
@@ -100,6 +101,17 @@ describe('roster filters', () => {
     expect('clause' in distribution && distribution.clause).toContain('COALESCE(withdrawn, 0) = 0')
     expect(rosterWhere('mir', '3')).toEqual({ clause: 'mir_code = ? AND COALESCE(withdrawn, 0) = 0', binds: ['03'] })
     expect(rosterWhere('mir', 'София')).toEqual({ error: 'МИР е номер, например 23.' })
+    // Admin „Всички“ still lists withdrawn people (badge + restore).
+    expect(rosterWhere('all', '')).toEqual({ clause: '1 = 1', binds: [] })
+  })
+
+  it('excludes withdrawn from Brevo always and from CSV except view=withdrawn', () => {
+    expect(exportWithdrawnGuard('all', 'brevo')).toBe(' AND COALESCE(withdrawn, 0) = 0')
+    expect(exportWithdrawnGuard('withdrawn', 'brevo')).toBe(' AND COALESCE(withdrawn, 0) = 0')
+    expect(exportWithdrawnGuard('assigned', 'brevo')).toBe(' AND COALESCE(withdrawn, 0) = 0')
+    expect(exportWithdrawnGuard('all', 'csv')).toBe(' AND COALESCE(withdrawn, 0) = 0')
+    expect(exportWithdrawnGuard('assigned', 'csv')).toBe(' AND COALESCE(withdrawn, 0) = 0')
+    expect(exportWithdrawnGuard('withdrawn', 'csv')).toBe('')
   })
 })
 

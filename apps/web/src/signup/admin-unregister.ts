@@ -88,7 +88,7 @@ export function unregisterSql() {
     draft_locked = 0,
     published_section = NULL,
     published_at = NULL,
-    payload = json_set(COALESCE(payload, '{}'), '$.withdrawn', json('true'), '$.assignedSection', json('null')),
+    payload = json_set(COALESCE(payload, '{}'), '$.withdrawn', json('true'), '$.withdrawnByAdmin', json('true'), '$.assignedSection', json('null')),
     updated_at = ?
   WHERE id = ? AND COALESCE(withdrawn, 0) = 0`
 }
@@ -100,7 +100,7 @@ export function restoreSql() {
     withdrawn_by = NULL,
     withdrawn_reason = NULL,
     withdrawn_note = NULL,
-    payload = json_set(COALESCE(payload, '{}'), '$.withdrawn', json('false')),
+    payload = json_set(COALESCE(payload, '{}'), '$.withdrawn', json('false'), '$.withdrawnByAdmin', json('false')),
     updated_at = ?
   WHERE id = ? AND COALESCE(withdrawn, 0) = 1`
 }

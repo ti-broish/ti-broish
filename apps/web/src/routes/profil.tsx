@@ -305,9 +305,9 @@ function ProfilePage() {
           <button
             type="button"
             className="flex min-h-14 w-full items-center justify-center rounded-[20px] border border-[#333] bg-white px-5 text-xl font-bold"
-            onClick={() => updateProfile({ withdrawn: true, submitted: true })}
+            onClick={() => updateProfile({ withdrawn: true, submitted: true, withdrawnByAdmin: false })}
           >
-            Отпиши се
+            Оттегли записването
           </button>
         ) : null}
         <p className="text-sm leading-6">
@@ -419,26 +419,39 @@ function CantReachSection({ profile }: { profile: Profile }) {
 function NextStep({ profile }: { profile: Profile }) {
   const view = profileView(profile)
   if (view === 'incomplete') {
+    const adminUnregistered = profile.withdrawn && profile.withdrawnByAdmin
+    const selfWithdrawn = profile.withdrawn && !profile.withdrawnByAdmin
     return (
-      <section className="grid gap-4" aria-label={profile.withdrawn ? 'Отписан' : 'Още една стъпка'}>
-        <p className="text-sm font-bold text-[#666]">{profile.withdrawn ? 'Отписан' : 'Още една стъпка'}</p>
+      <section
+        className="grid gap-4"
+        aria-label={adminUnregistered ? 'Отписан' : selfWithdrawn ? 'Оттеглено' : 'Още една стъпка'}
+      >
+        <p className="text-sm font-bold text-[#666]">
+          {adminUnregistered ? 'Отписан' : selfWithdrawn ? 'Оттеглено' : 'Още една стъпка'}
+        </p>
         <h2 className="text-3xl font-black text-[#444]">
-          {profile.withdrawn ? 'Записването е отписано' : 'Записването не е готово'}
+          {adminUnregistered
+            ? 'Записването е отписано'
+            : selfWithdrawn
+              ? 'Записването е оттеглено'
+              : 'Записването не е готово'}
         </h2>
         <p className="text-lg leading-7">
-          {profile.withdrawn
+          {adminUnregistered
             ? 'Вече не си в активните списъци. Ако искаш отново да участваш, върни записването или ни пиши.'
-            : signupGap(profile)}
+            : selfWithdrawn
+              ? 'Мястото се освобождава. Можеш да го върнеш, ако още искаш да участваш.'
+              : signupGap(profile)}
         </p>
-        {profile.withdrawn ? (
+        {adminUnregistered ? (
           <div className="grid gap-2">
             <button
               type="button"
               className="brand-button"
               onClick={() => {
-                updateProfile({ withdrawn: false, submitted: true })
+                updateProfile({ withdrawn: false, submitted: true, withdrawnByAdmin: false })
                 void selfRestoreSignup().then((result) => {
-                  if (!result.ok) updateProfile({ withdrawn: true })
+                  if (!result.ok) updateProfile({ withdrawn: true, withdrawnByAdmin: true })
                 })
               }}
             >
@@ -448,6 +461,14 @@ function NextStep({ profile }: { profile: Profile }) {
               Пиши ни
             </Link>
           </div>
+        ) : selfWithdrawn ? (
+          <button
+            type="button"
+            className="brand-button"
+            onClick={() => updateProfile({ withdrawn: false, submitted: true, withdrawnByAdmin: false })}
+          >
+            Върни записването
+          </button>
         ) : (
           <Link to="/signup" search={{ step: resumeSignupStep(profile) }} className="brand-button">
             Продължи записването

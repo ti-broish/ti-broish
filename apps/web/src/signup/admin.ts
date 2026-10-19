@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
-import { brevoSectionsCsv, campaignCsv, distributionWhere, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
+import { brevoSectionsCsv, campaignCsv, distributionWhere, exportWithdrawnGuard, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
 import { lookupSectionPlaces } from './section-places-lookup'
 import { sectionPlaceOf } from './section-where'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
@@ -278,14 +278,23 @@ async function summaryOf(db: Database): Promise<AdminSummary> {
   }
 }
 
-function filtered(view: string, mir: string, q: string, mode: 'fts' | 'like', finishedOnly: boolean, publishedOnly = false) {
+function filtered(
+  view: string,
+  mir: string,
+  q: string,
+  mode: 'fts' | 'like',
+  finishedOnly: boolean,
+  publishedOnly = false,
+  exportKind?: 'brevo' | 'csv',
+) {
   const filter = finishedOnly ? distributionWhere(viewOf(view), mir) : rosterWhere(viewOf(view), mir)
   if ('error' in filter) return filter
   const search = searchClause(q, mode)
   const published = publishedOnly
     ? ` AND COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0`
     : ''
-  return { clause: `(${filter.clause}) AND (${search.clause})${published}`, binds: [...filter.binds, ...search.binds] }
+  const exportGuard = exportKind ? exportWithdrawnGuard(viewOf(view), exportKind) : ''
+  return { clause: `(${filter.clause}) AND (${search.clause})${published}${exportGuard}`, binds: [...filter.binds, ...search.binds] }
 }
 
 async function queryPeople(
@@ -300,9 +309,10 @@ async function queryPeople(
   dir: string,
   finishedOnly = false,
   publishedOnly = false,
+  exportKind?: 'brevo' | 'csv',
 ) {
   const run = async (mode: 'fts' | 'like') => {
-    const filter = filtered(view, mir, q, mode, finishedOnly, publishedOnly)
+    const filter = filtered(view, mir, q, mode, finishedOnly, publishedOnly, exportKind)
     if ('error' in filter) return filter
     const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
     const rows = await selectPeople(db, filter.clause, filter.binds, limit, offset, withEgn, rosterOrder(sort, dir))
@@ -492,6 +502,7 @@ export async function loadBrevoSectionFields(
       'desc',
       input.finishedOnly === true,
       input.publishedOnly,
+      'brevo',
     )
     if ('error' in chunk) return { error: chunk.error }
     people.push(...chunk.rows.map(fieldsOf))
@@ -581,6 +592,7 @@ export const adminExport = createServerFn({ method: 'POST' })
         'desc',
         false,
         false,
+        'csv',
       )
       if ('error' in chunk) return { ok: false as const, message: chunk.error }
       people.push(...chunk.rows.map(fieldsOf))

@@ -98,8 +98,14 @@ describe('roster exclusions for withdrawn', () => {
       binds: [],
     })
     expect(rosterWhere('abroad', '')).toEqual({ clause: "region_code = '32' AND COALESCE(withdrawn, 0) = 0", binds: [] })
+    expect(rosterWhere('all', '')).toEqual({ clause: '1 = 1', binds: [] })
     const distribution = distributionWhere('unassigned', '')
     expect('clause' in distribution && distribution.clause).toContain('COALESCE(withdrawn, 0) = 0')
+  })
+
+  it('marks admin unregister in the payload so /profil can keep self-service copy', () => {
+    expect(unregisterSql()).toContain("'$.withdrawnByAdmin', json('true')")
+    expect(restoreSql()).toContain("'$.withdrawnByAdmin', json('false')")
   })
 })
 

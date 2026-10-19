@@ -24,13 +24,29 @@ pnpm dev
 
 Per-person legal PDF «Пълномощно» for a committee representative (`представител`) on election day. This is a different document from the static ЦИК distinctive-sign (badge) at `/znachka` and `apps/web/public/oznachenie-predstavitel.pdf` — leave that page untouched.
 
-The generator lives in `apps/web/src/signup/designation-pdf.ts`. Staff can preview one PDF at `GET /admin/signups/{id}/palnomoshtno.pdf`. Two ways to get the file onto Google Drive and store the link on the signup (and in Brevo):
+The generator lives in `apps/web/src/signup/designation-pdf.ts`. Staff can preview one PDF at `GET /admin/signups/{id}/palnomoshtno.pdf`.
 
-**A: service account upload.** The script uploads each PDF to a Drive folder (anyone-with-the-link viewer), writes `designation_pdf_url` / `designation_drive_file_id`, and copies the URL to the Brevo contact attribute (default `PALNOMOSHTNO_URL`). Needs `DRIVE_FOLDER_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` (or the OAuth triple).
+### Admin (`/admin/palnomoshtni`)
+
+The usual path is the admin page, not the CLI. Viewing needs the `view` staff right; numbering, ZIP, upload and Brevo sync need `exportCampaign` (editor or admin).
+
+1. **Номерирай** — assigns a stable integer `designation_number` (MAX+1, never renumbers) to everyone with a published section, in order of section, `created_at`, id. Sets `designation_issued_at` to today in Europe/Sofia when empty.
+2. **Изтегли ZIP** — unsigned PDFs, 100 per request, streamed with STORE compression. Filenames are `{0001}_{9-digit-section}_{Lastname}.pdf` (Bulgarian streamlined transliteration, no ЕГН). Includes `manifest.csv`. Marks `designation_generated_at`.
+3. Sign the PDFs. Re-upload as `*_signed.pdf` (a ZIP of those files is fine). The page matches by normalised filename, then by leading number plus section.
+4. **Качи N подписани** — one PDF per request to Google Drive (update in place when `designation_drive_file_id` exists; on 403/404 create a new `*_signed.pdf` in the folder, anyone-with-the-link viewer). Writes `designation_pdf_url`, `designation_drive_file_id`, `designation_signed_at`.
+5. After the uploads, the page pushes only the URL attribute (default `PALNOMOSHTNO_URL`) to the Brevo list. If the Brevo key or list id is missing, Drive links stay and the page says so.
+
+The page loads without Drive/Brevo credentials and says which secret names are missing. ЕГН is never shown.
+
+### CLI (optional)
+
+Two ways to get the file onto Google Drive and store the link on the signup (and in Brevo):
+
+**A: service account upload.** The script uploads each PDF to a Drive folder (anyone-with-the-link viewer), writes `designation_pdf_url` / `designation_drive_file_id`, and copies the URL to the Brevo contact attribute (default `PALNOMOSHTNO_URL`). Needs `DRIVE_FOLDER_ID` or `DESIGNATION_DRIVE_FOLDER_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` (or the OAuth triple).
 
 **B: manual upload + `--import`.** Generate with `--local-only` (no Google credentials). An admin — or an assistant with its own Drive connector — uploads the PDFs, fills `driveUrl` in the manifest, and the script writes the links back to D1 and Brevo.
 
-`--local-only` still saves `designation_number` / `designation_issued_at` to D1 so the PDF numbers stay stable. `--dry-run` writes nothing.
+`--local-only` still saves `designation_number` / `designation_issued_at` to D1 so the PDF numbers stay stable. `--dry-run` writes nothing. The admin ZIP + signed upload above replaces this for day-to-day work.
 
 ### How to run
 
@@ -109,9 +125,10 @@ The упълномощител (grantor) is set via `DESIGNATION_GRANTOR_NAME`. 
 
 | Variable | Purpose |
 | --- | --- |
-| `DRIVE_FOLDER_ID` | Shared Drive folder to upload into |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Service-account JSON (file path or inline). Scope defaults to `drive.file`; set `GOOGLE_DRIVE_SCOPE=https://www.googleapis.com/auth/drive` if the folder is on a Shared Drive |
-| `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` / `GOOGLE_OAUTH_REFRESH_TOKEN` | Optional alternative to the service account |
+| `DESIGNATION_DRIVE_FOLDER_ID` | Shared Drive folder for bulk signed PDFs. Staging var in `apps/web/wrangler.jsonc` (ТЕСТ пълномощни). Production must set its own; do not reuse the staging id |
+| `DRIVE_FOLDER_ID` | Fallback folder id (CLI and Worker) if `DESIGNATION_DRIVE_FOLDER_ID` is unset |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Service-account JSON. Worker secret (inline JSON). CLI also accepts a file path. Worker scope defaults to `https://www.googleapis.com/auth/drive`; override with `GOOGLE_DRIVE_SCOPE` |
+| `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` / `GOOGLE_OAUTH_REFRESH_TOKEN` | Optional alternative to the service account; takes precedence when all three are set |
 | `BREVO_API_KEY` | Same key as signup mail. Attribute name defaults to `PALNOMOSHTNO_URL` (override with `BREVO_DESIGNATION_ATTRIBUTE`) |
 | `DESIGNATION_GRANTOR_NAME` | Full three names of the упълномощител (grantor). Secret/env only, never in git |
 | `DESIGNATION_GRANTOR_EGN` | ЕГН of the упълномощител. Env only, never in git |
@@ -123,9 +140,25 @@ The упълномощител (grantor) is set via `DESIGNATION_GRANTOR_NAME`. 
 | `DESIGNATION_NUMBER_PREFIX` | Optional prefix in front of the sequential integer |
 | `DESIGNATION_SECTION_INFO` | Set to `0` to omit the non-operative section info line |
 
-Option A: service accounts have no My Drive quota. Put `DRIVE_FOLDER_ID` in a Shared Drive and add the service account as Content manager. Option B (manual upload + `--import`) does not need a service account. Create the Brevo contact attribute `PALNOMOSHTNO_URL` (text) before the first sync.
+Service accounts have no My Drive quota. Put the folder on a Shared Drive and add the service account as Editor or Content manager. Option B (manual upload + `--import`) does not need a service account. Create the Brevo contact attribute `PALNOMOSHTNO_URL` (text) before the first sync.
 
-The Worker preview route reads the same `DESIGNATION_GRANTOR_*` values from wrangler secrets/vars so the downloaded PDF matches the batch.
+The Worker preview and ZIP routes read the same `DESIGNATION_GRANTOR_*` values from wrangler secrets/vars so the downloaded PDF matches the batch.
+
+### Google Cloud service account (Worker)
+
+1. In Google Cloud, create or pick a project and enable the **Google Drive API**.
+2. Create a service account (no user login needed).
+3. Create a JSON key for that account.
+4. Put the JSON in the Worker (staging and production are separate):
+
+```bash
+cd apps/web
+pnpm exec wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
+pnpm exec wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON --env production
+```
+
+5. Share the Drive folder with the service account email as **Editor** or **Content manager**. A Shared Drive is recommended.
+6. Set `DESIGNATION_DRIVE_FOLDER_ID` (staging already has a ТЕСТ folder in `wrangler.jsonc`; production must be set separately — see comments there). Optional: `GOOGLE_DRIVE_SCOPE`, or the OAuth trio instead of the JSON key.
 
 ### Legal TODOs that still need confirmation
 

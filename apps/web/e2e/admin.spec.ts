@@ -369,6 +369,45 @@ test.describe('staff admin', () => {
     await page.getByRole('button', { name: 'Публикувани', exact: true }).click()
     await expect(page.getByRole('table').getByText(STAFF_EMAIL)).toBeVisible()
   })
+
+  test('Пълномощни explains missing Drive credentials and keeps upload disabled', async ({ page }) => {
+    await mockPalnomoshtniServerFns(page, { missingHealth: true, uploads: [] })
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/palnomoshtni')
+    await expect(page.getByRole('heading', { name: 'Пълномощни' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Drive и Brevo' })).toContainText('GOOGLE_SERVICE_ACCOUNT_JSON')
+    await expect(page.getByRole('region', { name: 'Drive и Brevo' })).toContainText('Качването към Drive е изключено')
+    await expect(page.getByRole('button', { name: /Качи/ })).toBeDisabled()
+  })
+
+  test('Пълномощни matches signed PDFs, skips duplicates, uploads and syncs Brevo', async ({ page }) => {
+    const uploads: string[] = []
+    let brevoBody = ''
+    await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads, onBrevo: (body) => { brevoBody = body } })
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/palnomoshtni')
+    await expect(page.getByRole('heading', { name: 'Пълномощни' })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    const pdf = Buffer.from('%PDF-1.4 test')
+    await page.getByLabel('Подписани PDF или ZIP').setInputFiles([
+      { name: '0001_234600101_Petrova_signed.pdf', mimeType: 'application/pdf', buffer: pdf },
+      { name: '0002_234600102_Ivanov_SIGNED (1).PDF', mimeType: 'application/pdf', buffer: pdf },
+      { name: '0001_234600101_Petrova_signed (1).pdf', mimeType: 'application/pdf', buffer: pdf },
+      { name: '9999_000000000_Nobody_signed.pdf', mimeType: 'application/pdf', buffer: pdf },
+      { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('notes') },
+    ])
+    await expect(page.getByText('Съвпаднали 1, без съвпадение 1, дубликати 1, не PDF 1')).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'дубликат' })).toBeVisible()
+    await expect(page.getByText('без _signed')).toHaveCount(0)
+    await expect(page.getByText('няма човек с този номер')).toBeVisible()
+    await expect(page.getByText('не е PDF (разширение)')).toBeVisible()
+    await page.getByRole('button', { name: 'Качи 1 подписани' }).click()
+    await expect(page.getByText(/Brevo: обновени 1 контакт/)).toBeVisible()
+    expect(uploads).toEqual(['e2e-ivanov'])
+    expect(brevoBody).toContain('e2e-ivanov')
+  })
 })
 
 const MOCK_BREVO_LISTS = [
@@ -378,6 +417,123 @@ const MOCK_BREVO_LISTS = [
   { id: 12, name: 'доброволци', subscribers: 1 },
   { id: 7, name: 'Newsletter', subscribers: 3 },
 ]
+
+const MOCK_PALNOMOSHTNI_PEOPLE = [
+  {
+    id: 'e2e-maria',
+    number: 1,
+    name: 'Мария Георгиева Петрова',
+    lastName: 'Петрова',
+    section: '234600101',
+    mir: '23',
+    generatedAt: '2026-10-18T10:00:00.000Z',
+    signedAt: null,
+    driveUrl: 'https://drive.google.com/file/d/old-maria/view',
+    hasDriveFile: true,
+  },
+  {
+    id: 'e2e-ivanov',
+    number: 2,
+    name: 'Иван Иванов Иванов',
+    lastName: 'Иванов',
+    section: '234600102',
+    mir: '23',
+    generatedAt: null,
+    signedAt: null,
+    driveUrl: null,
+    hasDriveFile: false,
+  },
+]
+
+async function mockPalnomoshtniServerFns(
+  page: Page,
+  opts: { missingHealth: boolean; uploads: string[]; onBrevo?: (body: string) => void },
+) {
+  const missingMessage =
+    'Липсват GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN. Липсва DESIGNATION_DRIVE_FOLDER_ID (или DRIVE_FOLDER_ID). Качването към Drive е изключено.'
+  await page.route('**/admin/palnomoshtni/upload**', async (route) => {
+    const url = new URL(route.request().url())
+    opts.uploads.push(url.searchParams.get('personId') ?? '')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, url: 'https://drive.google.com/file/d/new/view', replaced: false }),
+    })
+  })
+  await page.route('**/_serverFn/**', async (route) => {
+    const segment = new URL(route.request().url()).pathname.split('/').pop() ?? ''
+    let exported = ''
+    try {
+      exported = (JSON.parse(Buffer.from(segment, 'base64url').toString('utf8')) as { export?: string }).export ?? ''
+    } catch {
+      exported = ''
+    }
+    const reply = (body: unknown) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: body }) })
+    if (exported.startsWith('adminDesignationStatus_')) {
+      return reply({
+        ok: true,
+        counts: { published: 2, numbered: 2, generated: 1, signed: 0, missing: 2 },
+        people: MOCK_PALNOMOSHTNI_PEOPLE,
+        mirs: [{ code: '23', label: '23 София-град', count: 2 }],
+        zipEligible: 2,
+        zipBatchLimit: 100,
+      })
+    }
+    if (exported.startsWith('adminDesignationHealth_')) {
+      if (opts.missingHealth) {
+        return reply({
+          ok: true,
+          canUpload: false,
+          message: missingMessage,
+          health: {
+            credentialKind: 'none',
+            missingSecrets: [
+              'GOOGLE_SERVICE_ACCOUNT_JSON',
+              'GOOGLE_OAUTH_CLIENT_ID',
+              'GOOGLE_OAUTH_CLIENT_SECRET',
+              'GOOGLE_OAUTH_REFRESH_TOKEN',
+            ],
+            folderId: '',
+            folderIdSource: 'none',
+            tokenOk: false,
+            folderOk: false,
+            folderName: '',
+            folderIsFolder: false,
+            folderError: 'Липсва DESIGNATION_DRIVE_FOLDER_ID (или DRIVE_FOLDER_ID).',
+            brevoKey: false,
+            brevoAttribute: 'PALNOMOSHTNO_URL',
+            brevoListId: null,
+          },
+        })
+      }
+      return reply({
+        ok: true,
+        canUpload: true,
+        message: 'Услуга: служебен акаунт; токенът е получен; папка „ТЕСТ пълномощни“ е достъпна. Brevo: PALNOMOSHTNO_URL, списък 94.',
+        health: {
+          credentialKind: 'service-account',
+          missingSecrets: [],
+          folderId: 'folder',
+          folderIdSource: 'DESIGNATION_DRIVE_FOLDER_ID',
+          tokenOk: true,
+          folderOk: true,
+          folderName: 'ТЕСТ пълномощни',
+          folderIsFolder: true,
+          folderError: '',
+          brevoKey: true,
+          brevoAttribute: 'PALNOMOSHTNO_URL',
+          brevoListId: 94,
+        },
+      })
+    }
+    if (exported.startsWith('adminDesignationSyncBrevo_')) {
+      opts.onBrevo?.(route.request().postData() ?? '')
+      return reply({ ok: true, sent: 1, rejected: [], pending: [], errors: [], processReports: [], message: 'Brevo: обновени 1 контакт (PALNOMOSHTNO_URL).' })
+    }
+    return route.continue()
+  })
+}
 
 /** Answer the Brevo admin server functions with plain JSON so no Brevo key or network is needed. */
 async function mockBrevoServerFns(page: Page, syncRequests: string[]) {

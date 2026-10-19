@@ -319,6 +319,8 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN designation_issued_at TEXT',
   'ALTER TABLE signups ADD COLUMN designation_pdf_url TEXT',
   'ALTER TABLE signups ADD COLUMN designation_drive_file_id TEXT',
+  'ALTER TABLE signups ADD COLUMN designation_generated_at TEXT',
+  'ALTER TABLE signups ADD COLUMN designation_signed_at TEXT',
 ]
 
 async function ensureColumns(envName: CliArgs['env']) {

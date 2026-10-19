@@ -30,6 +30,7 @@ import { Route as ZnachkaRouteImport } from './routes/znachka'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminAccessRouteImport } from './routes/admin/access'
 import { Route as AdminCallsRouteImport } from './routes/admin/calls'
+import { Route as AdminPalnomoshtniRouteImport } from './routes/admin/palnomoshtni'
 import { Route as AdminSectionsRouteImport } from './routes/admin/sections'
 import { Route as AdminSignupsRouteImport } from './routes/admin/signups'
 import { Route as IzprateniIdRouteImport } from './routes/izprateni.$id'
@@ -37,6 +38,8 @@ import { Route as PokanaCodeRouteImport } from './routes/pokana.$code'
 import { Route as PostsIndexRouteImport } from './routes/posts.index'
 import { Route as PostsSlugRouteImport } from './routes/posts.$slug'
 import { Route as RCodeRouteImport } from './routes/r.$code'
+import { Route as AdminPalnomoshtniUploadRouteImport } from './routes/admin/palnomoshtni_.upload'
+import { Route as AdminPalnomoshtniZipRouteImport } from './routes/admin/palnomoshtni_.zip'
 import { Route as AdminSignupsPersonIdRouteImport } from './routes/admin/signups_.$personId'
 import { Route as AdminSignupsPersonIdPalnomoshtnoDotpdfRouteImport } from './routes/admin/signups_.$personId_.palnomoshtno[.]pdf'
 
@@ -145,6 +148,11 @@ const AdminCallsRoute = AdminCallsRouteImport.update({
   path: '/calls',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminPalnomoshtniRoute = AdminPalnomoshtniRouteImport.update({
+  id: '/palnomoshtni',
+  path: '/palnomoshtni',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminSectionsRoute = AdminSectionsRouteImport.update({
   id: '/sections',
   path: '/sections',
@@ -180,6 +188,16 @@ const RCodeRoute = RCodeRouteImport.update({
   path: '/r/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminPalnomoshtniUploadRoute = AdminPalnomoshtniUploadRouteImport.update({
+  id: '/palnomoshtni_/upload',
+  path: '/palnomoshtni/upload',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminPalnomoshtniZipRoute = AdminPalnomoshtniZipRouteImport.update({
+  id: '/palnomoshtni_/zip',
+  path: '/palnomoshtni/zip',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminSignupsPersonIdRoute = AdminSignupsPersonIdRouteImport.update({
   id: '/signups_/$personId',
   path: '/signups/$personId',
@@ -213,6 +231,7 @@ export interface FileRoutesByFullPath {
   '/znachka': typeof ZnachkaRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/calls': typeof AdminCallsRoute
+  '/admin/palnomoshtni': typeof AdminPalnomoshtniRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
@@ -221,6 +240,8 @@ export interface FileRoutesByFullPath {
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/posts/': typeof PostsIndexRoute
+  '/admin/palnomoshtni/upload': typeof AdminPalnomoshtniUploadRoute
+  '/admin/palnomoshtni/zip': typeof AdminPalnomoshtniZipRoute
   '/admin/signups/$personId': typeof AdminSignupsPersonIdRoute
   '/admin/signups/$personId/palnomoshtno.pdf': typeof AdminSignupsPersonIdPalnomoshtnoDotpdfRoute
 }
@@ -243,6 +264,7 @@ export interface FileRoutesByTo {
   '/znachka': typeof ZnachkaRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/calls': typeof AdminCallsRoute
+  '/admin/palnomoshtni': typeof AdminPalnomoshtniRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
@@ -251,6 +273,8 @@ export interface FileRoutesByTo {
   '/r/$code': typeof RCodeRoute
   '/admin': typeof AdminIndexRoute
   '/posts': typeof PostsIndexRoute
+  '/admin/palnomoshtni/upload': typeof AdminPalnomoshtniUploadRoute
+  '/admin/palnomoshtni/zip': typeof AdminPalnomoshtniZipRoute
   '/admin/signups/$personId': typeof AdminSignupsPersonIdRoute
   '/admin/signups/$personId/palnomoshtno.pdf': typeof AdminSignupsPersonIdPalnomoshtnoDotpdfRoute
 }
@@ -276,6 +300,7 @@ export interface FileRoutesById {
   '/znachka': typeof ZnachkaRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/calls': typeof AdminCallsRoute
+  '/admin/palnomoshtni': typeof AdminPalnomoshtniRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
@@ -284,6 +309,8 @@ export interface FileRoutesById {
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/posts/': typeof PostsIndexRoute
+  '/admin/palnomoshtni_/upload': typeof AdminPalnomoshtniUploadRoute
+  '/admin/palnomoshtni_/zip': typeof AdminPalnomoshtniZipRoute
   '/admin/signups_/$personId': typeof AdminSignupsPersonIdRoute
   '/admin/signups_/$personId_/palnomoshtno.pdf': typeof AdminSignupsPersonIdPalnomoshtnoDotpdfRoute
 }
@@ -310,6 +337,7 @@ export interface FileRouteTypes {
     | '/znachka'
     | '/admin/access'
     | '/admin/calls'
+    | '/admin/palnomoshtni'
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
@@ -318,6 +346,8 @@ export interface FileRouteTypes {
     | '/r/$code'
     | '/admin/'
     | '/posts/'
+    | '/admin/palnomoshtni/upload'
+    | '/admin/palnomoshtni/zip'
     | '/admin/signups/$personId'
     | '/admin/signups/$personId/palnomoshtno.pdf'
   fileRoutesByTo: FileRoutesByTo
@@ -340,6 +370,7 @@ export interface FileRouteTypes {
     | '/znachka'
     | '/admin/access'
     | '/admin/calls'
+    | '/admin/palnomoshtni'
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
@@ -348,6 +379,8 @@ export interface FileRouteTypes {
     | '/r/$code'
     | '/admin'
     | '/posts'
+    | '/admin/palnomoshtni/upload'
+    | '/admin/palnomoshtni/zip'
     | '/admin/signups/$personId'
     | '/admin/signups/$personId/palnomoshtno.pdf'
   id:
@@ -372,6 +405,7 @@ export interface FileRouteTypes {
     | '/znachka'
     | '/admin/access'
     | '/admin/calls'
+    | '/admin/palnomoshtni'
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
@@ -380,6 +414,8 @@ export interface FileRouteTypes {
     | '/r/$code'
     | '/admin/'
     | '/posts/'
+    | '/admin/palnomoshtni_/upload'
+    | '/admin/palnomoshtni_/zip'
     | '/admin/signups_/$personId'
     | '/admin/signups_/$personId_/palnomoshtno.pdf'
   fileRoutesById: FileRoutesById
@@ -556,6 +592,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCallsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/palnomoshtni': {
+      id: '/admin/palnomoshtni'
+      path: '/palnomoshtni'
+      fullPath: '/admin/palnomoshtni'
+      preLoaderRoute: typeof AdminPalnomoshtniRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/sections': {
       id: '/admin/sections'
       path: '/sections'
@@ -605,6 +648,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/palnomoshtni_/upload': {
+      id: '/admin/palnomoshtni_/upload'
+      path: '/palnomoshtni/upload'
+      fullPath: '/admin/palnomoshtni/upload'
+      preLoaderRoute: typeof AdminPalnomoshtniUploadRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/palnomoshtni_/zip': {
+      id: '/admin/palnomoshtni_/zip'
+      path: '/palnomoshtni/zip'
+      fullPath: '/admin/palnomoshtni/zip'
+      preLoaderRoute: typeof AdminPalnomoshtniZipRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/signups_/$personId': {
       id: '/admin/signups_/$personId'
       path: '/signups/$personId'
@@ -625,9 +682,12 @@ declare module '@tanstack/react-router' {
 interface AdminRouteRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
   AdminCallsRoute: typeof AdminCallsRoute
+  AdminPalnomoshtniRoute: typeof AdminPalnomoshtniRoute
   AdminSectionsRoute: typeof AdminSectionsRoute
   AdminSignupsRoute: typeof AdminSignupsRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminPalnomoshtniUploadRoute: typeof AdminPalnomoshtniUploadRoute
+  AdminPalnomoshtniZipRoute: typeof AdminPalnomoshtniZipRoute
   AdminSignupsPersonIdRoute: typeof AdminSignupsPersonIdRoute
   AdminSignupsPersonIdPalnomoshtnoDotpdfRoute: typeof AdminSignupsPersonIdPalnomoshtnoDotpdfRoute
 }
@@ -635,9 +695,12 @@ interface AdminRouteRouteChildren {
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
   AdminCallsRoute: AdminCallsRoute,
+  AdminPalnomoshtniRoute: AdminPalnomoshtniRoute,
   AdminSectionsRoute: AdminSectionsRoute,
   AdminSignupsRoute: AdminSignupsRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminPalnomoshtniUploadRoute: AdminPalnomoshtniUploadRoute,
+  AdminPalnomoshtniZipRoute: AdminPalnomoshtniZipRoute,
   AdminSignupsPersonIdRoute: AdminSignupsPersonIdRoute,
   AdminSignupsPersonIdPalnomoshtnoDotpdfRoute:
     AdminSignupsPersonIdPalnomoshtnoDotpdfRoute,

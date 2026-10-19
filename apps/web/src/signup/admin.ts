@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
-import { brevoSectionsCsv, campaignCsv, distributionWhere, exportWithdrawnGuard, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
+import { brevoSectionsCsv, campaignCsv, distributionWhere, exportWithdrawnGuard, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
 import { validateSectionCodesExist } from './abroad-section-validate'
 import { lookupSectionPlaces } from './section-places-lookup'
 import { sectionPlaceOf } from './section-where'
@@ -12,6 +12,8 @@ import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { travelLabelOf } from './admin-assign'
 import { NOTES_SQL, notesFromRow } from './admin-notes'
 import { PERSON_SQL_BASE } from './admin-person-sql'
+import { reservedCode, reservedMessage } from './reserved-sections'
+import { reservedMap } from './reserved-sections-db'
 import {
   applyStaffEdit,
   buildAdminPerson,
@@ -685,68 +687,6 @@ export const adminExport = createServerFn({ method: 'POST' })
     return { ok: true as const, csv, filename: campaign ? `ti-broish-brevo-${stamp}.csv` : `ti-broish-ekip-${stamp}.csv` }
   })
 
-export const adminDraft = createServerFn({ method: 'POST' })
-  .validator((input: { id: string; section: string }) => input)
-  .handler(async ({ data }) => {
-    const access = await gate('edit')
-    if (!access.ok) return access
-    const db = access.db
-    const section = normalizeSection(data.section).slice(0, 32)
-    await db
-      .prepare(
-        `UPDATE signups
-         SET draft_section = NULLIF(?, ''),
-             draft_locked = CASE WHEN TRIM(?) = '' THEN 0 ELSE 1 END,
-             updated_at = ?
-         WHERE id = ?`,
-      )
-      .bind(section, section, new Date().toISOString(), data.id)
-      .run()
-    const taken = section
-      ? await db.prepare('SELECT organisation FROM taken_sections WHERE section_code = ?').bind(section).first<{ organisation: string }>()
-      : null
-    return { ok: true as const, warning: taken ? `Секцията е заета от ${taken.organisation}.` : '' }
-  })
-
-export const adminPublish = createServerFn({ method: 'POST' })
-  .validator((input: { view: string; mir: string }) => input)
-  .handler(async ({ data }) => {
-    const access = await gate('publish')
-    if (!access.ok) return access
-    const db = access.db
-    const filter = distributionWhere(viewOf(data.view), data.mir)
-    if ('error' in filter) return { ok: false as const, message: filter.error }
-    const pending = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
-    const count = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE (${filter.clause}) AND ${pending}`, filter.binds).first<{ n: number }>()
-    const now = new Date().toISOString()
-    await bound(db, `UPDATE signups SET published_section = draft_section, published_at = ?, updated_at = ? WHERE (${filter.clause}) AND ${pending}`, [now, now, ...filter.binds]).run()
-    return { ok: true as const, published: count?.n ?? 0 }
-  })
-
-export const adminImportTaken = createServerFn({ method: 'POST' })
-  .validator((input: { csv: string }) => input)
-  .handler(async ({ data }) => {
-    if (data.csv.length > 500_000) return { ok: false as const, message: 'Файлът е твърде голям.' }
-    const access = await gate('edit')
-    if (!access.ok) return access
-    const parsed = parseTakenCsv(data.csv)
-    if (parsed.rows.length > 2000) return { ok: false as const, message: 'Най-много 2000 секции наведнъж.' }
-    const db = access.db
-    const now = new Date().toISOString()
-    for (const row of parsed.rows) {
-      await db
-        .prepare(
-          `INSERT INTO taken_sections (section_code, mir_code, place, organisation, note, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(section_code) DO UPDATE SET
-             mir_code = excluded.mir_code, place = excluded.place, organisation = excluded.organisation, note = excluded.note`,
-        )
-        .bind(row.sectionCode, row.mirCode, row.place, row.organisation, row.note, now)
-        .run()
-    }
-    return { ok: true as const, imported: parsed.rows.length, errors: parsed.errors.slice(0, 8) }
-  })
-
 export const adminImportPeople = createServerFn({ method: 'POST' })
   .validator((input: { csv: string }) => input)
   .handler(async ({ data }) => {
@@ -768,8 +708,15 @@ export const adminImportPeople = createServerFn({ method: 'POST' })
     for (const code of sectionCheck.unknown) {
       errors.push(`Секция ${code} не е в данните за секции.`)
     }
+    const reserved = await reservedMap(db)
     for (const person of parsed.rows) {
       if (person.section && !sectionCheck.valid.has(normalizeSection(person.section))) {
+        skipped += 1
+        continue
+      }
+      const reservedBy = person.section ? reserved.get(reservedCode(person.section)) : undefined
+      if (reservedBy) {
+        errors.push(`${person.email}: ${reservedMessage(reservedCode(person.section), reservedBy)}`)
         skipped += 1
         continue
       }

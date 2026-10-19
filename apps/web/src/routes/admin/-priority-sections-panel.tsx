@@ -3,11 +3,12 @@ import { adminGhost, adminInput } from '../../components/admin-ui'
 import { adminImportPrioritySections, type PrioritySectionView } from '../../signup/priority-sections-admin'
 import { levelRank, priorityLevelLabel, type PriorityCoverage, type PriorityCoverageState } from '../../signup/priority-sections'
 import { PriorityBadge } from './-priority-badge'
+import { ReservedBadge } from './-reserved-badge'
 
 const STATE_LABEL: Record<PriorityCoverageState, string> = {
   published: 'Публикувана',
   draft: 'Чернова',
-  taken: 'Заета от друг',
+  taken: 'Резервирана',
   open: 'Без човек',
 }
 
@@ -15,8 +16,8 @@ export function PriorityCoverageLine({ summary }: { summary: PriorityCoverage | 
   if (!summary || summary.total === 0) return null
   return (
     <p className="text-sm font-bold text-[#1a1020]" data-testid="priority-coverage">
-      Приоритетни секции: покрити {summary.covered} от {summary.total} (публикувани {summary.published}, чернови {summary.draft}
-      {summary.taken ? `, заети от други ${summary.taken}` : ''}) · без човек {summary.uncovered}
+      Приоритетни секции: покрити {summary.covered} от {summary.total} (публикувани {summary.published}, чернови {summary.draft})
+      {summary.taken ? ` · резервирани от други ${summary.taken}` : ''} · без човек {summary.uncovered}
       {summary.byLevel.length > 0 ? ` · ${summary.byLevel.map((item) => `${priorityLevelLabel(item.level)} ${item.covered}/${item.total}`).join(' · ')}` : ''}
     </p>
   )
@@ -121,7 +122,10 @@ export function PrioritySectionsPanel(props: {
                     <td className="px-2 py-2">{row.town}</td>
                     <td className="px-2 py-2">{row.municipality}</td>
                     <td className="px-2 py-2">{row.oblast}</td>
-                    <td className={`px-2 py-2 font-bold ${row.state === 'open' ? 'text-[#8f1d1d]' : ''}`}>{STATE_LABEL[row.state]}</td>
+                    <td className={`px-2 py-2 font-bold ${row.state === 'open' ? 'text-[#8f1d1d]' : ''}`}>
+                      {row.state === 'taken' ? null : STATE_LABEL[row.state]}
+                      {row.reservedBy ? <> <ReservedBadge org={row.reservedBy} conflict={row.state === 'published' || row.state === 'draft'} /></> : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

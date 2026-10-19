@@ -95,7 +95,7 @@ describe('coverage', () => {
     expect(coverageState('010100004', published, drafts, taken)).toBe('taken')
     expect(coverageState('010100003', published, drafts, taken)).toBe('open')
     const summary = summarizePriorityCoverage(rows, published, drafts, taken)
-    expect(summary).toMatchObject({ total: 4, published: 1, draft: 1, taken: 1, covered: 3, uncovered: 1 })
+    expect(summary).toMatchObject({ total: 4, published: 1, draft: 1, taken: 1, covered: 2, uncovered: 1 })
     expect(summary.byLevel.map((item) => item.level)).toEqual(['quarantine', 'elevated', 'watch'])
     expect(summary.byLevel.find((item) => item.level === 'watch')).toEqual({ level: 'watch', total: 2, covered: 1 })
   })

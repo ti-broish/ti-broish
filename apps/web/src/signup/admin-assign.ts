@@ -49,7 +49,7 @@ export function validateAssignment(input: {
     warnings.push({
       code: 'taken',
       level: 'block',
-      message: `Секцията е заета от ${input.takenOrg}.`,
+      message: `Секцията е резервирана от ${input.takenOrg}. Там не записваме наши хора.`,
     })
   }
 

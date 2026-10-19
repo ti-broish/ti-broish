@@ -10,6 +10,7 @@ import { defaultSignupSearch } from '../../signup/admin-search'
 import { CALLED_LABEL, calledText } from '../../signup/call-reopen'
 import { EXPERIENCE, type Experience, type NamedPlace, type Radius, type Role, type TravelStop } from '../../signup/model'
 import { UnregisterPanel } from './-unregister-panel'
+import { ReservedBadge, reservedOrgFor, useReservedIndex } from './-reserved-badge'
 
 export const Route = createFileRoute('/admin/signups_/$personId')({
   component: PersonPage,
@@ -120,6 +121,7 @@ function PersonPage() {
             ) : null}
           </div>
           <PersonFacts person={person} />
+          <ReservedNotice codes={[person.publishedSection, person.draftSection]} />
           <UnregisterPanel person={person} canEdit={canEdit} onChanged={reload} />
           {person.publishedSection ? (
             <p className="text-sm font-bold text-[#1a1020]">
@@ -393,4 +395,22 @@ function sectionLine(person: AdminPerson) {
 
 function calledLine(at: string, by: string) {
   return `${calledText(at, by)}.`
+}
+
+function ReservedNotice({ codes }: { codes: string[] }) {
+  const reserved = useReservedIndex()
+  const hits = [...new Set(codes.filter(Boolean))].flatMap((code) => {
+    const org = reservedOrgFor(code, reserved)
+    return org ? [{ code, org }] : []
+  })
+  if (hits.length === 0) return null
+  return (
+    <div role="alert" className="grid gap-1 rounded-2xl border-2 border-[#5a1a1a] bg-[#fbeaea] p-3 text-sm text-[#1a1020]">
+      {hits.map((hit) => (
+        <p key={hit.code}>
+          <ReservedBadge org={hit.org} conflict /> Секция {hit.code} е резервирана от {hit.org}. Пренасочи човека в „Секции“.
+        </p>
+      ))}
+    </div>
+  )
 }

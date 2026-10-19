@@ -5,6 +5,7 @@ import { normalizeSection } from './admin-csv'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { assignmentMail, deliverMail } from './mail'
 import { parseStaffRole, roleAllows } from './staff'
+import { reservedOrgOf } from './reserved-sections-db'
 
 async function publishAccess() {
   const db = await signupDatabase()
@@ -28,7 +29,7 @@ function origin() {
 
 async function blockReason(db: SignupD1, section: string, personId: string, personMir: string) {
   const code = normalizeSection(section)
-  const taken = await db.prepare('SELECT organisation FROM taken_sections WHERE section_code = ?').bind(code).first<{ organisation: string }>()
+  const takenOrg = await reservedOrgOf(db, code)
   const published = await db
     .prepare(`SELECT id, email FROM signups WHERE id != ? AND COALESCE(withdrawn, 0) = 0 AND COALESCE(published_section, '') = ? LIMIT 1`)
     .bind(personId, code)
@@ -48,7 +49,7 @@ async function blockReason(db: SignupD1, section: string, personId: string, pers
     section: code,
     personId,
     personMir,
-    takenOrg: taken?.organisation ?? null,
+    takenOrg,
     duplicate,
   })
   return publishBlocked(warnings) ? warningSummary(warnings) : ''

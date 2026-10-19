@@ -7,6 +7,7 @@ import { addressDeskLine, deskLabel } from '../../signup/sections'
 import { EMPTY_SECTION_DIRECTORY, sectionSpot, signupSpot, type SectionSpot } from '../../signup/section-where'
 import type { PriorityInfo } from '../../signup/priority-sections'
 import { PriorityBadge } from './-priority-badge'
+import { ReservedBadge, reservedOrgFor } from './-reserved-badge'
 
 type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown'; priority?: PriorityInfo }
 
@@ -41,11 +42,13 @@ export function SectionPersonRow(props: {
   priority?: Record<string, PriorityInfo>
   /** Best priority section reachable from where the person signed up. */
   reach?: (PriorityInfo & { scope: 'town' | 'municipality' }) | null
+  /** Reserved section code → organisation. */
+  reserved?: Record<string, string>
 }) {
   const {
     person, canEdit, draftValues, setDraftValues, warnings, setRowWarnings,
     tips, setSuggestions, suggestBusy, setSuggestBusy, setMessage, load,
-    canPublish, publishOne, notifyAgain, spots, priority = {}, reach = null,
+    canPublish, publishOne, notifyAgain, spots, priority = {}, reach = null, reserved = {},
   } = props
   const pendingDraft = Boolean(person.draftSection && person.draftSection !== person.publishedSection)
   const signed = signupSpot(person)
@@ -86,6 +89,9 @@ export function SectionPersonRow(props: {
                     {priorityOf(draftCode, priority) ? (
                       <p className="mb-1"><PriorityBadge info={priorityOf(draftCode, priority)} /></p>
                     ) : null}
+                    {reservedOrgFor(draftCode, reserved) ? (
+                      <p className="mb-1"><ReservedBadge org={reservedOrgFor(draftCode, reserved)} conflict={draftCode === person.draftSection} /></p>
+                    ) : null}
                     {canEdit ? (
                       <div className="grid gap-2">
                         <form
@@ -94,7 +100,10 @@ export function SectionPersonRow(props: {
                             event.preventDefault()
                             const section = draftValues[person.id] ?? ''
                             void adminDraft({ data: { id: person.id, section } }).then((result) => {
-                              if (!result.ok) setMessage(result.message)
+                              if (!result.ok) {
+                                setMessage(result.message)
+                                if ('reserved' in result) setRowWarnings((current) => ({ ...current, [person.id]: [{ code: 'taken', level: 'block', message: result.message }] }))
+                              }
                               else {
                                 setRowWarnings((current) => ({ ...current, [person.id]: result.warnings ?? [] }))
                                 setMessage(
@@ -156,7 +165,10 @@ export function SectionPersonRow(props: {
                                   onClick={() => {
                                     setDraftValues((current) => ({ ...current, [person.id]: tip.id }))
                                     void adminDraft({ data: { id: person.id, section: tip.id } }).then((result) => {
-                                      if (!result.ok) setMessage(result.message)
+                                      if (!result.ok) {
+                                        setMessage(result.message)
+                                        if ('reserved' in result) setRowWarnings((current) => ({ ...current, [person.id]: [{ code: 'taken', level: 'block', message: result.message }] }))
+                                      }
                                       else {
                                         setRowWarnings((current) => ({ ...current, [person.id]: result.warnings ?? [] }))
                                         setMessage(result.warning || `Чернова ${tip.id} от предложение. Следващото разпределение я запазва.`)
@@ -188,6 +200,9 @@ export function SectionPersonRow(props: {
                     <p>{person.publishedSection || '—'}</p>
                     {priorityOf(person.publishedSection, priority) ? (
                       <p className="mt-1"><PriorityBadge info={priorityOf(person.publishedSection, priority)} /></p>
+                    ) : null}
+                    {reservedOrgFor(person.publishedSection, reserved) ? (
+                      <p className="mt-1"><ReservedBadge org={reservedOrgFor(person.publishedSection, reserved)} conflict /></p>
                     ) : null}
                     {canPublish ? (
                       <div className="mt-2 flex flex-wrap gap-2">

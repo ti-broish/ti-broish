@@ -10,7 +10,10 @@ import { adminNotifyAssignment, adminPublishOne } from '../../signup/assignment-
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import type { SectionSpot } from '../../signup/section-where'
-import { TakenSectionsPanel } from './-taken-sections-panel'
+import { ReservedSectionsPanel, type ReservedRowView } from './-reserved-sections-panel'
+import { loadReservedIndex } from './-reserved-badge'
+import { adminReservedSections } from '../../signup/reserved-sections-admin'
+import type { ReservationConflict } from '../../signup/reserved-sections'
 import { AbroadCoveragePanel } from './-abroad-coverage-panel'
 import { AbroadDistributePanel } from './-abroad-distribute-panel'
 import { DeskBadge, SectionPersonRow } from './-section-person-row'
@@ -38,7 +41,6 @@ export function SectionsPage() {
   const navigate = sectionsRoute.useNavigate()
   const access = useAdminAccess()
   const [people, setPeople] = useState<RosterFields[]>([])
-  const [taken, setTaken] = useState<Array<{ section_code: string; mir_code: string; place: string; organisation: string }>>([])
   const [message, setMessage] = useState('')
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [armed, setArmed] = useState(false)
@@ -52,6 +54,9 @@ export function SectionsPage() {
   const [suggestBusy, setSuggestBusy] = useState<string | null>(null)
   const [spots, setSpots] = useState<Record<string, SectionSpot>>({})
   const [mirDraft, setMirDraft] = useState(search.mir)
+  const [reservedRows, setReservedRows] = useState<ReservedRowView[]>([])
+  const [reservedOrgs, setReservedOrgs] = useState<Array<{ organisation: string; count: number }>>([])
+  const [reservedConflicts, setReservedConflicts] = useState<ReservationConflict[]>([])
   const [prioritySections, setPrioritySections] = useState<PrioritySectionView[]>([])
   const [prioritySummary, setPrioritySummary] = useState<PriorityCoverage | null>(null)
   const [priorityUpdatedAt, setPriorityUpdatedAt] = useState('')
@@ -78,6 +83,25 @@ export function SectionsPage() {
     }).catch(() => {})
   }
 
+  function loadReserved(notice = '') {
+    void adminReservedSections().then((result) => {
+      if (!result.ok) return
+      setReservedRows(result.rows)
+      setReservedOrgs(result.orgs)
+      setReservedConflicts(result.conflicts)
+      void loadReservedIndex(true)
+      if (notice) {
+        setMessage(notice)
+        loadPriority()
+      }
+    }).catch(() => {})
+  }
+
+  const reservedIndex = useMemo(
+    () => Object.fromEntries(reservedRows.map((row) => [row.sectionCode, row.organisation])) as Record<string, string>,
+    [reservedRows],
+  )
+
   const priorityMap = useMemo(
     () => Object.fromEntries(prioritySections.map((row) => [row.sectionCode, { r: row.r, level: row.level }])) as Record<string, PriorityInfo>,
     [prioritySections],
@@ -89,6 +113,7 @@ export function SectionsPage() {
 
   function load(notice = '') {
     loadPriority()
+    loadReserved()
     setArmed(false)
     setArmedDraft(false)
     setArmedClear(false)
@@ -103,7 +128,6 @@ export function SectionsPage() {
       setPhase('ready')
       setMessage(notice)
       setPeople(result.people)
-      setTaken(result.taken)
       setDraftValues(Object.fromEntries(result.people.map((person) => [person.id, person.draftSection])))
     }).catch(() => {
       setPhase('error')
@@ -182,6 +206,14 @@ export function SectionsPage() {
         updatedAt={priorityUpdatedAt}
         setMessage={setMessage}
         reload={(notice) => loadPriority(notice)}
+      />
+      <ReservedSectionsPanel
+        canEdit={canEdit}
+        rows={reservedRows}
+        orgs={reservedOrgs}
+        conflicts={reservedConflicts}
+        setMessage={setMessage}
+        reload={(notice) => loadReserved(notice)}
       />
       <form
         className="flex flex-wrap items-end gap-2"
@@ -335,6 +367,7 @@ export function SectionsPage() {
                 key={person.id}
                 person={person}
                 priority={priorityMap}
+                reserved={reservedIndex}
                 reach={reach}
                 canEdit={canEdit}
                 draftValues={draftValues}
@@ -363,7 +396,6 @@ export function SectionsPage() {
         setMessage={setMessage}
         onSaved={(notice) => load(notice)}
       />
-      <TakenSectionsPanel canEdit={canEdit} taken={taken} setMessage={setMessage} load={load} />
     </div>
   )
 }

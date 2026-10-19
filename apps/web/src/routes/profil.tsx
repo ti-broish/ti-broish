@@ -8,6 +8,7 @@ import { StaffNote } from '../components/StaffNote'
 import { checkEmailCode, requestSignInCode } from '../signup/confirm-mail'
 import { applyCantReachReport } from '../signup/cant-reach'
 import { reportCantReach, saveSignup } from '../signup/db'
+import { selfRestoreSignup } from '../signup/admin-unregister-actions'
 import { applyLoadedSession, beginSessionLoad, invalidateSessionLoad } from '../signup/use-registration'
 import { isProtocolDay } from '../signup/election'
 import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signupGap, validEmail, type Profile } from '../signup/model'
@@ -306,7 +307,7 @@ function ProfilePage() {
             className="flex min-h-14 w-full items-center justify-center rounded-[20px] border border-[#333] bg-white px-5 text-xl font-bold"
             onClick={() => updateProfile({ withdrawn: true, submitted: true })}
           >
-            Оттегли записването
+            Отпиши се
           </button>
         ) : null}
         <p className="text-sm leading-6">
@@ -419,16 +420,34 @@ function NextStep({ profile }: { profile: Profile }) {
   const view = profileView(profile)
   if (view === 'incomplete') {
     return (
-      <section className="grid gap-4" aria-label={profile.withdrawn ? 'Оттеглено' : 'Още една стъпка'}>
-        <p className="text-sm font-bold text-[#666]">{profile.withdrawn ? 'Оттеглено' : 'Още една стъпка'}</p>
+      <section className="grid gap-4" aria-label={profile.withdrawn ? 'Отписан' : 'Още една стъпка'}>
+        <p className="text-sm font-bold text-[#666]">{profile.withdrawn ? 'Отписан' : 'Още една стъпка'}</p>
         <h2 className="text-3xl font-black text-[#444]">
-          {profile.withdrawn ? 'Записването е оттеглено' : 'Записването не е готово'}
+          {profile.withdrawn ? 'Записването е отписано' : 'Записването не е готово'}
         </h2>
-        <p className="text-lg leading-7">{profile.withdrawn ? 'Мястото се освобождава. Можеш да го върнеш, ако още искаш да участваш.' : signupGap(profile)}</p>
+        <p className="text-lg leading-7">
+          {profile.withdrawn
+            ? 'Вече не си в активните списъци. Ако искаш отново да участваш, върни записването или ни пиши.'
+            : signupGap(profile)}
+        </p>
         {profile.withdrawn ? (
-          <button type="button" className="brand-button" onClick={() => updateProfile({ withdrawn: false, submitted: true })}>
-            Върни записването
-          </button>
+          <div className="grid gap-2">
+            <button
+              type="button"
+              className="brand-button"
+              onClick={() => {
+                updateProfile({ withdrawn: false, submitted: true })
+                void selfRestoreSignup().then((result) => {
+                  if (!result.ok) updateProfile({ withdrawn: true })
+                })
+              }}
+            >
+              Запиши се отново
+            </button>
+            <Link to="/kontakt" className={secondaryButton}>
+              Пиши ни
+            </Link>
+          </div>
         ) : (
           <Link to="/signup" search={{ step: resumeSignupStep(profile) }} className="brand-button">
             Продължи записването

@@ -10,6 +10,7 @@ describe('signup progress', () => {
     expect(signupProgress({ submitted: true, withdrawn: true })).toBe('withdrawn')
     expect(progressLabel('finished')).toBe('Завършил')
     expect(progressLabel('started')).toBe('Започнал')
+    expect(progressLabel('withdrawn')).toBe('Отписан')
     expect(daysLabel(true, true)).toBe('25 октомври и 1 ноември')
     expect(daysLabel(false, true)).toBe('1 ноември')
     expect(daysLabel(false, false)).toBe('Без избран ден')

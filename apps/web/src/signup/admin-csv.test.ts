@@ -76,14 +76,18 @@ describe('assignment visibility', () => {
 
 describe('roster filters', () => {
   it('separates a published section from a draft and from abroad', () => {
-    expect(rosterWhere('assigned', '')).toEqual({ clause: "COALESCE(published_section, '') != ''", binds: [] })
+    expect(rosterWhere('assigned', '')).toEqual({
+      clause: "COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0",
+      binds: [],
+    })
     const unassigned = rosterWhere('unassigned', '')
     const draft = rosterWhere('draft', '')
     expect('clause' in unassigned && unassigned.clause).toContain("published_section, '') = ''")
     expect('clause' in draft && draft.clause).toContain('draft_section')
     expect(rosterWhere('finished', '')).toEqual({ clause: 'COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0', binds: [] })
     expect(rosterWhere('started', '')).toEqual({ clause: 'COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0', binds: [] })
-    expect(rosterWhere('abroad', '')).toEqual({ clause: "region_code = '32'", binds: [] })
+    expect(rosterWhere('abroad', '')).toEqual({ clause: "region_code = '32' AND COALESCE(withdrawn, 0) = 0", binds: [] })
+    expect(rosterWhere('withdrawn', '')).toEqual({ clause: 'COALESCE(withdrawn, 0) = 1', binds: [] })
     const calls = rosterWhere('calls', '')
     expect('clause' in calls && calls.clause).toContain('callRequestedAt')
     expect('clause' in calls && calls.clause).toContain('callMessage')
@@ -94,7 +98,7 @@ describe('roster filters', () => {
     const distribution = distributionWhere('unassigned', '')
     expect('clause' in distribution && distribution.clause).toContain('COALESCE(submitted, 0) = 1')
     expect('clause' in distribution && distribution.clause).toContain('COALESCE(withdrawn, 0) = 0')
-    expect(rosterWhere('mir', '3')).toEqual({ clause: 'mir_code = ?', binds: ['03'] })
+    expect(rosterWhere('mir', '3')).toEqual({ clause: 'mir_code = ? AND COALESCE(withdrawn, 0) = 0', binds: ['03'] })
     expect(rosterWhere('mir', 'София')).toEqual({ error: 'МИР е номер, например 23.' })
   })
 })

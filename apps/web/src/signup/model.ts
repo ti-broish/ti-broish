@@ -195,8 +195,9 @@ export function assignmentLocked(profile: Pick<Profile, 'assignedSection'>) {
 }
 
 export function profileView(profile: Profile): 'incomplete' | 'waiting' | 'assigned' {
+  if (profile.withdrawn) return 'incomplete'
   if (profile.assignedSection) return 'assigned'
-  if (profile.withdrawn || signupGap(profile)) return 'incomplete'
+  if (signupGap(profile)) return 'incomplete'
   return 'waiting'
 }
 

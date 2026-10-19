@@ -1,6 +1,6 @@
 import { roleLabel } from './admin-progress'
 
-export const AUDIT_FIELDS = ['role', 'days', 'travel', 'staff_note'] as const
+export const AUDIT_FIELDS = ['role', 'days', 'travel', 'staff_note', 'withdrawn', 'restored'] as const
 export type AuditField = (typeof AUDIT_FIELDS)[number]
 
 export interface StaffSnapshot {
@@ -57,10 +57,16 @@ export function auditFieldLabel(field: string) {
   if (field === 'days') return 'Дни'
   if (field === 'travel') return 'Пътуване'
   if (field === 'staff_note') return 'Бележка от екипа'
+  if (field === 'withdrawn') return 'Отписване'
+  if (field === 'restored') return 'Възстановяване'
   return ''
 }
 
 export function describeAudit(field: string, before: string, after: string) {
+  if (field === 'withdrawn' || field === 'restored') {
+    const label = auditFieldLabel(field)
+    return `${label}: ${after}`
+  }
   const label = auditFieldLabel(field)
   if (!label) return ''
   return `${label}: ${before} → ${after}`
@@ -76,8 +82,17 @@ export function auditLines(
   rows: readonly { id: string; actor: string; field: string; before_text: string; after_text: string; created_at: string }[],
 ): AuditLine[] {
   return rows.flatMap((row) => {
-    if (row.field !== 'role' && row.field !== 'days' && row.field !== 'travel' && row.field !== 'staff_note') return []
-    return [{ id: row.id, actor: row.actor, field: row.field, before: row.before_text, after: row.after_text, at: row.created_at }]
+    if (
+      row.field !== 'role' &&
+      row.field !== 'days' &&
+      row.field !== 'travel' &&
+      row.field !== 'staff_note' &&
+      row.field !== 'withdrawn' &&
+      row.field !== 'restored'
+    ) {
+      return []
+    }
+    return [{ id: row.id, actor: row.actor, field: row.field as AuditField, before: row.before_text, after: row.after_text, at: row.created_at }]
   })
 }
 

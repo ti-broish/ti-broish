@@ -26,6 +26,8 @@ test.describe('staff admin', () => {
     const page = await browser.newPage()
     await page.goto('/admin')
     await expect(page.getByRole('heading', { name: 'Админ' })).toBeVisible()
+    // Wait for adminSession so signupDatabase has created tables and columns.
+    await expect(page.getByRole('button', { name: 'Изпрати код' })).toBeVisible()
     await page.close()
     seedStaffRoster()
   })
@@ -199,6 +201,34 @@ test.describe('staff admin', () => {
     await expect(page.getByText('Няма ЕГН', { exact: true })).toBeVisible()
     await expect(page.getByLabel('Бележка от екипа')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Запази' })).toBeVisible()
+  })
+
+  test('admin unregisters a volunteer, frees the section, filters them, then restores', async ({ page }) => {
+    seedStaffRoster()
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/signups')
+    await page.getByRole('row', { name: 'withdraw.admin-e2e@example.com' }).getByRole('link', { name: 'Анна Ангелова Ангелова', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Анна Ангелова Ангелова', exact: true })).toBeVisible()
+    await expect(page.getByText('Публикувана 234600177', { exact: true })).toBeVisible()
+    await page.locator('#withdraw-reason').selectOption({ label: 'Отказа се (обаждане)' })
+    await page.locator('#withdraw-note').fill('Обади се след разпределението.')
+    await page.getByRole('button', { name: 'Отпиши', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Отписан' })).toBeVisible()
+    await expect(page.getByText(/Предишна секция: 234600177/)).toBeVisible()
+    await expect(page.getByText('Няма секция', { exact: true })).toBeVisible()
+    await expect(page.getByText(/Отписване:/).first()).toBeVisible()
+    await page.getByRole('link', { name: 'Към записванията' }).click()
+    await page.getByRole('button', { name: 'Отписани' }).click()
+    await expect(page).toHaveURL(/view=withdrawn/)
+    const withdrawnRow = page.getByRole('row', { name: 'withdraw.admin-e2e@example.com' })
+    await expect(withdrawnRow.getByRole('cell', { name: 'withdraw.admin-e2e@example.com' })).toBeVisible()
+    await expect(withdrawnRow.getByText('Отписан', { exact: true })).toBeVisible()
+    await withdrawnRow.getByRole('link', { name: 'Анна Ангелова Ангелова', exact: true }).click()
+    await page.getByRole('button', { name: 'Върни' }).click()
+    await expect(page.getByText('Завършил записването.')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Отпиши' })).toBeVisible()
+    await expect(page.getByText('Няма секция', { exact: true })).toBeVisible()
   })
 
   test('Секции names the oblast, district and section in Bulgarian', async ({ page }) => {
@@ -622,12 +652,23 @@ INSERT INTO signups (
   1, 0, 1, '', 'section',
   '23', '23', 'гр. София', 'ул. Обаждане 3', '', '', '',
   'Ще се обадим утре.', '', '', 1, 0, '', datetime('now'), datetime('now')
+),
+(
+  'e2e-withdraw',
+  'withdraw.admin-e2e@example.com',
+  'e2e-withdraw-session',
+  'e2ewith1',
+  '{"firstName":"Анна","middleName":"Ангелова","lastName":"Ангелова","phone":"0888777888","email":"withdraw.admin-e2e@example.com","role":"section","rounds":{"first":true,"runoff":true},"submitted":true}',
+  1, 0, 1, '0041010003', 'section',
+  '23', '23', 'гр. София', 'ул. Отпис 4', '234600188', '234600177', '',
+  '', '', '', 1, 1, 'cityRegion', datetime('now'), datetime('now')
 )
 ON CONFLICT(email) DO UPDATE SET
   session_token = excluded.session_token,
   payload = excluded.payload,
   email_confirmed = 1,
   submitted = excluded.submitted,
+  withdrawn = excluded.withdrawn,
   egn = excluded.egn,
   role = excluded.role,
   mir_code = excluded.mir_code,
@@ -640,7 +681,11 @@ ON CONFLICT(email) DO UPDATE SET
   staff_called_by = excluded.staff_called_by,
   rounds_first = excluded.rounds_first,
   rounds_runoff = excluded.rounds_runoff,
-  radius = excluded.radius;
+  radius = excluded.radius,
+  withdrawn_at = NULL,
+  withdrawn_by = NULL,
+  withdrawn_reason = NULL,
+  withdrawn_note = NULL;
 INSERT INTO staff (email, role, invited_by, created_at)
 VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
 ON CONFLICT(email) DO UPDATE SET role = 'admin';

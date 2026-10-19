@@ -1,6 +1,6 @@
 import { validEgn } from './rules'
 
-export const SIGNUP_VIEWS = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'queue', 'mir', 'draft'] as const
+export const SIGNUP_VIEWS = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'queue', 'mir', 'draft', 'withdrawn'] as const
 export const SIGNUP_SORTS = ['updated', 'name', 'email', 'phone', 'mir', 'role'] as const
 export const SECTION_VIEWS = ['unassigned', 'draft', 'assigned', 'abroad', 'mir'] as const
 

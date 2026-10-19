@@ -550,3 +550,87 @@ describe('distribution sources', () => {
     expect(plan.assignments.some((row) => row.sectionId === '234615002')).toBe(false)
   })
 })
+
+describe('distributeSections with priority sections', () => {
+  const town = [
+    section({ id: '234615001', place: 'ул. А 1', votersCount: 120 }),
+    section({ id: '234615020', place: 'ул. В 3', votersCount: 150 }),
+    section({ id: '234615030', place: 'ул. Г 4', votersCount: 160 }),
+  ]
+
+  it('puts a person in a priority section in their town before a paper section at their address', () => {
+    const plan = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com' })],
+      sections: town,
+      priority: new Map([['234615020', { r: 0.4, level: 'watch' }]]),
+    })
+    expect(plan.assignments.map((row) => row.sectionId)).toEqual(['234615020'])
+  })
+
+  it('takes the higher R first, and a blank R after every scored one', () => {
+    const priority = new Map([
+      ['234615001', { r: null, level: 'quarantine' }],
+      ['234615020', { r: 0.4, level: 'watch' }],
+      ['234615030', { r: 0.9, level: 'elevated' }],
+    ])
+    const plan = distributeSections({
+      people: ['a', 'b', 'c'].map((id) => person({ id, email: `${id}@example.com`, place: '' })),
+      sections: town,
+      priority,
+    })
+    const byPerson = new Map(plan.assignments.map((row) => [row.personId, row.sectionId]))
+    expect(byPerson.get('a')).toBe('234615030')
+    expect(byPerson.get('b')).toBe('234615020')
+    expect(byPerson.get('c')).toBe('234615001')
+  })
+
+  it('for a municipality radius: priority in the town, then priority in the municipality, then ordinary sections', () => {
+    const sections = [
+      section({ id: '010100001', place: 'ул. Дом 1', townId: 1, votersCount: 100 }),
+      section({ id: '010100002', place: 'ул. Дом 2', townId: 1, votersCount: 100 }),
+      section({ id: '010100101', place: 'Село', townId: 2, votersCount: 80 }),
+    ]
+    const villager = (id: string) =>
+      person({ id, email: `${id}@example.com`, radius: 'municipality', mir: '01', regionCode: '01', municipalityCode: '01', townId: 1, cityRegionCode: '', place: 'ул. Дом 1' })
+    const onlyVillage = distributeSections({
+      people: [villager('a')],
+      sections,
+      priority: new Map([['010100101', { r: 0.2, level: 'watch' }]]),
+    })
+    expect(onlyVillage.assignments[0]?.sectionId).toBe('010100101')
+    const both = distributeSections({
+      people: [villager('a')],
+      sections,
+      priority: new Map([
+        ['010100101', { r: 0.9, level: 'elevated' }],
+        ['010100002', { r: 0.1, level: 'watch' }],
+      ]),
+    })
+    expect(both.assignments[0]?.sectionId).toBe('010100002')
+  })
+
+  it('never uses a blocked (reserved or held) priority section, nor a machine one', () => {
+    const plan = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com' })],
+      sections: [...town, section({ id: '234615040', place: 'ул. Д 5', votersCount: 900 })],
+      blocked: ['234615020'],
+      priority: new Map([
+        ['234615020', { r: 0.9, level: 'elevated' }],
+        ['234615040', { r: 0.8, level: 'elevated' }],
+      ]),
+    })
+    expect(plan.assignments.map((row) => row.sectionId)).toEqual(['234615001'])
+  })
+
+  it('keeps a person with a companion who already has a section at that address over a priority section', () => {
+    const plan = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com', place: '', companions: [companion('b@example.com')] })],
+      sections: [...town, section({ id: '234615002', place: 'ул. А 1', votersCount: 140 })],
+      blocked: ['234615001'],
+      anchors: [{ email: 'b@example.com', place: 'ул. А 1', townId: 68134, companionEmails: ['a@example.com'] }],
+      knownEmails: ['a@example.com', 'b@example.com'],
+      priority: new Map([['234615020', { r: 0.9, level: 'elevated' }]]),
+    })
+    expect(plan.assignments.map((row) => row.sectionId)).toEqual(['234615002'])
+  })
+})

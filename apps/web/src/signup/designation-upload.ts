@@ -3,15 +3,18 @@ import {
   designationDriveFolderId,
   tryReadDriveAuth,
 } from './designation-drive-core'
-import { gateDesignation, workerEnv } from './designation-bulk.server'
+import { gateDesignation, syncSignedLinkToBrevo, workerEnv, type SignedLinkBrevo } from './designation-bulk.server'
 import { bulkDesignationSignedFilename, isPdfBytes, personIdOk } from './designation-files'
 import { parseStoredNumber } from './designation-number'
 import { httpStatusForStaffDenial, namesFromPayload } from './designation-preview'
 
-const MAX_BYTES = 15 * 1024 * 1024
+/** Drive simple/multipart uploads (uploadType=multipart|media) take at most 5 MB; signed PDFs are ~170 KB. */
+export const MAX_SIGNED_PDF_BYTES = 5 * 1024 * 1024
+const MAX_BYTES = MAX_SIGNED_PDF_BYTES
 
 interface UploadRow {
   id: string
+  email: string | null
   payload: string
   published_section: string | null
   designation_number: number | string | null
@@ -27,14 +30,14 @@ export async function serveDesignationUpload(request: Request): Promise<Response
   const personId = new URL(request.url).searchParams.get('personId') ?? ''
   if (!personIdOk(personId)) return json({ ok: false, message: 'Няма такъв човек.' }, 400)
   const declared = Number(request.headers.get('content-length') ?? 0)
-  if (declared > MAX_BYTES) return json({ ok: false, message: 'Файлът е над 15 MB.' }, 413)
+  if (declared > MAX_BYTES) return json({ ok: false, message: 'Файлът е над 5 MB (лимит на Google Drive за това качване).' }, 413)
   const bytes = new Uint8Array(await request.arrayBuffer())
-  if (bytes.byteLength > MAX_BYTES) return json({ ok: false, message: 'Файлът е над 15 MB.' }, 413)
+  if (bytes.byteLength > MAX_BYTES) return json({ ok: false, message: 'Файлът е над 5 MB (лимит на Google Drive за това качване).' }, 413)
   if (!isPdfBytes(bytes)) return json({ ok: false, message: 'Файлът трябва да започва с %PDF-.' }, 400)
 
   const row = await access.db
     .prepare(
-      `SELECT id, payload, COALESCE(published_section, '') AS published_section,
+      `SELECT id, email, payload, COALESCE(published_section, '') AS published_section,
         designation_number, designation_drive_file_id, designation_pdf_url
         FROM signups WHERE id = ?`,
     )
@@ -72,10 +75,20 @@ export async function serveDesignationUpload(request: Request): Promise<Response
       )
       .bind(file.webViewLink, file.id, now, now, personId)
       .run()
-    return json({ ok: true, url: file.webViewLink, replaced, fileId: file.id })
+    const brevo = await brevoAfterUpload({ id: personId, email: row.email ?? '', url: file.webViewLink })
+    return json({ ok: true, url: file.webViewLink, replaced, fileId: file.id, brevo })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Drive качването се провали.'
     return json({ ok: false, message }, 502)
+  }
+}
+
+/** The signed link goes to Brevo with the upload itself; a Brevo failure is reported, never thrown. */
+async function brevoAfterUpload(person: { id: string; email: string; url: string }): Promise<SignedLinkBrevo> {
+  try {
+    return await syncSignedLinkToBrevo(person)
+  } catch (error) {
+    return { ok: false, attribute: 'DOCUMENT_URL', error: error instanceof Error ? error.message : 'Brevo повикването се провали.' }
   }
 }
 

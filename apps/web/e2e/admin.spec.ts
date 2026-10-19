@@ -437,8 +437,8 @@ test.describe('staff admin', () => {
 
   test('Пълномощни matches signed PDFs, skips duplicates, uploads and syncs Brevo', async ({ page }) => {
     const uploads: string[] = []
-    let brevoBody = ''
-    await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads, onBrevo: (body) => { brevoBody = body } })
+    const brevoCalls: string[] = []
+    await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads, brevoCalls })
     await signIn(page)
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/admin/palnomoshtni')
@@ -461,7 +461,40 @@ test.describe('staff admin', () => {
     await expect(page.getByRole('status')).toHaveText('Качени 1 от 1; Brevo (DOCUMENT_URL): 1 обновени / 0 грешки.')
     await expect(page.getByRole('table', { name: 'Резултат от качването' }).getByRole('cell', { name: 'обновен', exact: true })).toBeVisible()
     expect(uploads).toEqual(['e2e-ivanov'])
-    expect(brevoBody).toContain('e2e-ivanov')
+    // The upload itself syncs DOCUMENT_URL on the server; no second Brevo round trip from the page.
+    expect(brevoCalls).toEqual([])
+  })
+
+  test('Пълномощни shows the Brevo sync result after an upload (the button is not silent)', async ({ page }) => {
+    const uploads: string[] = []
+    const brevoCalls: string[] = []
+    await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads, brevoCalls, signed: true })
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/palnomoshtni')
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    await page.getByLabel('Подписани PDF или ZIP').setInputFiles([
+      { name: '0002_234600102_Ivanov_signed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 test') },
+    ])
+    await page.getByRole('button', { name: 'Качи 1 подписани' }).click()
+    const upload = page.getByRole('region', { name: 'Качване на подписани' })
+    await expect(upload.getByRole('status')).toHaveText('Качени 1 от 1; Brevo (DOCUMENT_URL): 1 обновени / 0 грешки.')
+    const brevo = page.getByRole('region', { name: 'Синхрон с Brevo' })
+    await brevo.getByRole('button', { name: 'Синхронизирай с Brevo' }).click()
+    await expect(brevo.getByRole('status')).toHaveText('Brevo (DOCUMENT_URL): 1 обновени / 1 грешки: Contact does not exist')
+    await expect(brevo.getByRole('list', { name: 'Грешки при синхрон с Brevo' })).toContainText('Contact does not exist')
+    expect(brevoCalls.some((body) => body.includes('allSigned'))).toBe(true)
+  })
+
+  test('Пълномощни shows a Brevo error when the sync call itself fails', async ({ page }) => {
+    await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads: [], signed: true, brevoThrows: true })
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/palnomoshtni')
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    const brevo = page.getByRole('region', { name: 'Синхрон с Brevo' })
+    await brevo.getByRole('button', { name: 'Синхронизирай с Brevo' }).click()
+    await expect(brevo.getByRole('status')).toHaveText('Brevo: Key not found (unauthorized)')
   })
 
   test('Пълномощни shows a Brevo sync failure next to the uploaded file', async ({ page }) => {
@@ -541,7 +574,15 @@ const MOCK_PALNOMOSHTNI_PEOPLE = [
 
 async function mockPalnomoshtniServerFns(
   page: Page,
-  opts: { missingHealth: boolean; uploads: string[]; onBrevo?: (body: string) => void; brevoFails?: boolean; brevoCalls?: string[]; signed?: boolean },
+  opts: {
+    missingHealth: boolean
+    uploads: string[]
+    onBrevo?: (body: string) => void
+    brevoFails?: boolean
+    brevoThrows?: boolean
+    brevoCalls?: string[]
+    signed?: boolean
+  },
 ) {
   const missingMessage =
     'Липсват GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN. Липсва DESIGNATION_DRIVE_FOLDER_ID (или DRIVE_FOLDER_ID). Качването към Drive е изключено.'
@@ -551,7 +592,14 @@ async function mockPalnomoshtniServerFns(
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ ok: true, url: 'https://drive.google.com/file/d/new/view', replaced: false }),
+      body: JSON.stringify({
+        ok: true,
+        url: 'https://drive.google.com/file/d/new/view',
+        replaced: false,
+        brevo: opts.brevoFails
+          ? { ok: false, attribute: 'DOCUMENT_URL', error: 'В Brevo няма атрибут DOCUMENT_URL.' }
+          : { ok: true, attribute: 'DOCUMENT_URL' },
+      }),
     })
   })
   await page.route('**/_serverFn/**', async (route) => {
@@ -627,6 +675,9 @@ async function mockPalnomoshtniServerFns(
       opts.onBrevo?.(route.request().postData() ?? '')
       const body = route.request().postData() ?? ''
       opts.brevoCalls?.push(body)
+      if (opts.brevoThrows) {
+        return reply({ ok: false, attribute: 'DOCUMENT_URL', total: 2, results: [], nextOffset: null, message: 'Brevo: Key not found (unauthorized)' })
+      }
       if (body.includes('allSigned')) {
         return reply({
           ok: false,

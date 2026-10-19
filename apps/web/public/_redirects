@@ -1,0 +1,3 @@
+# Workers static assets redirects. Sources are percent-encoded because a rule is split on spaces.
+# The 2024 training material was replaced by the 25.10.2026 edition.
+/files/%D0%A2%D0%B8%20%D0%91%D1%80%D0%BE%D0%B8%D1%88%20%D0%9E%D0%B1%D1%83%D1%87%D0%B8%D1%82%D0%B5%D0%BB%D0%B5%D0%BD%20%D0%BC%D0%B0%D1%82%D0%B5%D1%80%D0%B8%D0%B0%D0%BB%20-%20%D0%9D%D0%A1%2027.10.2024.pdf /files/%D0%A2%D0%B8%20%D0%91%D1%80%D0%BE%D0%B8%D1%88%20%D0%9E%D0%B1%D1%83%D1%87%D0%B8%D1%82%D0%B5%D0%BB%D0%B5%D0%BD%20%D0%BC%D0%B0%D1%82%D0%B5%D1%80%D0%B8%D0%B0%D0%BB%20-%2025.10.2026.pdf 301

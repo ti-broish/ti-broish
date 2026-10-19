@@ -17,3 +17,5 @@ tofu import cloudflare_workers_route.staging_web <zone_id>/<route_id>
 ```
 
 State is local for now. Do not commit `terraform.tfstate`.
+
+Other directories have their own state: `infra/email`, `infra/github`, and `infra/google` (Google Cloud project `ti-broish`, Drive API and the manual OAuth client for пълномощни uploads).

@@ -4,6 +4,9 @@ import { distributionWhere, normalizeSection, type RosterView } from './admin-cs
 import { publishBlocked, validateAssignment, warningSummary, type AssignWarning, type DuplicateOwner } from './admin-assign'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
+import { reservedCode, reservedMessage } from './reserved-sections'
+import { reservedOrgOf } from './reserved-sections-db'
+import { isReservedAbort } from './reserved-sections-sql'
 
 type Database = SignupD1
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -47,8 +50,12 @@ export const adminDraft = createServerFn({ method: 'POST' })
       .bind(data.id)
       .first<{ id: string; email: string; mir: string }>()
     if (!person) return { ok: false as const, message: 'Няма такова записване.' }
+    // Reserved by another organisation: refuse, do not save a draft that could never be published.
+    const reservedBy = section ? await reservedOrgOf(db, section) : null
+    if (reservedBy) return { ok: false as const, reserved: reservedBy, message: reservedMessage(reservedCode(section) || section, reservedBy) }
     const warnings = section ? await assignmentWarnings(db, section, person.id, person.mir) : []
-    await db
+    try {
+      await db
       .prepare(
         `UPDATE signups
          SET draft_section = NULLIF(?, ''),
@@ -58,6 +65,10 @@ export const adminDraft = createServerFn({ method: 'POST' })
       )
       .bind(section, section, new Date().toISOString(), data.id)
       .run()
+    } catch (error) {
+      if (isReservedAbort(error)) return { ok: false as const, reserved: '', message: `Секция ${section} е резервирана от друга организация.` }
+      throw error
+    }
     return {
       ok: true as const,
       warning: warningSummary(warnings),
@@ -91,26 +102,29 @@ export const adminPublish = createServerFn({ method: 'POST' })
         blocked.push({ email: row.email, section, warning: warningSummary(warnings) })
         continue
       }
-      await db
-        .prepare(`UPDATE signups SET published_section = draft_section, published_at = ?, updated_at = ? WHERE id = ?`)
-        .bind(now, now, row.id)
-        .run()
+      try {
+        await db
+          .prepare(`UPDATE signups SET published_section = draft_section, published_at = ?, updated_at = ? WHERE id = ?`)
+          .bind(now, now, row.id)
+          .run()
+      } catch (error) {
+        if (!isReservedAbort(error)) throw error
+        blocked.push({ email: row.email, section, warning: `Секция ${section} е резервирана от друга организация.` })
+        continue
+      }
       published += 1
     }
     return { ok: true as const, published, blocked }
   })
 
 async function assignmentWarnings(db: Database, section: string, personId: string, personMir: string): Promise<AssignWarning[]> {
-  const taken = await db
-    .prepare('SELECT organisation FROM taken_sections WHERE section_code = ?')
-    .bind(section)
-    .first<{ organisation: string }>()
+  const takenOrg = await reservedOrgOf(db, section)
   const duplicate = await findDuplicateOwner(db, section, personId)
   return validateAssignment({
     section,
     personId,
     personMir,
-    takenOrg: taken?.organisation ?? null,
+    takenOrg,
     duplicate,
   })
 }

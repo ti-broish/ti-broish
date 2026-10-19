@@ -22,6 +22,7 @@ import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
 import { BulkUnregisterBar } from './-bulk-unregister'
 import { useDebouncedQuery } from './-debounced-query'
 import { downloadCsv } from './-brevo-sections-export'
+import { ReservedBadge, reservedOrgFor, useReservedIndex } from './-reserved-badge'
 
 export const Route = createFileRoute('/admin/signups')({
   validateSearch: (search: Record<string, unknown>): SignupSearch => parseSignupSearch(search),
@@ -522,11 +523,12 @@ function PeopleCards({ people, select }: { people: RosterFields[]; select: RowSe
 }
 
 function SectionCell({ person }: { person: RosterFields }) {
+  const reserved = useReservedIndex()
   if (!person.publishedSection && !person.draftSection) return <p>—</p>
   return (
     <div>
-      {person.publishedSection ? <p>Публ. {person.publishedSection}</p> : null}
-      {person.draftSection && person.draftSection !== person.publishedSection ? <p>Чернова {person.draftSection}</p> : null}
+      {person.publishedSection ? <p>Публ. {person.publishedSection} <ReservedBadge org={reservedOrgFor(person.publishedSection, reserved)} conflict /></p> : null}
+      {person.draftSection && person.draftSection !== person.publishedSection ? <p>Чернова {person.draftSection} <ReservedBadge org={reservedOrgFor(person.draftSection, reserved)} conflict /></p> : null}
     </div>
   )
 }

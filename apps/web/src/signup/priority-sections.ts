@@ -27,7 +27,9 @@ export interface PriorityCoverage {
   total: number
   published: number
   draft: number
+  /** Reserved by another organisation (taken_sections), not open and not ours. */
   taken: number
+  /** Ours: published or draft. */
   covered: number
   uncovered: number
   byLevel: Array<{ level: string; total: number; covered: number }>
@@ -165,14 +167,16 @@ export function summarizePriorityCoverage(
   for (const row of rows) {
     const state = coverageState(row.sectionCode, published, drafts, taken)
     summary.total += 1
+    // Reserved by another organisation: neither ours nor open, counted on its own.
     if (state === 'open') summary.uncovered += 1
+    else if (state === 'taken') summary.taken += 1
     else {
       summary.covered += 1
       summary[state] += 1
     }
     const level = levels.get(row.level) ?? { level: row.level, total: 0, covered: 0 }
     level.total += 1
-    if (state !== 'open') level.covered += 1
+    if (state === 'published' || state === 'draft') level.covered += 1
     levels.set(row.level, level)
   }
   summary.byLevel = [...levels.values()].sort((a, b) => levelRank(a.level) - levelRank(b.level) || a.level.localeCompare(b.level))

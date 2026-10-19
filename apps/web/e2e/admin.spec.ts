@@ -281,6 +281,49 @@ test.describe('staff admin', () => {
     await expect(page.getByTestId('priority-stat')).toContainText('1/2')
   })
 
+  test('reserved sections: dry run, commit, conflict list, blocked draft and removal', async ({ page }) => {
+    seedReservedVolunteer()
+    await signIn(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    try {
+      await page.goto('/admin/sections?q=' + encodeURIComponent('reserved.admin-e2e@example.com'))
+      const panel = page.getByTestId('reserved-panel')
+      await panel.locator('summary').click()
+      await panel.getByLabel('Организация за резервациите').fill('E2E Резерв')
+      await panel.getByLabel('CSV с резервирани секции').setInputFiles({
+        name: 'reserved.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from('СИК\n234600150\n234600151\n234600151\nabc\n'),
+      })
+      const preview = panel.getByTestId('reserved-preview')
+      await expect(preview).toContainText('Валидни 2: нови 2', { timeout: 20_000 })
+      await expect(preview).toContainText('Невалидни редове 1')
+      await expect(preview).toContainText('Повторени 1')
+      await expect(preview).toContainText('Наши хора на тези секции: 1')
+      await expect(preview.getByRole('cell', { name: /reserved\.admin-e2e@example\.com/ })).toBeVisible()
+      await panel.getByRole('button', { name: 'Запиши резервациите' }).click()
+      await expect(page.getByText(/Записано: нови 2/)).toBeVisible({ timeout: 20_000 })
+      await expect(panel.getByTestId('reserved-conflicts')).toContainText('234600150')
+
+      const people = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Човек' }) })
+      const row = people.getByRole('row', { name: /reserved\.admin-e2e@example\.com/ })
+      await expect(row.getByTestId('reserved-badge').first()).toContainText('Резервирана от E2E Резерв')
+      await row.getByLabel('Чернова за reserved.admin-e2e@example.com').fill('234600151')
+      await row.getByRole('button', { name: 'Запази' }).click()
+      await expect(page.getByText('Секция 234600151 е резервирана от E2E Резерв. Там не записваме наши хора.').first()).toBeVisible()
+      await page.reload()
+      await expect(page.getByLabel('Чернова за reserved.admin-e2e@example.com')).toHaveValue('234600150')
+
+      await page.getByTestId('reserved-panel').locator('summary').click()
+      const chip = page.getByTestId('reserved-panel').getByRole('listitem').filter({ hasText: 'E2E Резерв' })
+      await chip.getByRole('button', { name: 'Махни всички' }).click()
+      await chip.getByRole('button', { name: 'Да, махни всички 2' }).click()
+      await expect(page.getByText('Махнахме 2 резервации на E2E Резерв.')).toBeVisible()
+    } finally {
+      runLocalD1("DELETE FROM taken_sections WHERE organisation = 'E2E Резерв'; DELETE FROM signups WHERE id = 'e2e-reserved';")
+    }
+  })
+
   test('Секции names the oblast, district and section in Bulgarian', async ({ page }) => {
     seedStaffRoster()
     await signIn(page)
@@ -792,6 +835,36 @@ async function signIn(page: Page) {
 async function sessionValue(page: Page) {
   const cookies = await page.context().cookies('http://127.0.0.1:3000')
   return cookies.find((cookie) => cookie.name === 'tb_session')?.value
+}
+
+function seedReservedVolunteer() {
+  const sql = `
+DELETE FROM taken_sections WHERE organisation = 'E2E Резерв';
+INSERT INTO signups (
+  id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, role,
+  mir_code, region_code, town_name, section_place, draft_section, published_section, notes,
+  rounds_first, rounds_runoff, radius, created_at, updated_at
+) VALUES (
+  'e2e-reserved',
+  'reserved.admin-e2e@example.com',
+  'e2e-reserved-session',
+  'e2eres01',
+  '{"firstName":"Рая","middleName":"","lastName":"Резервова","phone":"0888000222","email":"reserved.admin-e2e@example.com","role":"section","rounds":{"first":true,"runoff":true},"place":{"regionCode":"23","regionName":"София-град","municipalityName":"Столична","townName":"гр. София"}}',
+  1, 0, 1, '', 'section',
+  '23', '23', 'гр. София', 'ул. Резерв 1', '234600150', '', '',
+  1, 1, 'settlement', datetime('now'), datetime('now')
+)
+ON CONFLICT(email) DO UPDATE SET
+  session_token = excluded.session_token,
+  payload = excluded.payload,
+  email_confirmed = 1,
+  submitted = 1,
+  withdrawn = 0,
+  mir_code = '23',
+  draft_section = '234600150',
+  published_section = NULL;
+`
+  runLocalD1(sql)
 }
 
 function seedAbroadVolunteer() {

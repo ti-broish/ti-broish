@@ -24,6 +24,8 @@ export interface PrioritySectionView {
   r: number | null
   level: string
   state: PriorityCoverageState
+  /** Organisation that reserved it, also when our person is already there (a conflict). */
+  reservedBy: string
 }
 
 /** Replace-all upload of the domestic priority CSV. Drafts, published sections and mail are untouched. */
@@ -101,14 +103,15 @@ async function loadPriority(db: Database) {
        FROM signups WHERE COALESCE(withdrawn, 0) = 0 AND (COALESCE(draft_section, '') != '' OR COALESCE(published_section, '') != '')`,
     )
     .all<{ draft_section: string; published_section: string }>()
-  const taken = await db.prepare('SELECT section_code FROM taken_sections').all<{ section_code: string }>()
+  const taken = await db.prepare('SELECT section_code, organisation FROM taken_sections').all<{ section_code: string; organisation: string }>()
   const published = new Set<string>()
   const drafts = new Set<string>()
   for (const row of assigned.results ?? []) {
     if (row.published_section) published.add(priorityCode(row.published_section))
     if (row.draft_section) drafts.add(priorityCode(row.draft_section))
   }
-  const takenCodes = new Set((taken.results ?? []).map((row) => priorityCode(row.section_code)))
+  const reservedBy = new Map((taken.results ?? []).map((row) => [priorityCode(row.section_code), row.organisation]))
+  const takenCodes = new Set(reservedBy.keys())
   const sections: PrioritySectionView[] = sortForAssignment(
     rows.map((row) => ({
       sectionCode: row.sectionCode,
@@ -118,6 +121,7 @@ async function loadPriority(db: Database) {
       r: row.r,
       level: row.level,
       state: coverageState(row.sectionCode, published, drafts, takenCodes),
+      reservedBy: reservedBy.get(row.sectionCode) ?? '',
     })),
   )
   return {

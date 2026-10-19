@@ -107,6 +107,7 @@ function PriorityStat() {
       <span className="text-3xl font-black text-[#2b062f]">{summary.covered}/{summary.total}</span>
       <span className="text-sm text-[#333]">
         Покрити (публикувани {summary.published}, чернови {summary.draft}). Без човек {summary.uncovered}.
+        {summary.taken ? ` Резервирани от други ${summary.taken}.` : ''}
       </span>
     </Link>
   )

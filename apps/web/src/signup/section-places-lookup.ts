@@ -16,6 +16,9 @@ const API = 'https://api.tibroish.bg'
 const HEADERS = { Accept: 'application/json', 'Accept-Language': 'bg-BG' }
 const MAX_PAIRS_PER_BATCH = 40
 const MAX_TOWN_IDS_PER_BATCH = 40
+/** Extra town lookups per batch when searching a multi-town municipality (keeps a sync well under the subrequest limit). */
+const MAX_SEARCH_TOWNS_PER_BATCH = 900
+const SEARCH_ROUND = 6
 
 let regionCache: RegionSource[] | null = null
 const townCache = new Map<string, TownRef[]>()
@@ -105,7 +108,49 @@ async function directoryFor(codes: string[], townIds: number[]) {
   const found = new Set(first.flat().map((section) => section.id.replace(/\D/g, '')))
   const extra = addressTownIds(codes, [], townRefs, found).filter((id) => !firstWave.includes(id))
   const second = await pool(extra, 6, loadSections)
-  return assembleDirectory({ regions, towns: townRefs, sections: [...first.flat(), ...second.flat()] })
+  for (const section of second.flat()) found.add(section.id.replace(/\D/g, ''))
+  // Sections in a municipality with several towns: the signup's town is often not the section's,
+  // so search every candidate town of that municipality (and city district) until found.
+  const tried = new Set([...firstWave, ...extra])
+  const third: Array<{ id: string; place: string; town?: string }> = []
+  let budget = MAX_SEARCH_TOWNS_PER_BATCH
+  for (const code of codes) {
+    if (budget <= 0) break
+    // One code at a time, a few towns per round, stopping as soon as the section turns up.
+    while (budget > 0) {
+      const next = searchTownIds([code], townRefs, found, tried, Math.min(SEARCH_ROUND, budget))
+      if (next.length === 0) break
+      for (const id of next) tried.add(id)
+      budget -= next.length
+      const rows = (await pool(next, SEARCH_ROUND, loadSections)).flat()
+      third.push(...rows)
+      for (const row of rows) found.add(row.id.replace(/\D/g, ''))
+    }
+  }
+  return assembleDirectory({ regions, towns: townRefs, sections: [...first.flat(), ...second.flat(), ...third] })
+}
+
+/** Towns to search for sections still without an address, capped per batch. */
+export function searchTownIds(codes: string[], towns: TownRef[], found: ReadonlySet<string>, tried: ReadonlySet<number>, cap = MAX_SEARCH_TOWNS_PER_BATCH) {
+  const out: number[] = []
+  const seen = new Set<number>()
+  for (const code of codes) {
+    const digits = code.replace(/\D/g, '')
+    if (digits.length !== 9 || found.has(digits) || digits.startsWith('32')) continue
+    const mir = digits.slice(0, 2)
+    const municipality = digits.slice(2, 4)
+    const district = digits.slice(4, 6)
+    const inPair = towns.filter((town) => town.mir === mir && town.municipality === municipality)
+    const inDistrict = district === '00' ? [] : inPair.filter((town) => town.cityRegions.some((region) => region.code === district))
+    // District towns first; a village of that district may carry no city region, so then the rest.
+    for (const town of [...inDistrict, ...inPair.filter((item) => !inDistrict.includes(item))]) {
+      if (tried.has(town.id) || seen.has(town.id)) continue
+      seen.add(town.id)
+      out.push(town.id)
+      if (out.length >= cap) return out
+    }
+  }
+  return out
 }
 
 async function loadRegions() {

@@ -1,0 +1,7 @@
+section_code,country,city,place_label,members,tier,ppdb_seats,da_seats,ppdb_seats_without_nominee,party_seats_allocated_in_file
+320021001,Австрия,Виена,Виена (Посолство),9,A_da_member,3,2,0,8
+320021002,Австрия,Виена,Виена (Културен център),7,B_ppdb_not_da,1,0,0,1
+320271056,Германия,Бремен,Бремен 1,7,C_no_ppdb_seat,0,0,0,3
+320271099,Германия,Берлин,Берлин 1 (Посолство),5,D_no_allocation_in_file,0,0,0,0
+320271057,Германия,Бремен,Бремен 2,7,B_ppdb_not_da,1,0,0,1
+320020015,Австрия,Клагенфурт,Клагенфурт,7,C_no_ppdb_seat,0,0,0,3

@@ -2,6 +2,8 @@ import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { normalizeSection } from './admin-csv'
 import { scoreSectionSuggestions } from './admin-assign'
+import { scoreAbroadSuggestions } from './abroad-distribute'
+import type { AbroadTierLetter } from './abroad-coverage'
 import { isSpecialBulgariaSection } from './stationary-sections'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows } from './staff'
@@ -18,6 +20,7 @@ export const adminSuggest = createServerFn({ method: 'POST' })
       .prepare(
         `SELECT id, email, payload,
           COALESCE(mir_code, '') AS mir,
+          COALESCE(region_code, '') AS region,
           COALESCE(town_name, '') AS town,
           COALESCE(municipality_name, '') AS municipality,
           COALESCE(section_place, '') AS place,
@@ -31,6 +34,7 @@ export const adminSuggest = createServerFn({ method: 'POST' })
         email: string
         payload: string
         mir: string
+        region: string
         town: string
         municipality: string
         place: string
@@ -40,6 +44,12 @@ export const adminSuggest = createServerFn({ method: 'POST' })
     if (!row) return { ok: false as const, message: 'Няма такова записване.' }
 
     const place = placeFromPayload(row.payload)
+    const abroad = row.region === '32' || row.mir === '32' || place.regionCode === '32'
+
+    if (abroad) {
+      return suggestAbroad(db, row, place)
+    }
+
     const townId = place.townId
     if (!townId) {
       return {
@@ -136,14 +146,101 @@ async function loadPollingSections(townId: number, cityRegionCode?: string) {
   })
 }
 
-function placeFromPayload(payload: string): { townId?: number; cityRegionCode?: string } {
+function placeFromPayload(payload: string): {
+  townId?: number
+  cityRegionCode?: string
+  regionCode?: string
+  countryName?: string
+  townName?: string
+  countryCode?: string
+} {
   try {
-    const parsed = JSON.parse(payload) as { place?: { townId?: number; cityRegionCode?: string } }
+    const parsed = JSON.parse(payload) as {
+      place?: {
+        townId?: number
+        cityRegionCode?: string
+        regionCode?: string
+        countryName?: string
+        townName?: string
+        countryCode?: string
+      }
+    }
     return {
       townId: typeof parsed.place?.townId === 'number' ? parsed.place.townId : undefined,
       cityRegionCode: parsed.place?.cityRegionCode,
+      regionCode: parsed.place?.regionCode,
+      countryName: parsed.place?.countryName,
+      townName: parsed.place?.townName,
+      countryCode: parsed.place?.countryCode,
     }
   } catch {
     return {}
+  }
+}
+
+async function suggestAbroad(
+  db: Database,
+  row: { id: string; town: string; place: string },
+  place: { townId?: number; countryName?: string; townName?: string; countryCode?: string },
+) {
+  const city = (row.town || place.townName || '').trim()
+  if (!city && !place.townId) {
+    return {
+      ok: true as const,
+      suggestions: [],
+      message: 'Няма избран град в записването, затова няма предложения.',
+    }
+  }
+
+  const priority = await db
+    .prepare(
+      `SELECT section_code, country, city, place_label, tier_letter
+       FROM abroad_priority_sections`,
+    )
+    .all<{ section_code: string; country: string; city: string; place_label: string; tier_letter: string }>()
+
+  let sections = (priority.results ?? []).map((item) => ({
+    id: normalizeSection(item.section_code),
+    country: item.country,
+    city: item.city,
+    placeLabel: item.place_label,
+    tierLetter: item.tier_letter as AbroadTierLetter,
+    capacity: 1,
+  }))
+
+  if (sections.length === 0 && place.townId) {
+    try {
+      const polling = await loadPollingSections(place.townId)
+      sections = polling.map((item) => ({
+        id: normalizeSection(item.id),
+        country: place.countryName ?? '',
+        city,
+        placeLabel: item.place,
+        tierLetter: 'D' as AbroadTierLetter,
+        capacity: 1,
+      }))
+    } catch {
+      return { ok: false as const, message: 'Не можах да заредя секциите от API.' }
+    }
+  }
+
+  const blocked = await blockedSectionCodes(db, row.id)
+  const scored = scoreAbroadSuggestions(
+    sections,
+    { countryName: place.countryName ?? '', cityName: city },
+    blocked,
+    8,
+  )
+  const suggestions = scored.map((item) => ({
+    id: item.id,
+    place: `${item.city}${item.placeLabel ? ` · ${item.placeLabel}` : ''} · tier ${item.tierLetter}`,
+    score: item.score,
+    reason: item.reason,
+    desk: 'unknown' as const,
+  }))
+  return {
+    ok: true as const,
+    suggestions,
+    message: suggestions.length ? '' : 'Няма свободни секции за този град в чужбина.',
   }
 }

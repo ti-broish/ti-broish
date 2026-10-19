@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
 import { brevoSectionsCsv, campaignCsv, distributionWhere, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
+import { validateSectionCodesExist } from './abroad-section-validate'
 import { lookupSectionPlaces } from './section-places-lookup'
 import { sectionPlaceOf } from './section-where'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
@@ -662,12 +663,23 @@ export const adminImportPeople = createServerFn({ method: 'POST' })
     const parsed = parsePeopleCsv(data.csv)
     if (parsed.rows.length > 500) return { ok: false as const, message: 'Най-много 500 души наведнъж.' }
     const db = access.db
+    const sectionCheck = await validateSectionCodesExist(
+      db,
+      parsed.rows.map((row) => row.section).filter(Boolean),
+    )
     const links: { email: string; link: string }[] = []
     let imported = 0
     let skipped = 0
     let mailed = 0
     const errors = [...parsed.errors]
+    for (const code of sectionCheck.unknown) {
+      errors.push(`Секция ${code} не е в данните за секции.`)
+    }
     for (const person of parsed.rows) {
+      if (person.section && !sectionCheck.valid.has(normalizeSection(person.section))) {
+        skipped += 1
+        continue
+      }
       try {
         const result = await importPerson(db, person)
         if (!result) {
@@ -712,7 +724,23 @@ export const adminResendImports = createServerFn({ method: 'POST' })
     return { ok: true as const, mailed, pending: (rows.results ?? []).length, links }
   })
 
-async function importPerson(db: Database, person: { firstName: string; middleName: string; lastName: string; email: string; phone: string; mir: string; place: string; note: string; role: string }) {
+async function importPerson(
+  db: Database,
+  person: {
+    firstName: string
+    middleName: string
+    lastName: string
+    email: string
+    phone: string
+    mir: string
+    place: string
+    note: string
+    role: string
+    section: string
+    country: string
+    city: string
+  },
+) {
   const existing = await db
     .prepare('SELECT email_confirmed, imported, payload, referral_code FROM signups WHERE email = ?')
     .bind(person.email)
@@ -723,23 +751,44 @@ async function importPerson(db: Database, person: { firstName: string; middleNam
   const referral = existing?.referral_code || referralCode()
   const columns = columnsFor(existing?.payload ?? '', person, referral)
   const link = `${origin()}/potvardi?token=${token}`
+  const draftSection = normalizeSection(person.section).slice(0, 32)
+  // Draft only — same columns as adminDraft; never publishes; never assignment mail.
   if (existing) {
     await db
       .prepare(
         `UPDATE signups SET payload = ?, confirm_token = ?, mir_code = COALESCE(NULLIF(?, ''), mir_code),
-           section_place = COALESCE(NULLIF(?, ''), section_place), role = COALESCE(NULLIF(?, ''), role), notes = ?, updated_at = ?
+           region_code = COALESCE(NULLIF(?, ''), region_code),
+           town_name = COALESCE(NULLIF(?, ''), town_name),
+           section_place = COALESCE(NULLIF(?, ''), section_place), role = COALESCE(NULLIF(?, ''), role), notes = ?,
+           draft_section = CASE WHEN ? != '' THEN ? ELSE draft_section END,
+           draft_locked = CASE WHEN ? != '' THEN 1 ELSE draft_locked END,
+           updated_at = ?
          WHERE email = ? AND COALESCE(email_confirmed, 0) = 0 AND COALESCE(imported, 0) = 1`,
       )
-      .bind(columns.payload, token, columns.mirCode, columns.sectionPlace, columns.role, columns.notes, now, person.email)
+      .bind(
+        columns.payload,
+        token,
+        columns.mirCode,
+        columns.regionCode,
+        columns.townName,
+        columns.sectionPlace,
+        columns.role,
+        columns.notes,
+        draftSection,
+        draftSection,
+        draftSection,
+        now,
+        person.email,
+      )
       .run()
-    return { link }
+    return { link, draftSection }
   }
   await db
     .prepare(
       `INSERT INTO signups (
          id, email, session_token, referral_code, payload, email_confirmed, withdrawn, imported, confirm_token,
-         mir_code, section_place, role, notes, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, 0, 0, 1, ?, ?, ?, ?, ?, ?, ?)`,
+         mir_code, region_code, town_name, section_place, role, notes, draft_section, draft_locked, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, 0, 0, 1, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
     )
     .bind(
       crypto.randomUUID(),
@@ -749,19 +798,36 @@ async function importPerson(db: Database, person: { firstName: string; middleNam
       columns.payload,
       token,
       columns.mirCode,
+      columns.regionCode,
+      columns.townName,
       columns.sectionPlace,
       columns.role,
       columns.notes,
+      draftSection,
+      draftSection ? 1 : 0,
       now,
       now,
     )
     .run()
-  return { link }
+  return { link, draftSection }
 }
 
 function columnsFor(
   current: string,
-  person: { firstName: string; middleName: string; lastName: string; email: string; phone: string; mir: string; place: string; note: string; role: string },
+  person: {
+    firstName: string
+    middleName: string
+    lastName: string
+    email: string
+    phone: string
+    mir: string
+    place: string
+    note: string
+    role: string
+    section: string
+    country: string
+    city: string
+  },
   referral: string,
 ) {
   let parsed: Partial<Profile> = {}
@@ -772,6 +838,9 @@ function columnsFor(
       parsed = {}
     }
   }
+  const abroad = Boolean(person.country) || mirFromSection(person.section) === '32' || person.mir.padStart(2, '0') === '32'
+  const regionCode = abroad ? '32' : person.mir ? person.mir.padStart(2, '0') : (parsed.place?.regionCode ?? '')
+  const mirCode = abroad ? '32' : person.mir ? person.mir.padStart(2, '0') : null
   const profile = {
     ...emptyProfile(),
     ...parsed,
@@ -787,14 +856,21 @@ function columnsFor(
     role: person.role === 'mobile' || person.role === 'section' ? person.role : (parsed.role ?? null),
   }
   delete (profile as Profile & { draftSection?: unknown }).draftSection
-  if (person.place) {
+  if (person.place || person.country || person.city || abroad) {
     profile.place = {
-      regionCode: person.mir ? person.mir.padStart(2, '0') : (parsed.place?.regionCode ?? ''),
-      regionName: parsed.place?.regionName ?? '',
-      sectionPlace: person.place,
+      regionCode: regionCode || (parsed.place?.regionCode ?? ''),
+      regionName: abroad ? 'Извън страната' : (parsed.place?.regionName ?? ''),
+      townName: person.city || parsed.place?.townName || '',
+      sectionPlace: person.place || person.city || parsed.place?.sectionPlace || '',
+      countryName: person.country || parsed.place?.countryName || '',
+      countryCode: parsed.place?.countryCode,
     }
   }
-  return signupColumns(profile)
+  const columns = signupColumns(profile)
+  // mirOf() is null for region 32; Чужбина import still stores mir_code=32.
+  if (abroad) return { ...columns, regionCode: '32', mirCode: '32', townName: person.city || columns.townName }
+  if (mirCode) return { ...columns, mirCode }
+  return columns
 }
 
 export const adminInvite = createServerFn({ method: 'POST' })

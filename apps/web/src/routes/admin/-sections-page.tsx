@@ -11,6 +11,8 @@ import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import type { SectionSpot } from '../../signup/section-where'
 import { TakenSectionsPanel } from './-taken-sections-panel'
+import { AbroadCoveragePanel } from './-abroad-coverage-panel'
+import { AbroadDistributePanel } from './-abroad-distribute-panel'
 import { DeskBadge, SectionPersonRow } from './-section-person-row'
 import { useDebouncedQuery } from './-debounced-query'
 import { BrevoSectionsExportPanel } from './-brevo-sections-export'
@@ -306,6 +308,13 @@ export function SectionsPage() {
           </tbody>
         </table>
       </div>
+      <AbroadCoveragePanel canEdit={canEdit} active={search.view === 'abroad'} setMessage={setMessage} />
+      <AbroadDistributePanel
+        canEdit={canEdit}
+        active={search.view === 'abroad'}
+        setMessage={setMessage}
+        onSaved={(notice) => load(notice)}
+      />
       <TakenSectionsPanel canEdit={canEdit} taken={taken} setMessage={setMessage} load={load} />
     </div>
   )

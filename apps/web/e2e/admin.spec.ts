@@ -26,6 +26,8 @@ test.describe('staff admin', () => {
     const page = await browser.newPage()
     await page.goto('/admin')
     await expect(page.getByRole('heading', { name: 'Админ' })).toBeVisible()
+    // Wait for adminSession so signupDatabase creates local D1 tables before seeding.
+    await expect(page.getByText('Влез с потвърдения си имейл.')).toBeVisible({ timeout: 30_000 })
     await page.close()
     seedStaffRoster()
   })
@@ -199,6 +201,30 @@ test.describe('staff admin', () => {
     await expect(page.getByText('Няма ЕГН', { exact: true })).toBeVisible()
     await expect(page.getByLabel('Бележка от екипа')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Запази' })).toBeVisible()
+  })
+
+  test('Чужбина shows coverage upload and draft-only distribute controls', async ({ page }) => {
+    seedStaffRoster()
+    seedAbroadVolunteer()
+    await signIn(page)
+    await page.goto('/admin/sections')
+    await page.getByRole('button', { name: 'Чужбина', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Обхват чужбина (приоритетни секции)' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Разпределение чужбина' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Преглед (без запис)' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Запиши като чернови' })).toBeVisible()
+    await expect(page.getByLabel('CSV с приоритетни секции в чужбина')).toBeVisible()
+
+    const sample = readFileSync(new URL('../src/signup/fixtures/abroad-priority-sample.csv', import.meta.url), 'utf8')
+    await page.getByLabel('CSV с приоритетни секции в чужбина').setInputFiles({
+      name: 'abroad-priority-sample.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from(sample),
+    })
+    await expect(page.getByText(/Записани са \d+ секции в чужбина/)).toBeVisible({ timeout: 20_000 })
+
+    await page.getByRole('button', { name: 'Преглед (без запис)' }).click()
+    await expect(page.getByText(/Предложение:/)).toBeVisible({ timeout: 20_000 })
   })
 
   test('Секции names the oblast, district and section in Bulgarian', async ({ page }) => {
@@ -586,6 +612,37 @@ async function sessionValue(page: Page) {
   return cookies.find((cookie) => cookie.name === 'tb_session')?.value
 }
 
+function seedAbroadVolunteer() {
+  const sql = `
+INSERT INTO signups (
+  id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, role,
+  mir_code, region_code, town_name, section_place, draft_section, published_section, notes,
+  rounds_first, rounds_runoff, radius, created_at, updated_at
+) VALUES (
+  'e2e-abroad',
+  'abroad.admin-e2e@example.com',
+  'e2e-abroad-session',
+  'e2eabr01',
+  '{"firstName":"Анна","middleName":"","lastName":"Лондон","phone":"0888000111","email":"abroad.admin-e2e@example.com","role":"section","rounds":{"first":true,"runoff":true},"place":{"regionCode":"32","regionName":"Извън страната","countryName":"Австрия","townName":"Виена"}}',
+  1, 0, 1, '', 'section',
+  '32', '32', 'Виена', 'Виена', '', '', '',
+  1, 1, 'settlement', datetime('now'), datetime('now')
+)
+ON CONFLICT(email) DO UPDATE SET
+  session_token = excluded.session_token,
+  payload = excluded.payload,
+  email_confirmed = 1,
+  submitted = 1,
+  role = 'section',
+  mir_code = '32',
+  region_code = '32',
+  town_name = 'Виена',
+  draft_section = NULL,
+  published_section = NULL;
+`
+  runLocalD1(sql)
+}
+
 function seedStaffRoster() {
   const sql = `
 INSERT INTO signups (
@@ -645,6 +702,10 @@ INSERT INTO staff (email, role, invited_by, created_at)
 VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
 ON CONFLICT(email) DO UPDATE SET role = 'admin';
 `
+  runLocalD1(sql)
+}
+
+function runLocalD1(sql: string) {
   // Other workers write to the same local D1, so a busy database is retried.
   for (let attempt = 1; ; attempt += 1) {
     try {

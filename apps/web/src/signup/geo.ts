@@ -55,6 +55,20 @@ export const fetchCountries = createServerFn({ method: 'GET' }).handler(async ()
   return getJson<Country[]>('countries')
 })
 
+/** Abroad towns for a country code from api.tibroish.bg (e.g. 092 = UK). */
+export const fetchAbroadTowns = createServerFn({ method: 'POST' })
+  .validator((input: { countryCode: string }) => input)
+  .handler(async ({ data }) => {
+    const code = data.countryCode.trim()
+    if (!code) return [] as Town[]
+    const rows = await getJson<Town[]>(`towns?country=${encodeURIComponent(code)}`)
+    return rows.map((town) => ({
+      id: town.id,
+      name: town.name,
+      cityRegions: town.cityRegions ?? [],
+    }))
+  })
+
 export const fetchTowns = createServerFn({ method: 'POST' })
   .validator((input: { regionCodes: string[]; municipalityCode: string }) => input)
   .handler(async ({ data }) => {

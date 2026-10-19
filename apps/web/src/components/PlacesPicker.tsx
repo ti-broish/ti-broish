@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   apiRegionCodes,
   displayRegions,
+  fetchAbroadTowns,
   fetchCountries,
   fetchRegions,
   fetchSections,
@@ -63,7 +64,27 @@ export function PlacesPicker({
   }, [abroad])
 
   useEffect(() => {
-    if (!value?.municipalityCode || !region || abroad) {
+    if (abroad) {
+      if (!value?.countryCode) {
+        setTowns([])
+        return
+      }
+      let cancelled = false
+      void fetchAbroadTowns({ data: { countryCode: value.countryCode } })
+        .then((data) => {
+          if (!cancelled) setTowns([...data].sort((a, b) => a.name.localeCompare(b.name, 'bg')))
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setTowns([])
+            setError('Не успяхме да заредим градовете в чужбина.')
+          }
+        })
+      return () => {
+        cancelled = true
+      }
+    }
+    if (!value?.municipalityCode || !region) {
       setTowns([])
       return
     }
@@ -79,12 +100,25 @@ export function PlacesPicker({
     return () => {
       cancelled = true
     }
-  }, [value?.municipalityCode, value?.regionCode, abroad, region])
+  }, [value?.municipalityCode, value?.regionCode, value?.countryCode, abroad, region])
 
   useEffect(() => {
-    if (!value?.townId || abroad) {
+    if (!value?.townId) {
       setSections([])
       return
+    }
+    if (abroad) {
+      let cancelled = false
+      void fetchSections({ data: { townId: value.townId } })
+        .then((data) => {
+          if (!cancelled) setSections(data)
+        })
+        .catch(() => {
+          if (!cancelled) setSections([])
+        })
+      return () => {
+        cancelled = true
+      }
     }
     void fetchSections({ data: { townId: value.townId, cityRegionCode: value.cityRegionCode } })
       .then((data) => setSections(data))
@@ -243,14 +277,79 @@ export function PlacesPicker({
               ))}
             </select>
           </label>
-          <label className="grid gap-1.5 text-sm font-semibold">
-            Град
-            <input
-              className={inputClass}
-              value={value?.townName ?? ''}
-              onChange={(event) => onChange({ ...(value as HomePlace), townName: event.target.value })}
-            />
-          </label>
+          {value?.countryCode && towns.length > 0 ? (
+            <label className="grid gap-1.5 text-sm font-semibold">
+              Град
+              <select
+                className={inputClass}
+                value={value.townId ?? ''}
+                onChange={(event) => {
+                  const town = towns.find((item) => String(item.id) === event.target.value)
+                  onChange({
+                    regionCode: '32',
+                    regionName: 'Извън страната',
+                    countryCode: value.countryCode,
+                    countryName: value.countryName,
+                    townId: town?.id,
+                    townName: town?.name,
+                    sectionId: undefined,
+                    sectionPlace: undefined,
+                  })
+                }}
+              >
+                <option value="">Избери</option>
+                {towns.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {value?.countryCode ? (
+            <label className="grid gap-1.5 text-sm font-semibold">
+              {towns.length > 0 ? 'Град (свободен текст, ако го няма в списъка)' : 'Град'}
+              <input
+                className={inputClass}
+                value={value?.townId ? '' : (value?.townName ?? '')}
+                placeholder={value?.townId ? value.townName : 'напр. Лондон'}
+                disabled={Boolean(value?.townId)}
+                onChange={(event) =>
+                  onChange({
+                    ...(value as HomePlace),
+                    townId: undefined,
+                    townName: event.target.value,
+                    sectionId: undefined,
+                    sectionPlace: undefined,
+                  })
+                }
+              />
+            </label>
+          ) : null}
+          {value?.townId && sections.length > 0 ? (
+            <label className="grid gap-1.5 text-sm font-semibold">
+              Секция (по желание)
+              <select
+                className={inputClass}
+                value={value.sectionId ?? ''}
+                onChange={(event) => {
+                  const section = sections.find((item) => item.id === event.target.value)
+                  onChange({
+                    ...(value as HomePlace),
+                    sectionId: section?.id,
+                    sectionPlace: section?.place,
+                  })
+                }}
+              >
+                <option value="">Без предпочитание</option>
+                {sections.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.id} · {item.place}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </>
       ) : null}
 

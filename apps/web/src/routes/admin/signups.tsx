@@ -18,6 +18,7 @@ import { BREVO_SECTIONS_BUTTON, BREVO_SECTIONS_HINT, brevoSectionsScope } from '
 import { BrevoCampaignPanel } from './-brevo-campaign-panel'
 import { BrevoSyncPanel } from './-brevo-sync-panel'
 import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
+import { BulkUnregisterBar } from './-bulk-unregister'
 import { useDebouncedQuery } from './-debounced-query'
 import { downloadCsv } from './-brevo-sections-export'
 
@@ -34,6 +35,7 @@ const views = [
   ['unassigned', 'Без секция'],
   ['abroad', 'Чужбина'],
   ['calls', 'Искат обаждане'],
+  ['withdrawn', 'Отписани'],
 ] as const
 
 const columnHelper = createColumnHelper<RosterFields>()
@@ -259,23 +261,44 @@ function SignupsPage() {
         {phase === 'loading' && people.length === 0 ? 'Зареждаме записаните…' : `${total} в този изглед. Показани ${from}–${to}.`}
       </p>
       {canEdit && (people.length > 0 || wholeView) ? (
-        <BulkCallbackBar
-          total={total}
-          visibleCount={people.length}
-          selectedCount={selected.size}
-          wholeView={wholeView}
-          onWholeView={() => setWholeView((current) => !current)}
-          view={search.view}
-          mir={search.mir}
-          q={search.q}
-          ids={[...selected]}
-          onApplied={(next) => {
-            setBulkNote(next)
-            setSelected(new Set())
-            setWholeView(false)
-            setReloadKey((key) => key + 1)
-          }}
-        />
+        <div className="grid gap-2">
+          <BulkCallbackBar
+            total={total}
+            visibleCount={people.length}
+            selectedCount={selected.size}
+            wholeView={wholeView}
+            onWholeView={() => setWholeView((current) => !current)}
+            view={search.view}
+            mir={search.mir}
+            q={search.q}
+            ids={[...selected]}
+            onApplied={(next) => {
+              setBulkNote(next)
+              setSelected(new Set())
+              setWholeView(false)
+              setReloadKey((key) => key + 1)
+            }}
+          />
+          {search.view !== 'withdrawn' ? (
+            <BulkUnregisterBar
+              total={total}
+              visibleCount={people.length}
+              selectedCount={selected.size}
+              wholeView={wholeView}
+              onWholeView={() => setWholeView((current) => !current)}
+              view={search.view}
+              mir={search.mir}
+              q={search.q}
+              ids={[...selected]}
+              onApplied={(next) => {
+                setBulkNote(next)
+                setSelected(new Set())
+                setWholeView(false)
+                setReloadKey((key) => key + 1)
+              }}
+            />
+          ) : null}
+        </div>
       ) : null}
       {bulkNote ? (
         <p className="text-sm font-bold text-[#145744]" role="status">

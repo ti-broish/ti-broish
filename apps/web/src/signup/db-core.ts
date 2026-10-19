@@ -72,6 +72,10 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN designation_drive_file_id TEXT',
   'ALTER TABLE signups ADD COLUMN designation_generated_at TEXT',
   'ALTER TABLE signups ADD COLUMN designation_signed_at TEXT',
+  'ALTER TABLE signups ADD COLUMN withdrawn_at TEXT',
+  'ALTER TABLE signups ADD COLUMN withdrawn_by TEXT',
+  'ALTER TABLE signups ADD COLUMN withdrawn_reason TEXT',
+  'ALTER TABLE signups ADD COLUMN withdrawn_note TEXT',
 ]
 
 const COMPANIONS = `

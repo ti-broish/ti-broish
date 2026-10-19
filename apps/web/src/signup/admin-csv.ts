@@ -2,7 +2,7 @@ import { BREVO_SECTIONS_HEADERS, buildBrevoContact, brevoContactCsvCells, normal
 
 export { BREVO_SECTIONS_HEADERS, normalizeBrevoSms }
 
-export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls' | 'queue'
+export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls' | 'queue' | 'withdrawn'
 
 export interface RosterFields {
   id: string
@@ -135,18 +135,30 @@ export const OPEN_CALL_SQL =
 export function rosterWhere(view: RosterView, mir: string): { clause: string; binds: string[] } | { error: string } {
   if (view === 'finished') return { clause: 'COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0', binds: [] }
   if (view === 'started') return { clause: 'COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0', binds: [] }
-  if (view === 'assigned') return { clause: "COALESCE(published_section, '') != ''", binds: [] }
+  if (view === 'assigned') return { clause: "COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0", binds: [] }
   if (view === 'unassigned') return { clause: "COALESCE(published_section, '') = '' AND COALESCE(withdrawn, 0) = 0", binds: [] }
-  if (view === 'draft') return { clause: "COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')", binds: [] }
-  if (view === 'abroad') return { clause: "region_code = '32'", binds: [] }
+  if (view === 'draft') return { clause: "COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '') AND COALESCE(withdrawn, 0) = 0", binds: [] }
+  if (view === 'abroad') return { clause: "region_code = '32' AND COALESCE(withdrawn, 0) = 0", binds: [] }
   if (view === 'calls') return { clause: OPEN_CALL_SQL, binds: [] }
   if (view === 'queue') return { clause: `${OPEN_CALL_SQL} AND COALESCE(staff_called_at, '') = ''`, binds: [] }
+  if (view === 'withdrawn') return { clause: 'COALESCE(withdrawn, 0) = 1', binds: [] }
   if (view === 'mir') {
     const code = mir.trim()
     if (!/^\d{1,2}$/.test(code)) return { error: 'МИР е номер, например 23.' }
-    return { clause: 'mir_code = ?', binds: [code.padStart(2, '0')] }
+    return { clause: 'mir_code = ? AND COALESCE(withdrawn, 0) = 0', binds: [code.padStart(2, '0')] }
   }
+  // Admin „Всички“ keeps withdrawn people (badge + restore). Exports apply exportWithdrawnGuard.
   return { clause: '1 = 1', binds: [] }
+}
+
+/**
+ * Extra AND so Brevo sync/campaign never re-adds withdrawn people.
+ * CSV excludes them too, except the explicit view=withdrawn export.
+ */
+export function exportWithdrawnGuard(view: RosterView, kind: 'brevo' | 'csv'): string {
+  if (kind === 'brevo') return ' AND COALESCE(withdrawn, 0) = 0'
+  if (view === 'withdrawn') return ''
+  return ' AND COALESCE(withdrawn, 0) = 0'
 }
 
 /** Section distribution only lists people who finished signup. */

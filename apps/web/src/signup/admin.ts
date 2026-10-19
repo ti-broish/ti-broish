@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
-import { brevoSectionsCsv, campaignCsv, distributionWhere, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
+import { brevoSectionsCsv, campaignCsv, distributionWhere, exportWithdrawnGuard, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, parseTakenCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
 import { validateSectionCodesExist } from './abroad-section-validate'
 import { lookupSectionPlaces } from './section-places-lookup'
 import { sectionPlaceOf } from './section-where'
@@ -259,7 +259,7 @@ async function summaryOf(db: Database): Promise<AdminSummary> {
          COUNT(*) AS total,
          COALESCE(SUM(CASE WHEN COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS finished,
          COALESCE(SUM(CASE WHEN COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS started,
-         COALESCE(SUM(CASE WHEN COALESCE(published_section, '') != '' THEN 1 ELSE 0 END), 0) AS assigned,
+         COALESCE(SUM(CASE WHEN COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS assigned,
          COALESCE(SUM(CASE WHEN COALESCE(published_section, '') = '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS unassigned,
          COALESCE(SUM(CASE WHEN ${OPEN_CALL_SQL} THEN 1 ELSE 0 END), 0) AS calls,
          COALESCE(SUM(CASE WHEN ${OPEN_CALL_SQL} AND COALESCE(staff_called_at, '') = '' THEN 1 ELSE 0 END), 0) AS queue
@@ -279,14 +279,23 @@ async function summaryOf(db: Database): Promise<AdminSummary> {
   }
 }
 
-function filtered(view: string, mir: string, q: string, mode: 'fts' | 'like', finishedOnly: boolean, publishedOnly = false) {
+function filtered(
+  view: string,
+  mir: string,
+  q: string,
+  mode: 'fts' | 'like',
+  finishedOnly: boolean,
+  publishedOnly = false,
+  exportKind?: 'brevo' | 'csv',
+) {
   const filter = finishedOnly ? distributionWhere(viewOf(view), mir) : rosterWhere(viewOf(view), mir)
   if ('error' in filter) return filter
   const search = searchClause(q, mode)
   const published = publishedOnly
     ? ` AND COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0`
     : ''
-  return { clause: `(${filter.clause}) AND (${search.clause})${published}`, binds: [...filter.binds, ...search.binds] }
+  const exportGuard = exportKind ? exportWithdrawnGuard(viewOf(view), exportKind) : ''
+  return { clause: `(${filter.clause}) AND (${search.clause})${published}${exportGuard}`, binds: [...filter.binds, ...search.binds] }
 }
 
 async function queryPeople(
@@ -301,9 +310,10 @@ async function queryPeople(
   dir: string,
   finishedOnly = false,
   publishedOnly = false,
+  exportKind?: 'brevo' | 'csv',
 ) {
   const run = async (mode: 'fts' | 'like') => {
-    const filter = filtered(view, mir, q, mode, finishedOnly, publishedOnly)
+    const filter = filtered(view, mir, q, mode, finishedOnly, publishedOnly, exportKind)
     if ('error' in filter) return filter
     const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
     const rows = await selectPeople(db, filter.clause, filter.binds, limit, offset, withEgn, rosterOrder(sort, dir))
@@ -493,6 +503,7 @@ export async function loadBrevoSectionFields(
       'desc',
       input.finishedOnly === true,
       input.publishedOnly,
+      'brevo',
     )
     if ('error' in chunk) return { error: chunk.error }
     people.push(...chunk.rows.map(fieldsOf))
@@ -582,6 +593,7 @@ export const adminExport = createServerFn({ method: 'POST' })
         'desc',
         false,
         false,
+        'csv',
       )
       if ('error' in chunk) return { ok: false as const, message: chunk.error }
       people.push(...chunk.rows.map(fieldsOf))
@@ -939,6 +951,10 @@ interface StoredPersonRow {
   published_section: string | null
   submitted: number
   withdrawn: number
+  withdrawn_at: string
+  withdrawn_by: string
+  withdrawn_reason: string
+  withdrawn_note: string
   email_confirmed: number
   imported: number
   draft_section: string
@@ -962,6 +978,10 @@ const PERSON_DETAIL_SQL = `SELECT id, email, payload,
   referral_code, referred_by, source, egn, published_section,
   COALESCE(submitted, 0) AS submitted,
   COALESCE(withdrawn, 0) AS withdrawn,
+  COALESCE(withdrawn_at, '') AS withdrawn_at,
+  COALESCE(withdrawn_by, '') AS withdrawn_by,
+  COALESCE(withdrawn_reason, '') AS withdrawn_reason,
+  COALESCE(withdrawn_note, '') AS withdrawn_note,
   COALESCE(email_confirmed, 0) AS email_confirmed,
   COALESCE(imported, 0) AS imported,
   COALESCE(draft_section, '') AS draft_section,
@@ -985,7 +1005,7 @@ function personIdOk(id: string) {
   return /^[\w-]{1,80}$/.test(id)
 }
 
-function openedPerson(row: StoredPersonRow): AdminPerson {
+function openedPerson(row: StoredPersonRow, previousSection = ''): AdminPerson {
   const profile = profileFrom({
     id: row.id,
     payload: row.payload,
@@ -1006,7 +1026,7 @@ function openedPerson(row: StoredPersonRow): AdminPerson {
     roundsFirst: row.rounds_first,
     roundsRunoff: row.rounds_runoff,
   })
-  return buildAdminPerson(sealed, personExtra(row, row.staff_note, row.staff_called_at, row.staff_called_by))
+  return buildAdminPerson(sealed, personExtra(row, row.staff_note, row.staff_called_at, row.staff_called_by, previousSection))
 }
 
 function personExtra(
@@ -1014,6 +1034,7 @@ function personExtra(
   staffNote: string,
   staffCalledAt: string,
   staffCalledBy: string,
+  previousSection = '',
 ) {
   return {
     id: row.id,
@@ -1030,6 +1051,11 @@ function personExtra(
     designationNumber: row.designation_number == null || row.designation_number === '' ? '' : String(row.designation_number),
     designationIssuedAt: row.designation_issued_at ?? '',
     designationPdfUrl: row.designation_pdf_url ?? '',
+    withdrawnAt: row.withdrawn_at ?? '',
+    withdrawnBy: row.withdrawn_by ?? '',
+    withdrawnReason: row.withdrawn_reason ?? '',
+    withdrawnNote: row.withdrawn_note ?? '',
+    previousSection,
   }
 }
 
@@ -1049,6 +1075,22 @@ async function loadAudit(db: Database, signupId: string): Promise<AuditLine[]> {
   return auditLines(rows.results ?? [])
 }
 
+async function previousSectionFromAudit(db: Database, signupId: string) {
+  const row = await db
+    .prepare(
+      `SELECT after_text FROM signup_audit
+       WHERE signup_id = ? AND field = 'withdrawn'
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+    )
+    .bind(signupId)
+    .first<{ after_text: string }>()
+  if (!row?.after_text) return ''
+  const published = row.after_text.match(/освободена публикувана\s+([A-Z0-9]+)/i)
+  if (published?.[1]) return published[1]
+  const draft = row.after_text.match(/освободена чернова\s+([A-Z0-9]+)/i)
+  return draft?.[1] ?? ''
+}
+
 export const adminPerson = createServerFn({ method: 'POST' })
   .validator((input: { id?: string }) => ({ id: clipStaffText(input.id ?? '', 80) }))
   .handler(async ({ data }) => {
@@ -1057,7 +1099,8 @@ export const adminPerson = createServerFn({ method: 'POST' })
     const row = await loadStoredPerson(access.db, data.id)
     if (!row) return { ok: false as const, message: 'Няма такъв човек.' }
     try {
-      return { ok: true as const, person: openedPerson(row), changes: await loadAudit(access.db, row.id) }
+      const previousSection = row.withdrawn === 1 ? await previousSectionFromAudit(access.db, row.id) : ''
+      return { ok: true as const, person: openedPerson(row, previousSection), changes: await loadAudit(access.db, row.id) }
     } catch {
       return { ok: false as const, message: 'Този запис не се чете.' }
     }

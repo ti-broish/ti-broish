@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminInput } from '../../components/admin-ui'
 import { StaffTravel, type StaffTravelValue } from '../../components/StaffTravel'
@@ -8,6 +8,7 @@ import { describeAudit, formatAuditWhen, type AuditLine } from '../../signup/adm
 import { progressLabel, roleLabel, signupProgress, type AdminPerson } from '../../signup/admin-progress'
 import { defaultSignupSearch } from '../../signup/admin-search'
 import { EXPERIENCE, type Experience, type NamedPlace, type Radius, type Role, type TravelStop } from '../../signup/model'
+import { UnregisterPanel } from './-unregister-panel'
 
 export const Route = createFileRoute('/admin/signups_/$personId')({
   component: PersonPage,
@@ -43,6 +44,26 @@ function PersonPage() {
   const [saved, setSaved] = useState(false)
   const [busy, setBusy] = useState(false)
   const canEdit = access.permissions.edit
+
+  const reload = useCallback(() => {
+    setPhase('loading')
+    setSaved(false)
+    setMessage('')
+    void adminPerson({ data: { id: personId } }).then((result) => {
+      if (!result.ok) {
+        setPhase(result.message === 'Няма такъв човек.' ? 'missing' : 'error')
+        setMessage(result.message)
+        return
+      }
+      setPerson(result.person)
+      setChanges(result.changes)
+      setForm(formFrom(result.person))
+      setPhase('ready')
+    }).catch(() => {
+      setPhase('error')
+      setMessage('Човекът не се зареди.')
+    })
+  }, [personId])
 
   useEffect(() => {
     let cancelled = false
@@ -98,6 +119,7 @@ function PersonPage() {
             ) : null}
           </div>
           <PersonFacts person={person} />
+          <UnregisterPanel person={person} canEdit={canEdit} onChanged={reload} />
           {person.publishedSection ? (
             <p className="text-sm font-bold text-[#1a1020]">
               <a className="text-[#2b062f] underline" href={`/admin/signups/${person.id}/palnomoshtno.pdf`}>
@@ -258,7 +280,7 @@ function PersonPage() {
               История
             </h2>
             {changes.length === 0 ? (
-              <p className="text-sm text-[#333]">Няма записани промени по ролята, дните, пътуването или бележката.</p>
+              <p className="text-sm text-[#333]">Няма записани промени по ролята, дните, пътуването, бележката или отписването.</p>
             ) : (
               <ul className="grid gap-2 text-sm text-[#1a1020]">
                 {changes.map((change) => (
@@ -350,7 +372,7 @@ function personName(person: AdminPerson) {
 }
 
 function progressSentence(person: AdminPerson) {
-  if (person.withdrawn) return 'Записването е оттеглено.'
+  if (person.withdrawn) return 'Записването е отписано.'
   if (person.submitted) return 'Завършил записването.'
   return person.gap ? `Започнал е, но не е завършил. ${person.gap}` : 'Започнал е, но не е завършил.'
 }

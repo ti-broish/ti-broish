@@ -33,7 +33,7 @@ export function signupProgress(person: { submitted: boolean; withdrawn: boolean 
 
 export function progressLabel(progress: SignupProgress) {
   if (progress === 'finished') return 'Завършил'
-  if (progress === 'withdrawn') return 'Оттеглен'
+  if (progress === 'withdrawn') return 'Отписан'
   return 'Започнал'
 }
 
@@ -285,6 +285,11 @@ export interface AdminPerson {
   emailConfirmed: boolean
   submitted: boolean
   withdrawn: boolean
+  withdrawnAt: string
+  withdrawnBy: string
+  withdrawnReason: string
+  withdrawnNote: string
+  previousSection: string
   imported: boolean
   draftSection: string
   publishedSection: string
@@ -320,6 +325,11 @@ export function buildAdminPerson(
     designationNumber?: string
     designationIssuedAt?: string
     designationPdfUrl?: string
+    withdrawnAt?: string
+    withdrawnBy?: string
+    withdrawnReason?: string
+    withdrawnNote?: string
+    previousSection?: string
   },
 ): AdminPerson {
   const radiusId = (profile.radius || extra.radius) as Radius | ''
@@ -346,6 +356,11 @@ export function buildAdminPerson(
     emailConfirmed: profile.emailConfirmed,
     submitted: profile.submitted,
     withdrawn: profile.withdrawn,
+    withdrawnAt: extra.withdrawnAt ?? '',
+    withdrawnBy: extra.withdrawnBy ?? '',
+    withdrawnReason: extra.withdrawnReason ?? '',
+    withdrawnNote: extra.withdrawnNote ?? '',
+    previousSection: extra.previousSection ?? '',
     imported: extra.imported,
     draftSection: extra.draftSection,
     publishedSection: extra.publishedSection,

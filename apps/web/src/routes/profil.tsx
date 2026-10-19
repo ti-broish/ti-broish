@@ -8,6 +8,7 @@ import { StaffNote } from '../components/StaffNote'
 import { checkEmailCode, requestSignInCode } from '../signup/confirm-mail'
 import { applyCantReachReport } from '../signup/cant-reach'
 import { reportCantReach, saveSignup } from '../signup/db'
+import { selfRestoreSignup } from '../signup/admin-unregister-actions'
 import { applyLoadedSession, beginSessionLoad, invalidateSessionLoad } from '../signup/use-registration'
 import { isProtocolDay } from '../signup/election'
 import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signupGap, validEmail, type Profile } from '../signup/model'
@@ -304,7 +305,7 @@ function ProfilePage() {
           <button
             type="button"
             className="flex min-h-14 w-full items-center justify-center rounded-[20px] border border-[#333] bg-white px-5 text-xl font-bold"
-            onClick={() => updateProfile({ withdrawn: true, submitted: true })}
+            onClick={() => updateProfile({ withdrawn: true, submitted: true, withdrawnByAdmin: false })}
           >
             Оттегли записването
           </button>
@@ -418,15 +419,54 @@ function CantReachSection({ profile }: { profile: Profile }) {
 function NextStep({ profile }: { profile: Profile }) {
   const view = profileView(profile)
   if (view === 'incomplete') {
+    const adminUnregistered = profile.withdrawn && profile.withdrawnByAdmin
+    const selfWithdrawn = profile.withdrawn && !profile.withdrawnByAdmin
     return (
-      <section className="grid gap-4" aria-label={profile.withdrawn ? 'Оттеглено' : 'Още една стъпка'}>
-        <p className="text-sm font-bold text-[#666]">{profile.withdrawn ? 'Оттеглено' : 'Още една стъпка'}</p>
+      <section
+        className="grid gap-4"
+        aria-label={adminUnregistered ? 'Отписан' : selfWithdrawn ? 'Оттеглено' : 'Още една стъпка'}
+      >
+        <p className="text-sm font-bold text-[#666]">
+          {adminUnregistered ? 'Отписан' : selfWithdrawn ? 'Оттеглено' : 'Още една стъпка'}
+        </p>
         <h2 className="text-3xl font-black text-[#444]">
-          {profile.withdrawn ? 'Записването е оттеглено' : 'Записването не е готово'}
+          {adminUnregistered
+            ? 'Записването е отписано'
+            : selfWithdrawn
+              ? 'Записването е оттеглено'
+              : 'Записването не е готово'}
         </h2>
-        <p className="text-lg leading-7">{profile.withdrawn ? 'Мястото се освобождава. Можеш да го върнеш, ако още искаш да участваш.' : signupGap(profile)}</p>
-        {profile.withdrawn ? (
-          <button type="button" className="brand-button" onClick={() => updateProfile({ withdrawn: false, submitted: true })}>
+        <p className="text-lg leading-7">
+          {adminUnregistered
+            ? 'Вече не си в активните списъци. Ако искаш отново да участваш, върни записването или ни пиши.'
+            : selfWithdrawn
+              ? 'Мястото се освобождава. Можеш да го върнеш, ако още искаш да участваш.'
+              : signupGap(profile)}
+        </p>
+        {adminUnregistered ? (
+          <div className="grid gap-2">
+            <button
+              type="button"
+              className="brand-button"
+              onClick={() => {
+                updateProfile({ withdrawn: false, submitted: true, withdrawnByAdmin: false })
+                void selfRestoreSignup().then((result) => {
+                  if (!result.ok) updateProfile({ withdrawn: true, withdrawnByAdmin: true })
+                })
+              }}
+            >
+              Запиши се отново
+            </button>
+            <Link to="/kontakt" className={secondaryButton}>
+              Пиши ни
+            </Link>
+          </div>
+        ) : selfWithdrawn ? (
+          <button
+            type="button"
+            className="brand-button"
+            onClick={() => updateProfile({ withdrawn: false, submitted: true, withdrawnByAdmin: false })}
+          >
             Върни записването
           </button>
         ) : (

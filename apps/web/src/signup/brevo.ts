@@ -379,3 +379,24 @@ function parsePositiveInt(value: string | undefined) {
 function defaultCampaignHtml() {
   return '<p>Здравей,</p><p>Това е чернова на кампания от админ панела на Ти Броиш. Замени съдържанието или ползвай BREVO_TEMPLATE_ID.</p>'
 }
+
+/** Remove contacts from a Brevo list. Does not delete the contact record. */
+export async function removeContactsFromList(
+  config: BrevoConfig,
+  emails: string[],
+  listId: number,
+  fetchImpl: typeof fetch = fetch,
+) {
+  const cleaned = [...new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean))]
+  if (cleaned.length === 0) return { removed: 0 }
+  await brevoFetch(
+    config.apiKey,
+    `/contacts/lists/${listId}/contacts/remove`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ emails: cleaned }),
+    },
+    fetchImpl,
+  )
+  return { removed: cleaned.length }
+}

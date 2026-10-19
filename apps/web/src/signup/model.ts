@@ -92,6 +92,8 @@ export interface Profile {
   consent: boolean
   submitted: boolean
   withdrawn: boolean
+  /** True when an admin ran Отпиши (withdrawn_at/by set). Self-service withdraw leaves this false. */
+  withdrawnByAdmin: boolean
   assignedSection: string | null
 }
 
@@ -132,6 +134,7 @@ export const emptyProfile = (): Profile => ({
   consent: false,
   submitted: false,
   withdrawn: false,
+  withdrawnByAdmin: false,
   assignedSection: null,
 })
 

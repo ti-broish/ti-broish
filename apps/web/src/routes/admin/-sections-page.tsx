@@ -45,6 +45,7 @@ export function SectionsPage() {
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [armed, setArmed] = useState(false)
   const [armedDraft, setArmedDraft] = useState(false)
+  const [armedEmpty, setArmedEmpty] = useState(false)
   const [armedClear, setArmedClear] = useState(false)
   const [distributing, setDistributing] = useState(false)
   const [clearing, setClearing] = useState(false)
@@ -170,7 +171,7 @@ export function SectionsPage() {
 
   return (
     <div className="grid gap-5">
-      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. „Направи чернови за страната“ слага чернови по избрания обхват, първо в хартиена секция под 300 избиратели. Група се държи на един адрес, после в града, после в общината, после в областта. Човек, който приема и други области, остава първо в своята. Мобилният екип остава за после. „Запази“ на реда държи тази чернова при следващо пускане. Останалите чернови се смятат наново. „Изчисти черновите“ маха и заключените със „Запази“, за да ги сметнем отначало. Публикуваните секции остават. Черновата се вижда само тук, докато не я публикуваш." />
+      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. „Направи чернови за страната“ слага чернови по избрания обхват, първо в приоритетна секция (в града, после в общината, по R), после в хартиена секция под 300 избиратели. Резервираните от други организации се пропускат. Група се държи на един адрес, после в града, после в общината, после в областта. Човек, който приема и други области, остава първо в своята. Мобилният екип остава за после. „Запази“ на реда държи тази чернова при следващо пускане. Останалите чернови се смятат наново. „Изчисти черновите“ маха и заключените със „Запази“, за да ги сметнем отначало. Публикуваните секции остават. Черновата се вижда само тук, докато не я публикуваш. „Чернови само за хората без секция“ не пипа никоя съществуваща чернова." />
       <label className="grid max-w-md gap-1 text-sm font-bold text-[#1a1020]" htmlFor="section-search">
         Търсене
         <input id="section-search" className={adminInput} type="search" value={draft} placeholder="Име, имейл, телефон или ЕГН" onChange={(event) => setDraft(event.target.value)} />
@@ -253,12 +254,13 @@ export function SectionsPage() {
             onClick={() => {
               if (!armedDraft) {
                 setArmedClear(false)
+                setArmedEmpty(false)
                 setArmedDraft(true)
                 return
               }
               setArmedDraft(false)
               setDistributing(true)
-              void adminDistribute().then((result) => {
+              void adminDistribute({ data: {} }).then((result) => {
                 setDistributing(false)
                 setMessage(result.message)
                 if (result.ok) load(result.message)
@@ -272,11 +274,37 @@ export function SectionsPage() {
           </button>
           <button
             type="button"
+            className={armedEmpty ? 'brand-button w-auto px-6' : adminGhost}
+            disabled={distributing || clearing}
+            onClick={() => {
+              if (!armedEmpty) {
+                setArmedClear(false)
+                setArmedDraft(false)
+                setArmedEmpty(true)
+                return
+              }
+              setArmedEmpty(false)
+              setDistributing(true)
+              void adminDistribute({ data: { onlyEmpty: true } }).then((result) => {
+                setDistributing(false)
+                setMessage(result.message)
+                if (result.ok) load(result.message)
+              }).catch(() => {
+                setDistributing(false)
+                setMessage('Черновите не се записаха. Опитай пак.')
+              })
+            }}
+          >
+            {armedEmpty ? 'Да, чернови само за хората без секция (без публикуване)' : 'Чернови само за хората без секция'}
+          </button>
+          <button
+            type="button"
             className={armedClear ? 'brand-button w-auto px-6' : adminGhost}
             disabled={distributing || clearing}
             onClick={() => {
               if (!armedClear) {
                 setArmedDraft(false)
+                setArmedEmpty(false)
                 setArmedClear(true)
                 return
               }

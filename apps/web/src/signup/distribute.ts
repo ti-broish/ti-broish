@@ -1,5 +1,6 @@
 import { normalizeSection } from './admin-csv'
 import { normalizeAddress, sectionDesk } from './sections'
+import { rKey } from './priority-sections'
 import { isSpecialBulgariaSection } from './stationary-sections'
 
 export type SkipReason = 'mobile' | 'video' | 'abroad' | 'no-place' | 'no-section'
@@ -38,6 +39,8 @@ export interface DistributeSection {
   votersCount?: number | null
   isMachine?: boolean | null
   isMobile?: boolean | null
+  /** A domestic priority (risk-scored) section. Same order as „Предложи“: home town, then municipality, by R desc. */
+  priority?: { r: number | null; level: string } | null
 }
 
 export interface DistributeAnchor {
@@ -70,8 +73,10 @@ export function distributeSections(input: {
   blocked?: readonly string[]
   anchors?: readonly DistributeAnchor[]
   knownEmails?: readonly string[]
+  /** Priority sections by code. They win over ordinary ones in the person's town, then municipality. */
+  priority?: ReadonlyMap<string, { r: number | null; level: string }>
 }): DistributePlan {
-  const sections = dedupeSections(input.sections)
+  const sections = dedupeSections(input.sections).map((section) => ({ ...section, priority: input.priority?.get(section.id) ?? section.priority ?? null }))
   const used = new Set((input.blocked ?? []).map(canon).filter(Boolean))
   const anchors = input.anchors ?? []
   const known = new Set((input.knownEmails ?? input.people.map((person) => person.email)).map(emailKey))
@@ -285,16 +290,38 @@ function placeCluster(
       if (key) keys.add(key)
     }
   }
-  const viable: Array<{ key: string; score: number; pools: DistributeSection[][] }> = []
+  const viable: Array<{
+    key: string
+    score: number
+    pools: DistributeSection[][]
+    priority: { town: number; municipality: number; bestR: number }
+    preferred: boolean
+  }> = []
   for (const key of keys) {
     const narrowed = pools.map((pool) => pool.filter((section) => bucketKey(section, level) === key && deskOf(section) !== 'machine'))
     if (narrowed.some((pool) => pool.length === 0)) continue
     const union = dedupeSections(narrowed.flat())
     if (union.length < members.length + extra) continue
     if (!assignDistinct(members, narrowed)) continue
-    viable.push({ key, score: bucketScore(key, union, members, preference, level, members.length + extra), pools: narrowed })
+    viable.push({
+      key,
+      score: bucketScore(key, union, members, preference, level, members.length + extra),
+      pools: narrowed,
+      priority: bucketPriority(union, members, members.length),
+      // Joining companions who already have a section beats a priority section elsewhere.
+      preferred: (level === 'address' && preference.places.has(key)) || (level === 'town' && preference.towns.has(Number(key.slice('town:'.length)))),
+    })
   }
-  viable.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key, 'bg'))
+  // Priority sections first, like „Предложи“: in the home town, then the municipality, then by R desc.
+  viable.sort(
+    (a, b) =>
+      Number(b.preferred) - Number(a.preferred) ||
+      b.priority.town - a.priority.town ||
+      b.priority.municipality - a.priority.municipality ||
+      b.priority.bestR - a.priority.bestR ||
+      b.score - a.score ||
+      a.key.localeCompare(b.key, 'bg'),
+  )
   const chosen = viable[0]
   if (!chosen) return null
   const assigned = assignDistinct(members, chosen.pools)
@@ -304,7 +331,7 @@ function placeCluster(
   if (extra > 0) {
     const rest = dedupeSections(chosen.pools.flat())
       .filter((section) => !taken.has(section.id))
-      .sort((a, b) => compareSections(a, b, members.map((person) => person.place).join(' ')))
+      .sort((a, b) => compareSections(a, b, members.map((person) => person.place).join(' '), members))
     for (const section of rest) {
       if (reserved >= extra) break
       used.add(section.id)
@@ -328,7 +355,7 @@ function assignDistinct(members: DistributePerson[], pools: DistributeSection[][
   const assigned: DraftAssignment[] = []
   for (const item of order) {
     const options = (pools[item.index] ?? []).filter((section) => !taken.has(section.id) && deskOf(section) !== 'machine')
-    options.sort((a, b) => compareSections(a, b, item.person.place))
+    options.sort((a, b) => compareSections(a, b, item.person.place, [item.person]))
     const section = options[0]
     if (!section) return null
     taken.add(section.id)
@@ -447,6 +474,39 @@ function bucketKey(section: DistributeSection, level: Exclude<Together, 'solo'>)
   return `mir:${parts.mir}:muni:${parts.municipality}`
 }
 
+/** R desc; a blank R (quarantine) sorts after every scored section but still beats no priority section. */
+function priorityR(section: DistributeSection) {
+  const r = rKey(section.priority?.r)
+  return Number.isFinite(r) ? r : -1e9
+}
+
+/** 0: priority in a member's town, 1: in a member's municipality, 2: not a priority section for them. */
+function priorityScope(section: DistributeSection, people: readonly DistributePerson[]) {
+  if (!section.priority) return 2
+  const parts = sectionParts(section.id)
+  let best = 2
+  for (const person of people) {
+    if (section.townId != null && person.townId != null && section.townId === person.townId) return 0
+    const municipality = pad2(person.municipalityCode)
+    if (parts && municipality && parts.mir === padMir(person.mir) && parts.municipality === municipality) best = 1
+  }
+  return best
+}
+
+function bucketPriority(sections: DistributeSection[], members: DistributePerson[], seats: number) {
+  let town = 0
+  let municipality = 0
+  let bestR = -2e9
+  for (const section of sections) {
+    const scope = priorityScope(section, members)
+    if (scope === 2) continue
+    if (scope === 0) town += 1
+    else municipality += 1
+    bestR = Math.max(bestR, priorityR(section))
+  }
+  return { town: Math.min(town, seats), municipality: Math.min(municipality, seats), bestR }
+}
+
 function bucketScore(
   key: string,
   sections: DistributeSection[],
@@ -470,7 +530,13 @@ function bucketScore(
   return score
 }
 
-function compareSections(a: DistributeSection, b: DistributeSection, place: string) {
+function compareSections(a: DistributeSection, b: DistributeSection, place: string, people: readonly DistributePerson[] = []) {
+  const scope = priorityScope(a, people) - priorityScope(b, people)
+  if (scope !== 0) return scope
+  if (priorityScope(a, people) < 2) {
+    const r = priorityR(b) - priorityR(a)
+    if (r !== 0) return r
+  }
   const desk = deskRank(deskOf(a)) - deskRank(deskOf(b))
   if (desk !== 0) return desk
   const placeRank = (section: DistributeSection) => (placeClose(place, placeKey(section.place)) ? 0 : 1)

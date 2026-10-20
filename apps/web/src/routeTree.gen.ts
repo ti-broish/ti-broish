@@ -14,7 +14,6 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as InstructionsRouteImport } from './routes/instructions'
-import { Route as IzprateniRouteImport } from './routes/izprateni'
 import { Route as IzvanBulgariaRouteImport } from './routes/izvan-bulgaria'
 import { Route as KontaktRouteImport } from './routes/kontakt'
 import { Route as NewsRouteImport } from './routes/news'
@@ -33,6 +32,7 @@ import { Route as AdminCallsRouteImport } from './routes/admin/calls'
 import { Route as AdminPalnomoshtniRouteImport } from './routes/admin/palnomoshtni'
 import { Route as AdminSectionsRouteImport } from './routes/admin/sections'
 import { Route as AdminSignupsRouteImport } from './routes/admin/signups'
+import { Route as IzprateniIndexRouteImport } from './routes/izprateni.index'
 import { Route as IzprateniIdRouteImport } from './routes/izprateni.$id'
 import { Route as PhotosSplatRouteImport } from './routes/photos.$'
 import { Route as PokanaCodeRouteImport } from './routes/pokana.$code'
@@ -68,11 +68,6 @@ const FaqRoute = FaqRouteImport.update({
 const InstructionsRoute = InstructionsRouteImport.update({
   id: '/instructions',
   path: '/instructions',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IzprateniRoute = IzprateniRouteImport.update({
-  id: '/izprateni',
-  path: '/izprateni',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IzvanBulgariaRoute = IzvanBulgariaRouteImport.update({
@@ -165,10 +160,15 @@ const AdminSignupsRoute = AdminSignupsRouteImport.update({
   path: '/signups',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const IzprateniIndexRoute = IzprateniIndexRouteImport.update({
+  id: '/izprateni/',
+  path: '/izprateni/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IzprateniIdRoute = IzprateniIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => IzprateniRoute,
+  id: '/izprateni/$id',
+  path: '/izprateni/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const PhotosSplatRoute = PhotosSplatRouteImport.update({
   id: '/photos/$',
@@ -229,7 +229,6 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
-  '/izprateni': typeof IzprateniRouteWithChildren
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
   '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
@@ -253,6 +252,7 @@ export interface FileRoutesByFullPath {
   '/posts/$slug': typeof PostsSlugRoute
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
+  '/izprateni/': typeof IzprateniIndexRoute
   '/posts/': typeof PostsIndexRoute
   '/admin/palnomoshtni/podpisani': typeof AdminPalnomoshtniPodpisaniRoute
   '/admin/palnomoshtni/upload': typeof AdminPalnomoshtniUploadRoute
@@ -265,7 +265,6 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
-  '/izprateni': typeof IzprateniRouteWithChildren
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
   '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
@@ -288,6 +287,7 @@ export interface FileRoutesByTo {
   '/posts/$slug': typeof PostsSlugRoute
   '/r/$code': typeof RCodeRoute
   '/admin': typeof AdminIndexRoute
+  '/izprateni': typeof IzprateniIndexRoute
   '/posts': typeof PostsIndexRoute
   '/admin/palnomoshtni/podpisani': typeof AdminPalnomoshtniPodpisaniRoute
   '/admin/palnomoshtni/upload': typeof AdminPalnomoshtniUploadRoute
@@ -302,7 +302,6 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
-  '/izprateni': typeof IzprateniRouteWithChildren
   '/izvan-bulgaria': typeof IzvanBulgariaRoute
   '/kontakt': typeof KontaktRoute
   '/news': typeof NewsRoute
@@ -326,6 +325,7 @@ export interface FileRoutesById {
   '/posts/$slug': typeof PostsSlugRoute
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
+  '/izprateni/': typeof IzprateniIndexRoute
   '/posts/': typeof PostsIndexRoute
   '/admin/palnomoshtni_/podpisani': typeof AdminPalnomoshtniPodpisaniRoute
   '/admin/palnomoshtni_/upload': typeof AdminPalnomoshtniUploadRoute
@@ -341,7 +341,6 @@ export interface FileRouteTypes {
     | '/about'
     | '/faq'
     | '/instructions'
-    | '/izprateni'
     | '/izvan-bulgaria'
     | '/kontakt'
     | '/news'
@@ -365,6 +364,7 @@ export interface FileRouteTypes {
     | '/posts/$slug'
     | '/r/$code'
     | '/admin/'
+    | '/izprateni/'
     | '/posts/'
     | '/admin/palnomoshtni/podpisani'
     | '/admin/palnomoshtni/upload'
@@ -377,7 +377,6 @@ export interface FileRouteTypes {
     | '/about'
     | '/faq'
     | '/instructions'
-    | '/izprateni'
     | '/izvan-bulgaria'
     | '/kontakt'
     | '/news'
@@ -400,6 +399,7 @@ export interface FileRouteTypes {
     | '/posts/$slug'
     | '/r/$code'
     | '/admin'
+    | '/izprateni'
     | '/posts'
     | '/admin/palnomoshtni/podpisani'
     | '/admin/palnomoshtni/upload'
@@ -413,7 +413,6 @@ export interface FileRouteTypes {
     | '/about'
     | '/faq'
     | '/instructions'
-    | '/izprateni'
     | '/izvan-bulgaria'
     | '/kontakt'
     | '/news'
@@ -437,6 +436,7 @@ export interface FileRouteTypes {
     | '/posts/$slug'
     | '/r/$code'
     | '/admin/'
+    | '/izprateni/'
     | '/posts/'
     | '/admin/palnomoshtni_/podpisani'
     | '/admin/palnomoshtni_/upload'
@@ -451,7 +451,6 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   FaqRoute: typeof FaqRoute
   InstructionsRoute: typeof InstructionsRoute
-  IzprateniRoute: typeof IzprateniRouteWithChildren
   IzvanBulgariaRoute: typeof IzvanBulgariaRoute
   KontaktRoute: typeof KontaktRoute
   NewsRoute: typeof NewsRoute
@@ -464,9 +463,11 @@ export interface RootRouteChildren {
   SignupRoute: typeof SignupRoute
   VhodRoute: typeof VhodRoute
   ZnachkaRoute: typeof ZnachkaRoute
+  IzprateniIdRoute: typeof IzprateniIdRoute
   PhotosSplatRoute: typeof PhotosSplatRoute
   PokanaCodeRoute: typeof PokanaCodeRoute
   RCodeRoute: typeof RCodeRoute
+  IzprateniIndexRoute: typeof IzprateniIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -504,13 +505,6 @@ declare module '@tanstack/react-router' {
       path: '/instructions'
       fullPath: '/instructions'
       preLoaderRoute: typeof InstructionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/izprateni': {
-      id: '/izprateni'
-      path: '/izprateni'
-      fullPath: '/izprateni'
-      preLoaderRoute: typeof IzprateniRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/izvan-bulgaria': {
@@ -639,12 +633,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSignupsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/izprateni/': {
+      id: '/izprateni/'
+      path: '/izprateni'
+      fullPath: '/izprateni/'
+      preLoaderRoute: typeof IzprateniIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/izprateni/$id': {
       id: '/izprateni/$id'
-      path: '/$id'
+      path: '/izprateni/$id'
       fullPath: '/izprateni/$id'
       preLoaderRoute: typeof IzprateniIdRouteImport
-      parentRoute: typeof IzprateniRoute
+      parentRoute: typeof rootRouteImport
     }
     '/photos/$': {
       id: '/photos/$'
@@ -752,18 +753,6 @@ const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
   AdminRouteRouteChildren,
 )
 
-interface IzprateniRouteChildren {
-  IzprateniIdRoute: typeof IzprateniIdRoute
-}
-
-const IzprateniRouteChildren: IzprateniRouteChildren = {
-  IzprateniIdRoute: IzprateniIdRoute,
-}
-
-const IzprateniRouteWithChildren = IzprateniRoute._addFileChildren(
-  IzprateniRouteChildren,
-)
-
 interface PostsRouteChildren {
   PostsSlugRoute: typeof PostsSlugRoute
   PostsIndexRoute: typeof PostsIndexRoute
@@ -782,7 +771,6 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   FaqRoute: FaqRoute,
   InstructionsRoute: InstructionsRoute,
-  IzprateniRoute: IzprateniRouteWithChildren,
   IzvanBulgariaRoute: IzvanBulgariaRoute,
   KontaktRoute: KontaktRoute,
   NewsRoute: NewsRoute,
@@ -795,9 +783,11 @@ const rootRouteChildren: RootRouteChildren = {
   SignupRoute: SignupRoute,
   VhodRoute: VhodRoute,
   ZnachkaRoute: ZnachkaRoute,
+  IzprateniIdRoute: IzprateniIdRoute,
   PhotosSplatRoute: PhotosSplatRoute,
   PokanaCodeRoute: PokanaCodeRoute,
   RCodeRoute: RCodeRoute,
+  IzprateniIndexRoute: IzprateniIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

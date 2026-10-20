@@ -6,9 +6,10 @@ import { PlacesPicker } from '../components/PlacesPicker'
 import { loadSignup } from '../signup/db'
 import { isProtocolDay } from '../signup/election'
 import { placeLabel, placeReady, validEmail, validPhone, type HomePlace } from '../signup/model'
+import { recaptchaToken } from '../signup/recaptcha'
 import { rememberReport } from '../signup/report-memory'
-import { submitViolation } from '../signup/reports'
-import type { PhotoInput } from '../signup/reports-validate'
+import { VIOLATION_DESCRIPTION_MAX, validateViolation, type PhotoInput } from '../signup/reports-validate'
+import { sendViolation } from '../signup/violation-api'
 import { useProfile } from '../signup/store'
 
 export const Route = createFileRoute('/signal')({ component: SignalPage })
@@ -24,7 +25,6 @@ function SignalPage() {
   const [phone, setPhone] = useState('')
   const [description, setDescription] = useState('')
   const [place, setPlace] = useState<HomePlace | null>(null)
-  const [wantCall, setWantCall] = useState(false)
   const [photos, setPhotos] = useState<PhotoInput[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -53,7 +53,10 @@ function SignalPage() {
   if (sent) {
     return (
       <div className="grid gap-4">
-        <PageIntro title="Сигналът е изпратен" lede="Екипът го преглежда. Запази тази страница, ако искаш да го отвориш пак." />
+        <PageIntro title="Сигналът е изпратен" lede="Получихме го. Екипът на Ти броиш го преглежда." />
+        <p className="rounded-2xl bg-[#eee] px-4 py-3 leading-7">
+          Номер на сигнала: <span className="font-mono font-bold">{sent.id}</span>
+        </p>
         <Link to="/izprateni/$id" params={{ id: sent.id }} search={{ secret: sent.secret }} className="brand-button">
           Виж сигнала
         </Link>
@@ -78,20 +81,34 @@ function SignalPage() {
           setError('Нужни са населено място, име, имейл, телефон и описание от поне 20 знака.')
           return
         }
+        const parsed = validateViolation({ name, email, phone, description, place, photos })
+        if (typeof parsed === 'string') {
+          setError(parsed)
+          return
+        }
         setBusy(true)
         setError('')
-        void submitViolation({
-          data: { name, email, phone, description, place, wantCall, photos },
-        }).then((result) => {
+        void sendViolation(parsed.payload, parsed.photos, { recaptcha: recaptchaToken }).then((result) => {
           setBusy(false)
           if (!result.ok) {
-            setError(result.message)
+            setError(result.message.startsWith('Сигналът') ? result.message : `Сигналът не беше изпратен. ${result.message}`)
             return
           }
-          rememberReport({ id: result.id, secret: result.secret, kind: 'violation' })
+          rememberReport({
+            id: result.id,
+            secret: result.secret,
+            kind: 'violation',
+            source: 'api',
+            createdAt: new Date().toISOString(),
+            title: parsed.payload.description.slice(0, 140),
+            photoCount: result.pictures.length,
+          })
           setSent({ id: result.id, secret: result.secret })
           setDescription('')
           setPhotos([])
+        }).catch(() => {
+          setBusy(false)
+          setError('Сигналът не беше изпратен. Опитай пак след малко.')
         })
       }}
     >
@@ -123,14 +140,11 @@ function SignalPage() {
         <textarea
           className={`${field} min-h-32`}
           minLength={20}
+          maxLength={VIOLATION_DESCRIPTION_MAX}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           required
         />
-      </label>
-      <label className="flex items-start gap-3 leading-7">
-        <input type="checkbox" className="mt-1" checked={wantCall} onChange={(event) => setWantCall(event.target.checked)} />
-        <span>Искам екипът да ми се обади по този сигнал.</span>
       </label>
       <PhotoField photos={photos} onChange={setPhotos} />
       {place ? <p className="text-sm leading-6">{placeLabel(place)}</p> : null}

@@ -9,7 +9,7 @@ import { LAST_TURNOUT } from './last-turnout.data'
  * A section with no last-election data (new since April) goes last within its type:
  * paper after tier 3, machine after tier 4.
  * Paper or machine is the current election's desk (sectionDesk on today's API voter counts), not April's.
- * Machine sections still need the priority list to be drafted at all (draftable in distribute.ts).
+ * Tiers 2 and 4 cover every machine section, not only the ones on the priority list.
  */
 export const VOTED_THRESHOLD = 50
 

@@ -188,7 +188,7 @@ export function describeDistribution(input: {
   if (kept === 1) sentences.push('Задържахме 1 корекция.')
   else if (kept > 1) sentences.push(`Задържахме ${kept} корекции.`)
   if (later.length) sentences.push(`За после остават ${later.join(', ')}.`)
-  if (input.noSection) sentences.push(`Без свободна хартиена секция в обхвата: ${input.noSection}.`)
+  if (input.noSection) sentences.push(`Без свободна секция в обхвата: ${input.noSection}.`)
   if (input.keptAtAddress === 1) sentences.push('1 група е на един адрес.')
   else if (input.keptAtAddress > 1) sentences.push(`${input.keptAtAddress} групи са на един адрес.`)
   return sentences.join(' ')
@@ -547,13 +547,15 @@ function bucketScore(
 ) {
   const paper = sections.filter((section) => deskOf(section) === 'paper').length
   const unknown = sections.filter((section) => deskOf(section) === 'unknown').length
-  // Tier 1 (paper, > 50 voted last time) seats come first, then any paper seat.
-  const strong = sections.filter((section) => draftable(section) && tierOf(section).tier === 1).length
-  const strongFit = Math.min(strong, seats)
+  // Tier 1 seats (paper, > 50 voted last time) come first, then tier 2 (machine, > 50), then any paper seat.
+  const tier1 = sections.filter((section) => tierOf(section).tier === 1).length
+  const tier2 = sections.filter((section) => tierOf(section).tier === 2).length
+  const tier1Fit = Math.min(tier1, seats)
+  const tier2Fit = Math.min(tier2, Math.max(0, seats - tier1))
   // One paper seat outranks any number of sections whose voter count we do not know.
   const paperFit = Math.min(paper, seats)
   const unknownFit = Math.min(unknown, Math.max(0, seats - paper))
-  let score = strongFit * 10_000_000 + paperFit * 1_000_000 + unknownFit * 1_000 + paper
+  let score = tier1Fit * 100_000_000 + tier2Fit * 10_000_000 + paperFit * 1_000_000 + unknownFit * 1_000 + paper
   if (level === 'address' && preference.places.has(key)) score += 5_000
   if (level === 'address' && members.some((person) => placeClose(person.place, key))) score += 500
   if (level === 'town') {
@@ -684,9 +686,13 @@ function radiusRank(radius: string) {
   return 9
 }
 
-/** Paper or unknown sections, plus machine sections only when they are on the priority list. */
-function draftable(section: DistributeSection) {
-  return deskOf(section) !== 'machine' || Boolean(section.priority)
+/**
+ * Every section a person can reach can be drafted: paper, unknown and machine (tiers 2 and 4 cover all
+ * machine sections, not only priority-list ones). Mobile, reserved and „И аз“ sections never reach here:
+ * sectionFits drops mobile ones and `used` starts with the blocked codes.
+ */
+function draftable(_section: DistributeSection) {
+  return true
 }
 
 export function tierOf(section: DistributeSection) {

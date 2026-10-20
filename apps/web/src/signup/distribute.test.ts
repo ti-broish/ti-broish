@@ -172,7 +172,7 @@ describe('distributeSections', () => {
     expect(plan.skipped.map((row) => row.reason)).toEqual(['mobile', 'mobile', 'video', 'abroad', 'no-place'])
   })
 
-  it('keeps a volunteer who accepts other oblasts at home until home has no desk', () => {
+  it('keeps a volunteer who accepts other oblasts at home until home has no free section', () => {
     const homeFirst = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com', radius: 'distant', distantMirs: ['02'], place: 'ул. А 1' })],
       sections: [
@@ -190,7 +190,19 @@ describe('distributeSections', () => {
         section({ id: '163700001', place: 'Пловдив', townId: 99, votersCount: 80 }),
       ],
     })
-    expect(away.assignments[0]?.sectionId).toBe('023700001')
+    // A machine section at home is a desk now (tiers 2 and 4 cover every machine section).
+    expect(away.assignments[0]?.sectionId).toBe('234615001')
+
+    const homeTaken = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com', radius: 'distant', distantMirs: ['02'], place: 'ул. А 1' })],
+      sections: [
+        section({ id: '234615001', place: 'ул. А 1', votersCount: 800 }),
+        section({ id: '023700001', place: 'Бургас', townId: 42, votersCount: 120 }),
+        section({ id: '163700001', place: 'Пловдив', townId: 99, votersCount: 80 }),
+      ],
+      blocked: ['234615001'],
+    })
+    expect(homeTaken.assignments[0]?.sectionId).toBe('023700001')
   })
 
   it('keeps an oblast volunteer in that oblast and prefers their address', () => {
@@ -246,8 +258,8 @@ describe('distributeSections', () => {
         section({ id: '062000011', place: 'Козлодуй', townId: 200, votersCount: 800 }),
       ],
     })
-    expect(onlyMachinesThere.assignments).toEqual([])
-    expect(onlyMachinesThere.skipped[0]?.reason).toBe('no-section')
+    // Outside the picked municipalities stays out; a machine section inside them is drafted.
+    expect(onlyMachinesThere.assignments.map((row) => [row.sectionId, row.desk])).toEqual([['062000011', 'machine']])
   })
 
   it('limits each distant oblast to its picked municipalities and still tries home first', () => {
@@ -277,6 +289,7 @@ describe('distributeSections', () => {
         section({ id: '062000011', place: 'Козлодуй', townId: 200, votersCount: 200 }),
         section({ id: '023700001', place: 'Бургас', townId: 42, votersCount: 120 }),
       ],
+      blocked: ['234615001'],
     })
     expect(away.assignments[0]?.sectionId).toBe('023700001')
 
@@ -287,6 +300,7 @@ describe('distributeSections', () => {
         section({ id: '060100001', place: 'Враца', townId: 100, votersCount: 90 }),
         section({ id: '062000011', place: 'Козлодуй', townId: 200, votersCount: 200 }),
       ],
+      blocked: ['234615001'],
     })
     expect(onlyKozloduy.assignments[0]?.sectionId).toBe('062000011')
   })
@@ -352,10 +366,19 @@ describe('distributeSections', () => {
     expect(plan.assignments[0]?.desk).toBe('paper')
   })
 
-  it('skips a person when every section in range is a machine', () => {
+  it('drafts a machine section when it is the only one in range', () => {
     const plan = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com' })],
       sections: [section({ id: '234615001', place: 'ул. А 1', votersCount: 800 })],
+    })
+    expect(plan.assignments.map((row) => [row.sectionId, row.desk])).toEqual([['234615001', 'machine']])
+  })
+
+  it('still skips a person when every section in range is reserved', () => {
+    const plan = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com' })],
+      sections: [section({ id: '234615001', place: 'ул. А 1', votersCount: 800 })],
+      blocked: ['234615001'],
     })
     expect(plan.assignments).toEqual([])
     expect(plan.skipped[0]?.reason).toBe('no-section')
@@ -511,7 +534,7 @@ describe('distribution sources', () => {
   it('describes the outcome for the team', () => {
     expect(
       describeDistribution({ drafted: 2, paper: 2, mobile: 3, video: 0, abroad: 0, noPlace: 0, noSection: 1, keptAtAddress: 1 }),
-    ).toBe('Записахме 2 чернови в хартиени секции. За после остават 3 мобилни. Без свободна хартиена секция в обхвата: 1. 1 група е на един адрес.')
+    ).toBe('Записахме 2 чернови в хартиени секции. За после остават 3 мобилни. Без свободна секция в обхвата: 1. 1 група е на един адрес.')
     expect(
       describeDistribution({ drafted: 0, paper: 0, mobile: 1, video: 1, abroad: 0, noPlace: 0, noSection: 0, keptAtAddress: 0 }),
     ).toBe('Записахме 0 чернови. За после остават 1 мобилен, 1 на видеонаблюдение.')
@@ -622,22 +645,24 @@ describe('distributeSections with priority sections', () => {
     expect(plan.assignments.map((row) => row.sectionId)).toEqual(['234615001'])
   })
 
-  it('uses a machine section only when it is a priority section', () => {
+  it('uses any machine section, priority-list ones first', () => {
     const machines = [
       section({ id: '234615040', place: 'ул. Д 5', votersCount: 900 }),
       section({ id: '234615050', place: 'ул. Е 6', votersCount: 700, isMachine: true }),
     ]
     const ordinary = distributeSections({ people: [person({ id: 'a', email: 'a@example.com' })], sections: machines })
-    expect(ordinary.assignments).toEqual([])
-    expect(ordinary.skipped.map((row) => row.reason)).toEqual(['no-section'])
+    expect(ordinary.assignments.map((row) => row.desk)).toEqual(['machine'])
 
     const prioritized = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com' }), person({ id: 'b', email: 'b@example.com' })],
       sections: machines,
       priority: new Map([['234615050', { r: 1.2, level: 'watch' }]]),
     })
-    expect(prioritized.assignments.map((row) => [row.sectionId, row.desk])).toEqual([['234615050', 'machine']])
-    expect(prioritized.skipped.map((row) => row.reason)).toEqual(['no-section'])
+    expect(prioritized.assignments.map((row) => [row.sectionId, row.desk])).toEqual([
+      ['234615050', 'machine'],
+      ['234615040', 'machine'],
+    ])
+    expect(prioritized.skipped).toEqual([])
   })
 
   it('still prefers a machine priority section over a paper one in the town', () => {

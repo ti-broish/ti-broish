@@ -2,7 +2,8 @@ import { validEgn } from './rules'
 
 export const SIGNUP_VIEWS = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'queue', 'mir', 'draft', 'withdrawn'] as const
 export const SIGNUP_SORTS = ['updated', 'name', 'email', 'phone', 'mir', 'role'] as const
-export const SECTION_VIEWS = ['unassigned', 'draft', 'assigned', 'abroad', 'mir'] as const
+export const SECTION_VIEWS = ['all', 'abroad', 'mir'] as const
+export const SECTION_STATE_FILTERS = ['none', 'draft', 'published'] as const
 
 export type SignupSearch = {
   q: string
@@ -17,6 +18,8 @@ export type SectionSearch = {
   q: string
   view: (typeof SECTION_VIEWS)[number]
   mir: string
+  /** none / draft / published; absent shows all three. */
+  state?: (typeof SECTION_STATE_FILTERS)[number]
   /** „Само приоритетни“: only people tied to a priority section. Absent when off. */
   prio?: boolean
 }
@@ -32,7 +35,7 @@ export const defaultSignupSearch: SignupSearch = {
 
 export const defaultSectionSearch: SectionSearch = {
   q: '',
-  view: 'unassigned',
+  view: 'all',
   mir: '',
 }
 
@@ -109,9 +112,13 @@ export function parseSignupSearch(search: Record<string, unknown>): SignupSearch
 }
 
 export function parseSectionSearch(search: Record<string, unknown>): SectionSearch {
-  const view = typeof search.view === 'string' && isOneOf(search.view, SECTION_VIEWS) ? search.view : 'unassigned'
+  // Old links: view=unassigned / draft / assigned were states, now `state`.
+  const legacy: Record<string, (typeof SECTION_STATE_FILTERS)[number]> = { unassigned: 'none', draft: 'draft', assigned: 'published' }
+  const rawView = typeof search.view === 'string' ? search.view : ''
+  const view = isOneOf(rawView, SECTION_VIEWS) ? rawView : 'all'
+  const state = typeof search.state === 'string' && isOneOf(search.state, SECTION_STATE_FILTERS) ? search.state : legacy[rawView]
   const prio = search.prio === true || search.prio === 1 || search.prio === '1' || search.prio === 'true'
-  return { q: clipText(search.q), view, mir: clipText(search.mir, 8), ...(prio ? { prio: true } : {}) }
+  return { q: clipText(search.q), view, mir: clipText(search.mir, 8), ...(state ? { state } : {}), ...(prio ? { prio: true } : {}) }
 }
 
 export function parseQueueSearch(search: Record<string, unknown>): QueueSearch {

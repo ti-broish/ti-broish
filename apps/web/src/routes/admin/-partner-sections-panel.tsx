@@ -187,7 +187,7 @@ export function PartnerSectionsPanel({ canEdit, canPublish, setMessage }: { canE
                                 .catch(() => after({ ok: false, message: 'Не се запази.' }))
                             }
                           >
-                            Запази
+                            Сложи чернова
                           </button>
                           <button
                             type="button"
@@ -207,7 +207,13 @@ export function PartnerSectionsPanel({ canEdit, canPublish, setMessage }: { canE
                         <ul className="grid gap-0.5 text-xs">
                           {options[row.id]!.map((option) => (
                             <li key={option.code}>
-                              <button type="button" className="font-mono underline" onClick={() => setValues((prev) => ({ ...prev, [row.id]: option.code }))}>
+                              <button type="button" className="font-mono underline" onClick={() => {
+                                setValues((prev) => ({ ...prev, [row.id]: option.code }))
+                                setOptions((prev) => ({ ...prev, [row.id]: [] }))
+                                void adminPartnerSave({ data: { id: row.id, section: option.code } })
+                                  .then(after)
+                                  .catch(() => after({ ok: false, message: 'Не се запази.' }))
+                              }}>
                                 {option.code}
                               </button>{' '}
                               {SCOPE[option.scope] ?? ''} {option.town || option.place}

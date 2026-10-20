@@ -164,7 +164,7 @@ describe('enforcement', () => {
         return /SET draft_section = (?!NULL\b)|published_section = draft_section|draft_section = CASE/.test(text)
       })
       .sort()
-    expect(writers).toEqual(['abroad-distribute-admin.ts', 'admin-assign-actions.ts', 'admin-distribute.ts', 'admin.ts', 'assignment-notify.ts'])
+    expect(writers).toEqual(['abroad-distribute-admin.ts', 'admin-assign-actions.ts', 'admin-distribute.ts', 'admin.ts', 'assignment-notify.ts', 'distribute-rerun-sql.ts'])
     for (const name of writers) {
       const text = readFileSync(join(here, name), 'utf8')
       expect(/reservedOrgOf|reservedMap|taken_sections/.test(text), name).toBe(true)

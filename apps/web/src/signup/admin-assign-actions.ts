@@ -7,6 +7,8 @@ import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './
 import { reservedCode, reservedMessage } from './reserved-sections'
 import { reservedOrgOf } from './reserved-sections-db'
 import { isReservedAbort } from './reserved-sections-sql'
+import { isSectionHeldAbort } from './partner-people-sql'
+import { withPickedIds } from './section-state'
 
 type Database = SignupD1
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -78,12 +80,13 @@ export const adminDraft = createServerFn({ method: 'POST' })
   })
 
 export const adminPublish = createServerFn({ method: 'POST' })
-  .validator((input: { view: string; mir: string }) => input)
+  .validator((input: { view: string; mir: string; ids?: string[] }) => input)
   .handler(async ({ data }) => {
     const access = await gate('publish')
     if (!access.ok) return access
     const db = access.db
-    const filter = distributionWhere(viewOf(data.view), data.mir)
+    // ids: „Публикувай“ on a row and „Публикувай избраните“. Same no-email path as the whole view.
+    const filter = withPickedIds(distributionWhere(viewOf(data.view), data.mir), data.ids)
     if ('error' in filter) return { ok: false as const, message: filter.error }
     const pending = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
     const rows = await bound(
@@ -108,8 +111,8 @@ export const adminPublish = createServerFn({ method: 'POST' })
           .bind(now, now, row.id)
           .run()
       } catch (error) {
-        if (!isReservedAbort(error)) throw error
-        blocked.push({ email: row.email, section, warning: `Секция ${section} е резервирана от друга организация.` })
+        if (!isReservedAbort(error) && !isSectionHeldAbort(error)) throw error
+        blocked.push({ email: row.email, section, warning: isReservedAbort(error) ? `Секция ${section} е резервирана от друга организация.` : `Секция ${section} вече е заета.` })
         continue
       }
       published += 1

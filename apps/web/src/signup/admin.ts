@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { SECTION_STATE_SQL, isSectionState, sectionCountsFrom, sectionCountsSql, type SectionState } from './section-state'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
 import { brevoSectionsCsv, campaignCsv, distributionWhere, exportWithdrawnGuard, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
 import { validateSectionCodesExist } from './abroad-section-validate'
@@ -315,13 +316,19 @@ async function queryPeople(
   finishedOnly = false,
   publishedOnly = false,
   exportKind?: 'brevo' | 'csv',
+  sectionState?: SectionState | '',
 ) {
   const run = async (mode: 'fts' | 'like') => {
-    const filter = filtered(view, mir, q, mode, finishedOnly, publishedOnly, exportKind)
-    if ('error' in filter) return filter
+    const base = filtered(view, mir, q, mode, finishedOnly, publishedOnly, exportKind)
+    if ('error' in base) return base
+    // Секции: counts per state over the same scope and search, then narrow to the picked state.
+    const sectionCounts = sectionState === undefined
+      ? undefined
+      : sectionCountsFrom(await bound(db, sectionCountsSql(base.clause), base.binds).first<Record<string, unknown>>())
+    const filter = sectionState ? { clause: `(${base.clause}) AND (${SECTION_STATE_SQL[sectionState]})`, binds: base.binds } : base
     const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
     const rows = await selectPeople(db, filter.clause, filter.binds, limit, offset, withEgn, rosterOrder(sort, dir))
-    return { total: Number(total?.n ?? 0), rows }
+    return { total: Number(total?.n ?? 0), rows, sectionCounts }
   }
   try {
     return await run(currentSearchEngine())
@@ -392,7 +399,8 @@ export const adminSession = createServerFn({ method: 'POST' })
   })
 
 export const adminRoster = createServerFn({ method: 'POST' })
-  .validator((input: { view?: string; mir?: string; q?: string; page?: number; limit?: number; sort?: string; dir?: string; finished?: boolean }) => ({
+  .validator((input: { view?: string; mir?: string; q?: string; page?: number; limit?: number; sort?: string; dir?: string; finished?: boolean; state?: string }) => ({
+    state: input.state === undefined ? undefined : isSectionState(input.state) ? input.state : ('' as const),
     view: input.view ?? 'all',
     mir: input.mir ?? '',
     q: (input.q ?? '').slice(0, 120),
@@ -406,7 +414,7 @@ export const adminRoster = createServerFn({ method: 'POST' })
     const access = await gate('view')
     if (!access.ok) return access
     const db = access.db
-    const queried = await queryPeople(db, data.view, data.mir, data.q, data.limit, (data.page - 1) * data.limit, false, data.sort, data.dir, data.finished)
+    const queried = await queryPeople(db, data.view, data.mir, data.q, data.limit, (data.page - 1) * data.limit, false, data.sort, data.dir, data.finished, false, undefined, data.state)
     if ('error' in queried) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: queried.error }
     const people = queried.rows.map(fieldsOf)
     const takenMir = viewOf(data.view) === 'mir' ? data.mir.trim().padStart(2, '0') : ''
@@ -425,6 +433,7 @@ export const adminRoster = createServerFn({ method: 'POST' })
       staff: await listStaff(db),
       summary: await summaryOf(db),
       total: queried.total,
+      sectionCounts: queried.sectionCounts,
       page: data.page,
       limit: data.limit,
       people,

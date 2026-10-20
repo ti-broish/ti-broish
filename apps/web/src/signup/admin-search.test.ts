@@ -145,6 +145,6 @@ describe('parseSectionSearch', () => {
   it('reads a MIR typed into the address as a number', () => {
     expect(parseSectionSearch({ view: 'mir', mir: 23 })).toEqual({ q: '', view: 'mir', mir: '23' })
     expect(parseSectionSearch({ view: 'mir', mir: '05' })).toEqual({ q: '', view: 'mir', mir: '05' })
-    expect(parseSectionSearch({ view: 'nope', mir: { x: 1 } })).toEqual({ q: '', view: 'unassigned', mir: '' })
+    expect(parseSectionSearch({ view: 'nope', mir: { x: 1 } })).toEqual({ q: '', view: 'all', mir: '' })
   })
 })

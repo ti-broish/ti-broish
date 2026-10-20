@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { useState } from 'react'
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import { adminDraft } from '../../signup/admin-assign-actions'
@@ -35,7 +36,11 @@ export function SectionPersonRow(props: {
   setMessage: (message: string) => void
   load: () => void
   canPublish: boolean
-  publishOne: (id: string) => Promise<{ ok: boolean; message: string }>
+  /** No-email publish of this row's draft. */
+  publish: (id: string) => Promise<unknown>
+  unpublish: (id: string) => Promise<{ ok: boolean; message: string }>
+  picked: boolean
+  onPick: (on: boolean) => void
   notifyAgain: (id: string) => Promise<{ ok: boolean; message: string }>
   spots: Record<string, SectionSpot>
   /** Priority section code → R and level. */
@@ -48,13 +53,21 @@ export function SectionPersonRow(props: {
   const {
     person, canEdit, draftValues, setDraftValues, warnings, setRowWarnings,
     tips, setSuggestions, suggestBusy, setSuggestBusy, setMessage, load,
-    canPublish, publishOne, notifyAgain, spots, priority = {}, reach = null, reserved = {},
+    canPublish, publish, unpublish, picked, onPick, notifyAgain, spots, priority = {}, reach = null, reserved = {},
   } = props
   const pendingDraft = Boolean(person.draftSection && person.draftSection !== person.publishedSection)
   const signed = signupSpot(person)
   const draftCode = draftValues[person.id] ?? person.draftSection
+  const [armedUnpublish, setArmedUnpublish] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const name = [person.firstName, person.lastName].filter(Boolean).join(' ') || person.email
   return (
-                <tr className="border-b border-[#eee] align-top">
+                <tr className="border-b border-[#eee] align-top" data-testid="section-person-row">
+                  <td className="py-3 pr-2">
+                    {canPublish && pendingDraft ? (
+                      <input type="checkbox" aria-label={`Избери ${name}`} checked={picked} onChange={(event) => onPick(event.target.checked)} />
+                    ) : null}
+                  </td>
                   <td className="py-3 pr-3">
                     <p>
                       <Link to="/admin/signups/$personId" params={{ personId: person.id }} className="font-bold text-[#2b062f] underline">
@@ -84,7 +97,7 @@ export function SectionPersonRow(props: {
                   <td className="max-w-xs py-3 pr-3">{signed.reach || '—'}</td>
                   <td className="whitespace-nowrap py-3 pr-3">
                     {person.draftSection && person.draftLocked ? (
-                      <p className="mb-1 text-xs font-bold text-[#1a1020]">Запазена корекция. Следващото разпределение я държи.</p>
+                      <p className="mb-1 text-xs font-bold text-[#1a1020]">Ръчна чернова: разпределението не я сменя.</p>
                     ) : null}
                     {priorityOf(draftCode, priority) ? (
                       <p className="mb-1"><PriorityBadge info={priorityOf(draftCode, priority)} /></p>
@@ -112,8 +125,8 @@ export function SectionPersonRow(props: {
                                       ? `Черновата е запазена, но няма да се публикува: ${result.warning}`
                                       : result.warning
                                     : section.trim()
-                                      ? 'Черновата е запазена и не се вижда от човека. Следващото разпределение я запазва.'
-                                      : 'Черновата е изчистена. Следващото разпределение може да сложи друга.',
+                                      ? 'Черновата е сложена (ръчна) и не се вижда от човека, докато не я публикуваш.'
+                                      : 'Черновата е махната. Следващото разпределение може да сложи друга.',
                                 )
                                 load()
                               }
@@ -127,7 +140,9 @@ export function SectionPersonRow(props: {
                             onChange={(event) => setDraftValues((current) => ({ ...current, [person.id]: event.target.value }))}
                             aria-label={`Чернова за ${person.email}`}
                           />
-                          <button className="text-sm font-bold" type="submit">Запази</button>
+                          <button className="text-sm font-bold" type="submit">
+                            {(draftValues[person.id] ?? person.draftSection).trim() || !person.draftSection ? 'Сложи чернова' : 'Махни черновата'}
+                          </button>
                           <button
                             className="text-sm font-bold"
                             type="button"
@@ -171,7 +186,7 @@ export function SectionPersonRow(props: {
                                       }
                                       else {
                                         setRowWarnings((current) => ({ ...current, [person.id]: result.warnings ?? [] }))
-                                        setMessage(result.warning || `Чернова ${tip.id} от предложение. Следващото разпределение я запазва.`)
+                                        setMessage(result.warning || `Чернова ${tip.id} от предложение (ръчна). Публикувай я, за да я види човекът.`)
                                         load()
                                       }
                                     })
@@ -210,25 +225,47 @@ export function SectionPersonRow(props: {
                           <button
                             type="button"
                             className="min-h-10 text-sm font-bold"
+                            disabled={busy}
                             onClick={() => {
-                              void publishOne(person.id).then((result) => {
-                                setMessage(result.message)
-                                if (result.ok) load()
-                              })
+                              setBusy(true)
+                              void publish(person.id).finally(() => setBusy(false))
                             }}
                           >
-                            Публикувай и извести
+                            {person.publishedSection ? `Публикувай ${person.draftSection}` : 'Публикувай'}
                           </button>
-                        ) : person.publishedSection ? (
-                          <button
-                            type="button"
-                            className="min-h-10 text-sm font-bold"
-                            onClick={() => {
-                              void notifyAgain(person.id).then((result) => setMessage(result.message))
-                            }}
-                          >
-                            Извести пак
-                          </button>
+                        ) : null}
+                        {person.publishedSection ? (
+                          <>
+                            <button
+                              type="button"
+                              className="min-h-10 text-sm font-bold text-[#8f1d1d]"
+                              disabled={busy}
+                              onClick={() => {
+                                if (!armedUnpublish) {
+                                  setArmedUnpublish(true)
+                                  return
+                                }
+                                setArmedUnpublish(false)
+                                setBusy(true)
+                                void unpublish(person.id).then((result) => {
+                                  setBusy(false)
+                                  setMessage(result.message)
+                                  if (result.ok) load()
+                                }).catch(() => setBusy(false))
+                              }}
+                            >
+                              {armedUnpublish ? 'Да, махни публикуването' : 'Махни публикуването'}
+                            </button>
+                            <button
+                              type="button"
+                              className="min-h-10 text-sm font-bold"
+                              onClick={() => {
+                                void notifyAgain(person.id).then((result) => setMessage(result.message))
+                              }}
+                            >
+                              Извести по имейл
+                            </button>
+                          </>
                         ) : null}
                       </div>
                     ) : null}

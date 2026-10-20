@@ -5,8 +5,10 @@ import { AdminHeading, adminChipOn, adminGhost, adminInput } from '../../compone
 import { adminRoster } from '../../signup/admin'
 import { adminSectionPlaces } from '../../signup/admin-section-places'
 import { adminPublish } from '../../signup/admin-assign-actions'
+import { adminUnpublish } from '../../signup/section-state-actions'
+import { hasPendingDraft, type SectionCounts } from '../../signup/section-state'
 import { adminClearDrafts, adminDistribute } from '../../signup/admin-distribute'
-import { adminNotifyAssignment, adminPublishOne } from '../../signup/assignment-notify'
+import { adminNotifyAssignment } from '../../signup/assignment-notify'
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import type { SectionSpot } from '../../signup/section-where'
@@ -29,11 +31,11 @@ import { PrioritySectionsPanel } from './-priority-sections-panel'
 
 const sectionsRoute = getRouteApi('/admin/sections')
 
-const views = [
-  ['unassigned', 'Без секция'],
-  ['draft', 'Чернова'],
-  ['assigned', 'Публикувани'],
-  ['abroad', 'Чужбина'],
+const states = [
+  ['', 'Всички', 'total'],
+  ['none', 'Без секция', 'none'],
+  ['draft', 'Чернова', 'draft'],
+  ['published', 'Публикувани', 'published'],
 ] as const
 
 type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown'; priority?: PriorityInfo }
@@ -43,6 +45,9 @@ export function SectionsPage() {
   const navigate = sectionsRoute.useNavigate()
   const access = useAdminAccess()
   const [people, setPeople] = useState<RosterFields[]>([])
+  const [counts, setCounts] = useState<SectionCounts | null>(null)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [armedPicked, setArmedPicked] = useState(false)
   const [message, setMessage] = useState('')
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [armed, setArmed] = useState(false)
@@ -110,8 +115,8 @@ export function SectionsPage() {
     [prioritySections],
   )
   const ordered = useMemo(
-    () => orderByPriority(people, prioritySections, { only: Boolean(search.prio), sort: Boolean(search.prio) || search.view === 'unassigned' }),
-    [people, prioritySections, search.prio, search.view],
+    () => orderByPriority(people, prioritySections, { only: Boolean(search.prio), sort: Boolean(search.prio) || search.state === 'none' }),
+    [people, prioritySections, search.prio, search.state],
   )
 
   function load(notice = '') {
@@ -120,8 +125,10 @@ export function SectionsPage() {
     setArmed(false)
     setArmedDraft(false)
     setArmedClear(false)
+    setArmedPicked(false)
+    setPicked(new Set())
     setPhase('loading')
-    void adminRoster({ data: { view: search.view, mir: search.mir, q: search.q, page: 1, limit: 100, sort: 'updated', dir: 'desc', finished: true } }).then((result) => {
+    void adminRoster({ data: { view: search.view, mir: search.mir, q: search.q, state: search.state ?? '', page: 1, limit: 100, sort: 'updated', dir: 'desc', finished: true } }).then((result) => {
       if (!result.ok) {
         setPhase('error')
         setMessage(result.message)
@@ -131,6 +138,7 @@ export function SectionsPage() {
       setPhase('ready')
       setMessage(notice)
       setPeople(result.people)
+      setCounts(result.sectionCounts ?? null)
       setDraftValues(Object.fromEntries(result.people.map((person) => [person.id, person.draftSection])))
     }).catch(() => {
       setPhase('error')
@@ -144,7 +152,7 @@ export function SectionsPage() {
 
   useEffect(() => {
     load()
-  }, [search.view, search.mir, search.q])
+  }, [search.view, search.mir, search.q, search.state])
 
   const watchedCodes = [...new Set(people.flatMap((person) =>
     [person.draftSection, person.publishedSection, draftValues[person.id] ?? '']
@@ -171,21 +179,82 @@ export function SectionsPage() {
     }
   }, [placeKey])
 
+  /** No-email publish: the whole view, or only the picked / one row's ids. */
+  function runPublish(ids?: string[]) {
+    return adminPublish({ data: { view: search.view, mir: search.mir, ...(ids ? { ids } : {}) } }).then((result) => {
+      setArmed(false)
+      setArmedPicked(false)
+      if (!result.ok) {
+        setMessage(result.message)
+        return
+      }
+      const skipped = result.blocked?.length ?? 0
+      const notice =
+        skipped > 0
+          ? `Публикувани са ${result.published} чернови (без имейл). Пропуснати заради заетост/дубликат/МИР: ${skipped}.`
+          : `Публикувани са ${result.published} чернови (без имейл).`
+      load(notice)
+      if (result.blocked?.length) {
+        setRowWarnings((current) => {
+          const next = { ...current }
+          for (const item of result.blocked) {
+            const person = people.find((row) => row.email === item.email)
+            if (person) next[person.id] = [{ code: 'taken', level: 'block', message: item.warning }]
+          }
+          return next
+        })
+      }
+    }).catch(() => setMessage('Публикуването не мина. Опитай пак.'))
+  }
+
+  const pickable = ordered.filter(({ person }) => hasPendingDraft(person)).map(({ person }) => person.id)
+  const allPicked = pickable.length > 0 && pickable.every((id) => picked.has(id))
+  function togglePick(id: string, on: boolean) {
+    setArmedPicked(false)
+    setPicked((current) => {
+      const next = new Set(current)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
   return (
     <div className="grid gap-5">
-      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. „Направи чернови за страната“ слага чернови по избрания обхват, първо в приоритетна секция (в града, после в общината, по R; приоритетна може да е и машинна), после в хартиена секция под 300 избиратели. Машинна секция извън приоритетните не се дава. Резервираните от други организации се пропускат. Група се държи на един адрес, после в града, после в общината, после в областта. Човек, който приема и други области, остава първо в своята. Мобилният екип остава за после. „Запази“ на реда държи тази чернова при следващо пускане. Останалите чернови се смятат наново. „Изчисти черновите“ маха и заключените със „Запази“, за да ги сметнем отначало. Публикуваните секции остават. Черновата се вижда само тук, докато не я публикуваш. „Чернови само за хората без секция“ не пипа никоя съществуваща чернова." />
+      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. Всеки е в едно от трите състояния: без секция, с чернова (вижда се само тук) или с публикувана секция (вижда я в профила си). На всеки ред: впиши секция или избери от „Предложи“, за да сложиш чернова; „Публикувай“ я показва в профила, без имейл; „Махни публикуването“ я връща в чернова. Можеш да избереш няколко реда и „Публикувай избраните“. „Направи чернови за страната“ пресмята само автоматичните чернови на хора без публикувана секция: първо приоритетна секция (в града, после в общината, по R), после хартиена под 300 избиратели; резервираните от други организации и машинните извън приоритетните се пропускат. Публикуваните секции и ръчните чернови (вписани, от „Предложи“ или върнати от публикуване) не се пипат и не се дават на друг. „Чернови само за хората без секция“ не пипа никоя чернова. „Изчисти черновите“ маха всички непубликувани чернови, и ръчните; публикуваните остават." />
       <label className="grid max-w-md gap-1 text-sm font-bold text-[#1a1020]" htmlFor="section-search">
         Търсене
         <input id="section-search" className={adminInput} type="search" value={draft} placeholder="Име, имейл, телефон или ЕГН" onChange={(event) => setDraft(event.target.value)} />
       </label>
-      <div className="flex flex-wrap gap-2">
-        {views.map(([id, label]) => (
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Състояние">
+        {states.map(([id, label, key]) => {
+          const on = (search.state ?? '') === id
+          return (
+            <button
+              key={id || 'all'}
+              type="button"
+              className={on ? adminChipOn : adminGhost}
+              aria-pressed={on}
+              data-testid={`state-${id || 'all'}`}
+              onClick={() => void navigate({ search: (prev) => {
+                const { state: _state, ...rest } = prev
+                return id ? { ...rest, state: id } : rest
+              } })}
+            >
+              {label}
+              {counts ? <span className="ml-1 font-normal">({counts[key]})</span> : null}
+            </button>
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Обхват">
+        {([['all', 'Цялата страна'], ['abroad', 'Чужбина']] as const).map(([id, label]) => (
           <button
             key={id}
             type="button"
             className={search.view === id ? adminChipOn : adminGhost}
             aria-pressed={search.view === id}
-            onClick={() => void navigate({ search: (prev) => ({ ...prev, view: id }) })}
+            onClick={() => void navigate({ search: (prev) => ({ ...prev, view: id, mir: '' }) })}
           >
             {label}
           </button>
@@ -328,6 +397,22 @@ export function SectionsPage() {
           </button>
         </div>
       ) : null}
+      {canPublish && picked.size > 0 ? (
+        <button
+          type="button"
+          data-testid="publish-picked"
+          className={armedPicked ? 'brand-button w-auto px-6' : adminGhost}
+          onClick={() => {
+            if (!armedPicked) {
+              setArmedPicked(true)
+              return
+            }
+            void runPublish([...picked])
+          }}
+        >
+          {armedPicked ? `Да, публикувай ${picked.size} (без имейл)` : `Публикувай избраните (${picked.size})`}
+        </button>
+      ) : null}
       {canPublish ? (
         <button
           type="button"
@@ -337,29 +422,7 @@ export function SectionsPage() {
               setArmed(true)
               return
             }
-            void adminPublish({ data: { view: search.view, mir: search.mir } }).then((result) => {
-              setArmed(false)
-              if (!result.ok) setMessage(result.message)
-              else {
-                const skipped = result.blocked?.length ?? 0
-                const notice =
-                  skipped > 0
-                    ? `Публикувани са ${result.published} чернови. Пропуснати заради заетост/дубликат/МИР: ${skipped}.`
-                    : `Публикувани са ${result.published} чернови.`
-                setMessage(notice)
-                if (result.blocked?.length) {
-                  setRowWarnings((current) => {
-                    const next = { ...current }
-                    for (const item of result.blocked) {
-                      const person = people.find((row) => row.email === item.email)
-                      if (person) next[person.id] = [{ code: 'taken', level: 'block', message: item.warning }]
-                    }
-                    return next
-                  })
-                }
-                load(notice)
-              }
-            })
+            void runPublish()
           }}
         >
           {armed ? 'Да, покажи ги в профилите (без имейл)' : 'Публикувай черновите в този изглед (без имейл)'}
@@ -380,6 +443,20 @@ export function SectionsPage() {
         <table className="w-full min-w-[1100px] border-collapse text-left text-sm text-[#1a1020]">
           <thead>
             <tr className="border-b-2 border-[#2b062f]">
+              <th className="py-2 pr-2">
+                {canPublish ? (
+                  <input
+                    type="checkbox"
+                    aria-label="Избери всички чернови в изгледа"
+                    checked={allPicked}
+                    disabled={pickable.length === 0}
+                    onChange={(event) => {
+                      setArmedPicked(false)
+                      setPicked(event.target.checked ? new Set(pickable) : new Set())
+                    }}
+                  />
+                ) : null}
+              </th>
               <th className="whitespace-nowrap py-2 pr-3 font-black">Човек</th>
               <th className="whitespace-nowrap py-2 pr-3 font-black">Област</th>
               <th className="whitespace-nowrap py-2 pr-3 font-black">Община</th>
@@ -413,7 +490,10 @@ export function SectionsPage() {
                 setMessage={setMessage}
                 load={load}
                 canPublish={canPublish}
-                publishOne={(id) => adminPublishOne({ data: { id } })}
+                picked={picked.has(person.id)}
+                onPick={(on) => togglePick(person.id, on)}
+                publish={(id) => runPublish([id])}
+                unpublish={(id) => adminUnpublish({ data: { id } })}
                 notifyAgain={(id) => adminNotifyAssignment({ data: { id } })}
                 spots={spots}
               />

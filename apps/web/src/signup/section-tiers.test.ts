@@ -101,14 +101,23 @@ describe('section tiers', () => {
     expect(plan.assignments).toEqual([])
   })
 
-  it('priority-list sections still come first, then the tiers', () => {
+  it('the tier comes first; a priority-list section leads inside its tier', () => {
     const turnout = new Map<string, Turnout>([
       ['234615001', { voted: 400, registered: 700 }],
       ['234615002', { voted: 30, registered: 200 }],
       ['234615003', { voted: 200, registered: 250 }],
+      ['234615004', { voted: 60, registered: 90 }],
     ])
-    const priority = new Map([['234615002', { r: 3, level: 'elevated' }]])
-    expect(order([machine('234615001'), paper('234615002'), paper('234615003')], turnout, priority)).toEqual(['234615002', '234615003', '234615001'])
+    const priority = new Map([
+      ['234615002', { r: 3, level: 'elevated' }],
+      ['234615004', { r: 1, level: 'watch' }],
+    ])
+    expect(order([machine('234615001'), paper('234615002'), paper('234615003'), paper('234615004')], turnout, priority)).toEqual([
+      '234615004',
+      '234615003',
+      '234615001',
+      '234615002',
+    ])
   })
 
   it('prefers an address with a tier 1 section for a group', () => {

@@ -9,6 +9,7 @@ import { parseAdminEmails } from './staff'
 import { PRIORITY_SECTIONS_INDEXES, PRIORITY_SECTIONS_TABLE } from './priority-sections-sql'
 import { PARTNER_PEOPLE_INDEXES, PARTNER_PEOPLE_TABLE } from './partner-people-sql'
 import { RESERVED_SECTION_GUARDS } from './reserved-sections-sql'
+import { MOBILE_DRAFTS_GUARDS, MOBILE_DRAFTS_TABLE } from './mobile-teams-sql'
 
 export const SESSION_COOKIE = 'tb_session'
 
@@ -210,6 +211,8 @@ export async function signupDatabase() {
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_signup_audit_signup ON signup_audit(signup_id, created_at)').run()
   for (const sql of INDEXES) await db.prepare(sql).run()
   for (const sql of RESERVED_SECTION_GUARDS) await db.prepare(sql).run()
+  await db.prepare(MOBILE_DRAFTS_TABLE).run()
+  for (const sql of MOBILE_DRAFTS_GUARDS) await db.prepare(sql).run()
   try {
     await db.prepare(DESIGNATION_NUMBER_UNIQUE_INDEX_SQL).run()
   } catch {

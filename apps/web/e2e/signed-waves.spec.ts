@@ -41,7 +41,7 @@ test.describe('signed пълномощни by wave, with РИК tables', () => {
     await expect(first).toContainText('2 души')
     await expect(first).toContainText('91: 1 · 92: 1')
     const second = panel.getByRole('listitem').filter({ hasText: '06.01.2026' })
-    await expect(second).toContainText('1 души (от тях „И аз“ 1)')
+    await expect(second).toContainText('1 човек (от тях „И аз“ 1)')
     await expect(first.getByRole('link', { name: /Изтегли ZIP вълна \d+ \(PDF \+ таблици\)/ })).toHaveAttribute('href', `/admin/palnomoshtni/podpisani?wave=${DAY_ONE}`)
     await expect(panel.getByRole('link', { name: 'Изтегли всички подписани досега (PDF + таблици)' })).toBeVisible()
     await expect(panel).not.toContainText(EGN_A)

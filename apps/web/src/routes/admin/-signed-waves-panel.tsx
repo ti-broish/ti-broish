@@ -14,6 +14,7 @@ export function SignedWavesPanel({ canExport, refreshKey }: { canExport: boolean
   const [total, setTotal] = useState(0)
   const [mirs, setMirs] = useState(0)
   const [error, setError] = useState('')
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     if (!canExport) return
@@ -29,6 +30,7 @@ export function SignedWavesPanel({ canExport, refreshKey }: { canExport: boolean
         setWaves(result.waves)
         setTotal(result.total)
         setMirs(result.mirs)
+        setLoaded(true)
       })
       .catch(() => live && setError('Вълните не се заредиха.'))
     return () => {
@@ -47,7 +49,8 @@ export function SignedWavesPanel({ canExport, refreshKey }: { canExport: boolean
       </p>
       {!canExport ? <p className="text-sm font-bold text-[#8f1d1d]">{EXPORT_REASON}</p> : null}
       {error ? <p className="text-sm font-bold text-[#8f1d1d]">{error}</p> : null}
-      {canExport && !error ? (
+      {canExport && !error && !loaded ? <p className="text-sm text-[#333]">Зареждаме вълните…</p> : null}
+      {canExport && !error && loaded ? (
         <>
           <p className="text-sm font-bold text-[#1a1020]" data-testid="signed-waves-total">
             Подписани общо: {total} · РИК: {mirs} · вълни: {waves.length}
@@ -57,7 +60,7 @@ export function SignedWavesPanel({ canExport, refreshKey }: { canExport: boolean
             {waves.map((wave) => (
               <li key={wave.key} className="grid gap-1 rounded-xl border border-[#d8cbe0] p-3">
                 <p className="text-sm font-bold text-[#1a1020]">
-                  Вълна {wave.wave} · {wave.date} · {wave.count} души{wave.partners ? ` (от тях „И аз“ ${wave.partners})` : ''} · РИК: {wave.mirs.length}
+                  Вълна {wave.wave} · {wave.date} · {wave.count === 1 ? '1 човек' : `${wave.count} души`}{wave.partners ? ` (от тях „И аз“ ${wave.partners})` : ''} · РИК: {wave.mirs.length}
                 </p>
                 <p className="text-xs text-[#333]">{wave.mirs.map((item) => `${item.mir}: ${item.count}`).join(' · ')}</p>
                 <div className="flex flex-wrap gap-2">

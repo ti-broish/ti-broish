@@ -111,10 +111,10 @@ test.describe('partner import („И аз“) for пълномощни only', ()
     await expect(preview.getByRole('button', { name: /Потвърди вноса/ })).toBeDisabled()
   })
 
-  test('„И аз“ — секции: drafts in the МИР, publish reserves as „И аз“, one quota per section, no mail', async ({ page }) => {
+  test('„И аз“ — секции: drafts in the reach, publish reserves as „И аз“, one quota per section, no mail', async ({ page }) => {
     // Two full /admin/sections loads plus publish on the one shared dev server; in CI the other worker runs the
     // country distribute (real section API, 120s budget) at the same time, so 30s is not enough there.
-    test.setTimeout(90_000)
+    test.setTimeout(180_000)
     // Priority sections next to every partner person (named by municipality), so no section API call is needed.
     const places = d1(`SELECT DISTINCT designation_mir AS mir, municipality_name AS muni FROM partner_people WHERE COALESCE(designation_mir, '') != ''`) as Array<{ mir: string; muni: string }>
     expect(places.length).toBeGreaterThan(0)
@@ -140,16 +140,21 @@ test.describe('partner import („И аз“) for пълномощни only', ()
       const panel = page.getByTestId('partner-sections-panel')
       await openDetails(panel)
       await panel.getByRole('button', { name: 'Преглед за „И аз“' }).click()
-      await expect(panel.getByTestId('partner-sections-preview')).toContainText('Преглед (нищо не е записано)')
+      // The planner reads every section in each person's reach from the public API: allow for it.
+      await expect(panel.getByTestId('partner-sections-preview')).toContainText('Преглед (нищо не е записано)', { timeout: 60_000 })
       expect(d1(`SELECT COUNT(*) AS n FROM partner_people WHERE COALESCE(section_draft, '') != ''`)[0]).toMatchObject({ n: 0 })
 
       await panel.getByTestId('partner-sections-distribute').click()
       await panel.getByTestId('partner-sections-distribute').click()
-      await expect(page.getByText(/Записани чернови \d+/)).toBeVisible()
-      const drafts = d1(`SELECT designation_mir AS mir, section_draft AS code, section_published AS published FROM partner_people WHERE email LIKE 'iaz.%-e2e@example.com' AND COALESCE(designation_mir, '') != ''`) as Array<{ mir: string; code: string | null; published: string | null }>
+      await expect(page.getByText(/Записани чернови \d+/)).toBeVisible({ timeout: 60_000 })
+      const drafts = d1(`SELECT designation_mir AS mir, region_code AS region, section_draft AS code, section_published AS published FROM partner_people WHERE email LIKE 'iaz.%-e2e@example.com' AND email != 'iaz.existing-e2e@example.com' AND COALESCE(designation_mir, '') != ''`) as Array<{ mir: string; region: string; code: string | null; published: string | null }>
+      // Also our volunteer with a section (same ЕГН/email as a signup with a draft): no „И аз“ draft.
+      expect(d1(`SELECT COUNT(*) AS n FROM partner_people WHERE email = 'iaz.existing-e2e@example.com' AND COALESCE(section_draft, '') != ''`)[0]).toMatchObject({ n: 0 })
       expect(drafts.length).toBeGreaterThan(0)
       for (const row of drafts) {
-        expect(row.code?.startsWith(row.mir)).toBe(true)
+        // The reach is the whole Област from the file: София-град is МИР 23, 24 and 25.
+        const reach = row.region === 'sofia-merged' ? ['23', '24', '25'] : [row.mir]
+        expect(reach).toContain(row.code?.slice(0, 2))
         expect(row.code).not.toBe(held)
         expect(row.published).toBeNull()
       }

@@ -322,7 +322,7 @@ function noteNames(note: string) {
  * (София-град is 23, 24 and 25), and every МИР their Общини name (another oblast, a municipality of
  * another oblast, a Sofia district).
  */
-export function partnerReachMirs(person: Pick<PartnerSectionPerson, 'mir' | 'regionCode' | 'note'>) {
+export function partnerReachMirs(person: Pick<PartnerSectionPerson, 'mir' | 'regionCode' | 'note'> & Partial<PartnerSectionPerson>) {
   const mirs = new Set<string>()
   const mir = person.mir.trim()
   if (/^\d{2}$/.test(mir) && mir !== '32') mirs.add(mir)
@@ -394,8 +394,16 @@ export async function planPartnerDistribution(input: {
   }
   const reach = await loadReachSections(candidates, cachedJson(input.getJson))
   if (!reach.ok) return { ok: false as const, message: reach.message }
-  const result = distributeSections({ people: candidates, sections: reach.sections, blocked: [...input.blocked], priority: input.priority })
-  const sectionById = new Map(reach.sections.map((section) => [section.id, section]))
+  // A МИР the section API returned nothing for (API down, or a test): its priority-list sections still count.
+  const loadedMirs = new Set(reach.sections.map((section) => section.id.slice(0, 2)))
+  const reachMirs = new Set(candidates.flatMap((person) => partnerReachMirs(byId.get(person.id)!)))
+  const sections: DistributeSection[] = [...reach.sections]
+  for (const code of input.priority.keys()) {
+    const mir = code.slice(0, 2)
+    if (/^\d{9}$/.test(code) && reachMirs.has(mir) && !loadedMirs.has(mir)) sections.push({ id: code, place: '', townId: null, votersCount: null, isMachine: null, isMobile: null })
+  }
+  const result = distributeSections({ people: candidates, sections, blocked: [...input.blocked], priority: input.priority })
+  const sectionById = new Map(sections.map((section) => [section.id, section]))
   for (const row of result.assignments) {
     const person = byId.get(row.personId)!
     const municipality = municipalityCodeOf(person)
@@ -409,7 +417,7 @@ export async function planPartnerDistribution(input: {
     })
   }
   for (const row of result.skipped) plan.skipped.push({ personId: row.personId, mir: byId.get(row.personId)?.mir ?? '', reason: 'no-section' })
-  return { ok: true as const, plan, sections: reach.sections as DistributeSection[], sectionById }
+  return { ok: true as const, plan, sections, sectionById }
 }
 
 /** Tier 1–4 of a drafted section (null: no April data), for reports. */

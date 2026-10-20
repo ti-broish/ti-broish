@@ -1,4 +1,5 @@
 import { validEgn } from './rules'
+import { parseWithdrawnProcessed, type WithdrawnProcessedFilter } from './admin-unregister'
 
 export const SIGNUP_VIEWS = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'queue', 'mir', 'draft', 'withdrawn'] as const
 export const SIGNUP_SORTS = ['updated', 'name', 'email', 'phone', 'mir', 'role'] as const
@@ -12,6 +13,8 @@ export type SignupSearch = {
   page: number
   sort: (typeof SIGNUP_SORTS)[number]
   dir: 'asc' | 'desc'
+  /** Отписани only: „yes“ обработени, „no“ необработени. Absent means всички отписани. */
+  processed?: WithdrawnProcessedFilter
 }
 
 export type SectionSearch = {
@@ -101,6 +104,7 @@ const TEXT_FIELDS = [
 export function parseSignupSearch(search: Record<string, unknown>): SignupSearch {
   const view = typeof search.view === 'string' && isOneOf(search.view, SIGNUP_VIEWS) ? search.view : 'all'
   const sort = typeof search.sort === 'string' && isOneOf(search.sort, SIGNUP_SORTS) ? search.sort : 'updated'
+  const processed = view === 'withdrawn' ? parseWithdrawnProcessed(search.processed) : undefined
   return {
     q: clipText(search.q),
     view,
@@ -108,6 +112,7 @@ export function parseSignupSearch(search: Record<string, unknown>): SignupSearch
     page: clampPage(search.page),
     sort,
     dir: search.dir === 'asc' ? 'asc' : 'desc',
+    ...(processed ? { processed } : {}),
   }
 }
 

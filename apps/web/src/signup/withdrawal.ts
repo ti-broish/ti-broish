@@ -6,6 +6,12 @@
 import {
   BREVO_CLEANED_MARK,
   brevoOutcomeAuditSuffix,
+  markWithdrawalProcessedSql,
+  processedAuditAfter,
+  processedAuditBefore,
+  unmarkWithdrawalProcessedSql,
+  WITHDRAWN_COUNTS_SQL,
+  withdrawnCountsFrom,
   releaseAuditBefore,
   releaseWithdrawnSql,
   restoreAuditAfter,
@@ -202,6 +208,24 @@ export async function restoreSignup(
   const after = restoreAuditAfter() + brevoOutcomeAuditSuffix(brevo)
   await writeSignupAudit(db, row.id, actor, 'restored', restoreAuditBefore(row.withdrawn_reason, row.withdrawn_note, freed), after, now)
   return { updated: true as const, previousSection: freed, brevo }
+}
+
+/**
+ * Withdrawn person → „Обработен“ (processed=true) or back (false). Writes one signup_audit row
+ * ('withdrawal_processed') when the row changed. No email, no Brevo, no section change.
+ */
+export async function setWithdrawalProcessed(db: SignupD1, id: string, processed: boolean, actor: string, now: string) {
+  const result = processed
+    ? await db.prepare(markWithdrawalProcessedSql()).bind(now, actor, now, id).run()
+    : await db.prepare(unmarkWithdrawalProcessedSql()).bind(now, id).run()
+  if (!rowChanged(result)) return { updated: false as const }
+  await writeSignupAudit(db, id, actor, 'withdrawal_processed', processedAuditBefore(processed), processedAuditAfter(processed), now)
+  return { updated: true as const }
+}
+
+/** Counts only: всички отписани, обработени, необработени. */
+export async function withdrawnCounts(db: SignupD1) {
+  return withdrawnCountsFrom(await db.prepare(WITHDRAWN_COUNTS_SQL).first<{ total: number; processed: number }>())
 }
 
 /** D1 reports meta.changes; when the field is missing, treat the write as applied. */

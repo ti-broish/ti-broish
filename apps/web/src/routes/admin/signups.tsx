@@ -24,6 +24,8 @@ import { useDebouncedQuery } from './-debounced-query'
 import { downloadCsv } from './-brevo-sections-export'
 import { ReservedBadge, reservedOrgFor, useReservedIndex } from './-reserved-badge'
 import { MobileBadge, useMobileIndex } from './-mobile-teams'
+import { ProcessedToggle, WithdrawnCountsContext } from './-withdrawal-processed'
+import { WITHDRAWN_PROCESSED_OPTIONS, withdrawnCountsLine, type WithdrawnCounts } from '../../signup/admin-unregister'
 
 export const Route = createFileRoute('/admin/signups')({
   validateSearch: (search: Record<string, unknown>): SignupSearch => parseSignupSearch(search),
@@ -112,6 +114,12 @@ function SignupsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [wholeView, setWholeView] = useState(false)
   const [bulkNote, setBulkNote] = useState('')
+  const [withdrawn, setWithdrawn] = useState<WithdrawnCounts | null>(null)
+  const onProcessedCounts = useCallback((counts: WithdrawnCounts) => {
+    setWithdrawn(counts)
+    // A filtered Отписани list drops the row that no longer matches.
+    setReloadKey((key) => key + 1)
+  }, [])
 
   const commitQuery = useCallback(
     (q: string) => {
@@ -129,13 +137,13 @@ function SignupsPage() {
     setSelected(new Set())
     setWholeView(false)
     setBulkNote('')
-  }, [search.view, search.mir, search.q])
+  }, [search.view, search.mir, search.q, search.processed])
 
   useEffect(() => {
     let cancelled = false
     setPhase('loading')
     void adminRoster({
-      data: { view: search.view, mir: search.mir, q: search.q, page: search.page, sort: search.sort, dir: search.dir, limit: 50 },
+      data: { view: search.view, mir: search.mir, q: search.q, page: search.page, sort: search.sort, dir: search.dir, limit: 50, processed: search.processed },
     })
       .then((result) => {
         if (cancelled) return
@@ -150,6 +158,7 @@ function SignupsPage() {
         setMessage('')
         setPeople(result.people)
         setTotal(result.total)
+        setWithdrawn(result.withdrawnCounts)
       })
       .catch(() => {
         if (cancelled) return
@@ -159,7 +168,7 @@ function SignupsPage() {
     return () => {
       cancelled = true
     }
-  }, [search.view, search.mir, search.q, search.page, search.sort, search.dir, reloadKey])
+  }, [search.view, search.mir, search.q, search.page, search.sort, search.dir, search.processed, reloadKey])
 
   const pageAll = people.length > 0 && (wholeView || people.every((person) => selected.has(person.id)))
   const select = access.permissions.edit
@@ -212,6 +221,7 @@ function SignupsPage() {
   const brevoScope = brevoSectionsScope(search)
 
   return (
+    <WithdrawnCountsContext.Provider value={onProcessedCounts}>
     <div className="grid gap-5">
       <AdminHeading
         title="Записвания"
@@ -253,13 +263,48 @@ function SignupsPage() {
             className={search.view === id ? adminChipOn : adminGhost}
             aria-pressed={search.view === id}
             onClick={() => {
-              void navigate({ search: (prev) => ({ ...prev, view: id, page: 1 }) })
+              void navigate({ search: (prev) => ({ ...prev, view: id, page: 1, processed: undefined }) })
             }}
           >
             {label}
+            {id === 'withdrawn' && withdrawn && withdrawn.unprocessed > 0 ? (
+              <span
+                className="ml-2 inline-flex min-w-6 items-center justify-center rounded-full bg-[#7a1f4b] px-1.5 text-xs font-black text-white"
+                aria-label={`необработени ${withdrawn.unprocessed}`}
+              >
+                {withdrawn.unprocessed}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
+      {search.view === 'withdrawn' ? (
+        <div className="grid gap-2">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Обработени">
+            {WITHDRAWN_PROCESSED_OPTIONS.map(([id, label]) => {
+              const on = (search.processed ?? '') === id
+              return (
+                <button
+                  key={id || 'all'}
+                  type="button"
+                  className={on ? adminChipOn : adminGhost}
+                  aria-pressed={on}
+                  onClick={() => {
+                    void navigate({ search: (prev) => ({ ...prev, processed: id || undefined, page: 1 }) })
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          {withdrawn ? (
+            <p className="text-sm font-bold text-[#1a1020]" data-testid="withdrawn-counts">
+              {withdrawnCountsLine(withdrawn)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <p className="text-sm font-bold text-[#1a1020]" role="status">
         {phase === 'loading' && people.length === 0 ? 'Зареждаме записаните…' : `${total} в този изглед. Показани ${from}–${to}.`}
       </p>
@@ -274,6 +319,7 @@ function SignupsPage() {
             view={search.view}
             mir={search.mir}
             q={search.q}
+            processed={search.processed}
             ids={[...selected]}
             onApplied={(next) => {
               setBulkNote(next)
@@ -471,6 +517,7 @@ function SignupsPage() {
         </div>
       </details>
     </div>
+    </WithdrawnCountsContext.Provider>
   )
 }
 
@@ -583,12 +630,15 @@ function StatusChips({ person }: { person: RosterFields }) {
   if (person.staffCalledAt) chips.push({ label: CALLED_LABEL, className: 'bg-[#1f4d7a] text-white' })
   if (person.imported && !person.emailConfirmed) chips.push({ label: 'Чака имейл', className: 'bg-[#efe8f2] text-[#1a1020]' })
   return (
-    <div className="flex flex-wrap gap-1">
-      {chips.map((chip) => (
-        <span key={chip.label} className={`inline-flex min-h-7 items-center rounded-full px-2 text-xs font-bold ${chip.className}`}>
-          {chip.label}
-        </span>
-      ))}
+    <div className="grid gap-1">
+      <div className="flex flex-wrap gap-1">
+        {chips.map((chip) => (
+          <span key={chip.label} className={`inline-flex min-h-7 items-center rounded-full px-2 text-xs font-bold ${chip.className}`}>
+            {chip.label}
+          </span>
+        ))}
+      </div>
+      {person.withdrawn ? <ProcessedToggle id={person.id} processedAt={person.withdrawalProcessedAt ?? ''} processedBy={person.withdrawalProcessedBy ?? ''} /> : null}
     </div>
   )
 }
@@ -605,7 +655,7 @@ function roleText(role: string) {
 }
 
 function exportCsv(kind: 'campaign' | 'internal' | 'brevo-sections', search: SignupSearch, setMessage: (message: string) => void) {
-  return adminExport({ data: { view: search.view, mir: search.mir, kind, q: search.q } }).then((result) => {
+  return adminExport({ data: { view: search.view, mir: search.mir, kind, q: search.q, processed: search.processed } }).then((result) => {
     if (!result.ok) setMessage(result.message)
     else downloadCsv(result.filename, result.csv)
   })

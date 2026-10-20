@@ -4,8 +4,8 @@ import { rosterWhere, type RosterView } from './admin-csv'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, chunkIds } from './admin-bulk'
 import { searchClause } from './admin-search'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
-import { clipWithdrawNote, parseWithdrawReason, restoreMessage, unregisterMessage, type WithdrawReason } from './admin-unregister'
-import { cleanupWithdrawnBrevo, releaseWithdrawnSections, restoreSignup, withdrawSignup } from './withdrawal'
+import { clipWithdrawNote, parseWithdrawReason, processedMessage, restoreMessage, unregisterMessage, type WithdrawReason } from './admin-unregister'
+import { cleanupWithdrawnBrevo, releaseWithdrawnSections, restoreSignup, setWithdrawalProcessed, withdrawnCounts, withdrawSignup } from './withdrawal'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
@@ -130,6 +130,28 @@ export const adminRestorePerson = createServerFn({ method: 'POST' })
       message: restoreMessage(),
       previousSection: result.previousSection,
       brevo: result.brevo,
+    }
+  })
+
+/** Отписан → „Обработен“ and back. One audit row per change; no email, no Brevo, no section change. */
+export const adminSetWithdrawalProcessed = createServerFn({ method: 'POST' })
+  .validator((input: { id?: string; processed?: boolean }) => ({
+    id: typeof input.id === 'string' ? input.id.trim().slice(0, 80) : '',
+    processed: input.processed === true,
+  }))
+  .handler(async ({ data }) => {
+    const access = await gate('edit')
+    if (!access.ok) return access
+    if (!/^[\w-]{1,80}$/.test(data.id)) return { ok: false as const, message: 'Няма такъв човек.' }
+    const now = new Date().toISOString()
+    const result = await setWithdrawalProcessed(access.db, data.id, data.processed, access.email, now)
+    if (!result.updated) return { ok: false as const, message: processedMessage(data.processed, false) }
+    return {
+      ok: true as const,
+      message: processedMessage(data.processed, true),
+      processedAt: data.processed ? now : '',
+      processedBy: data.processed ? access.email : '',
+      counts: await withdrawnCounts(access.db),
     }
   })
 

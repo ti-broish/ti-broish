@@ -17,7 +17,7 @@ async function openDb(): Promise<{ raw: Raw; db: SignupD1 } | null> {
     return null
   }
   raw.exec(`CREATE TABLE signups (id TEXT PRIMARY KEY, email TEXT, payload TEXT, withdrawn INTEGER DEFAULT 0, withdrawn_at TEXT, withdrawn_by TEXT,
-    withdrawn_reason TEXT, withdrawn_note TEXT, draft_section TEXT, draft_locked INTEGER DEFAULT 0, published_section TEXT, published_at TEXT,
+    withdrawn_reason TEXT, withdrawn_note TEXT, withdrawal_processed_at TEXT, withdrawal_processed_by TEXT, draft_section TEXT, draft_locked INTEGER DEFAULT 0, published_section TEXT, published_at TEXT,
     designation_number INTEGER, updated_at TEXT)`)
   raw.exec(`CREATE TABLE signup_audit (id TEXT PRIMARY KEY, signup_id TEXT, actor TEXT, field TEXT, before_text TEXT, after_text TEXT, created_at TEXT)`)
   const statement = (sql: string, binds: unknown[] = []): ReturnType<SignupD1['prepare']> => ({

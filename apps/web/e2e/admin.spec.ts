@@ -226,7 +226,20 @@ test.describe('staff admin', () => {
     const withdrawnRow = page.getByRole('row', { name: 'withdraw.admin-e2e@example.com' })
     await expect(withdrawnRow.getByRole('cell', { name: 'withdraw.admin-e2e@example.com' })).toBeVisible()
     await expect(withdrawnRow.getByText('Отписан', { exact: true })).toBeVisible()
-    await withdrawnRow.getByRole('link', { name: 'Анна Ангелова Ангелова', exact: true }).click()
+    await expect(page.getByTestId('withdrawn-counts')).toHaveText(/^Отписани: \d+ · обработени \d+ · необработени [1-9]\d*$/)
+    await withdrawnRow.getByRole('button', { name: 'Обработен', exact: true }).click()
+    await expect(withdrawnRow.getByText('Обработен', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Необработени', exact: true }).click()
+    await expect(page).toHaveURL(/processed=no/)
+    await expect(page.getByRole('row', { name: 'withdraw.admin-e2e@example.com' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Обработени', exact: true }).click()
+    await expect(page).toHaveURL(/processed=yes/)
+    const processedRow = page.getByRole('row', { name: 'withdraw.admin-e2e@example.com' })
+    await processedRow.getByRole('link', { name: 'Анна Ангелова Ангелова', exact: true }).click()
+    await expect(page.getByText('Обработен', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Махни „обработен“' }).click()
+    await expect(page.getByText('Необработен', { exact: true })).toBeVisible()
+    await expect(page.getByText(/Отписан: Обработен → Необработен/).first()).toBeVisible()
     await page.getByRole('button', { name: 'Върни' }).click()
     await expect(page.getByText('Завършил записването.')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Отпиши' })).toBeVisible()
@@ -1054,7 +1067,9 @@ ON CONFLICT(email) DO UPDATE SET
   withdrawn_at = NULL,
   withdrawn_by = NULL,
   withdrawn_reason = NULL,
-  withdrawn_note = NULL;
+  withdrawn_note = NULL,
+  withdrawal_processed_at = NULL,
+  withdrawal_processed_by = NULL;
 INSERT INTO staff (email, role, invited_by, created_at)
 VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now'))
 ON CONFLICT(email) DO UPDATE SET role = 'admin';

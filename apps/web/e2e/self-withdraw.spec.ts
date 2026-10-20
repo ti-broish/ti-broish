@@ -36,11 +36,12 @@ test.describe('self-withdraw on /profil frees the section', () => {
     await signIn(page, SELF.session)
     await page.goto('/profil')
     await expect(page.getByRole('heading', { name: SECTION })).toBeVisible({ timeout: 30_000 })
+    // One read after the save answers: polling the local SQLite through wrangler would lock it for the other worker.
+    const withdrawSaved = savedWith(page, 'saveSignup')
     await page.getByRole('button', { name: 'Оттегли записването' }).click()
     await expect(page.getByRole('heading', { name: 'Записването е оттеглено' })).toBeVisible()
     await expect(page.getByText('Мястото се освобождава.')).toBeVisible()
-
-    await expect.poll(() => d1(`SELECT withdrawn_by FROM signups WHERE id = '${SELF.id}'`)[0]?.withdrawn_by, { timeout: 20_000 }).toBe('self')
+    await withdrawSaved
     const [row] = d1(
       `SELECT withdrawn, withdrawn_at, withdrawn_reason, draft_section, published_section, published_at, draft_locked, designation_number,
               json_extract(payload, '$.withdrawnByAdmin') AS by_admin FROM signups WHERE id = '${SELF.id}'`,
@@ -61,21 +62,37 @@ test.describe('self-withdraw on /profil frees the section', () => {
     const input = admin.getByLabel(`Чернова за ${NEXT.email}`)
     await expect(input).toBeVisible({ timeout: 30_000 })
     await input.fill(SECTION)
+    const drafted = savedWith(admin, 'adminDraft')
     await input.locator('xpath=ancestor::form[1]').getByRole('button', { name: 'Запази' }).click()
-    await expect.poll(() => d1(`SELECT draft_section FROM signups WHERE id = '${NEXT.id}'`)[0]?.draft_section, { timeout: 20_000 }).toBe(SECTION)
+    await drafted
     await expect(admin.getByText(/Секцията вече е/)).toHaveCount(0)
+    expect(d1(`SELECT draft_section FROM signups WHERE id = '${NEXT.id}'`)[0]).toMatchObject({ draft_section: SECTION })
     await adminContext.close()
 
     // „Върни записването“ clears the withdrawal but never hands the seat back.
     await page.goto('/profil')
     // The saved profile renders before the session load; a click before that load finishes is not saved.
     await page.waitForLoadState('networkidle')
+    const returned = savedWith(page, 'saveSignup')
     await page.getByRole('button', { name: 'Върни записването' }).click()
-    await expect.poll(() => d1(`SELECT withdrawn FROM signups WHERE id = '${SELF.id}'`)[0]?.withdrawn, { timeout: 20_000 }).toBe(0)
-    expect(d1(`SELECT withdrawn_at, withdrawn_by, published_section FROM signups WHERE id = '${SELF.id}'`)[0]).toMatchObject({ withdrawn_at: null, withdrawn_by: null, published_section: null })
+    await returned
+    expect(d1(`SELECT withdrawn, withdrawn_at, withdrawn_by, published_section FROM signups WHERE id = '${SELF.id}'`)[0]).toMatchObject({ withdrawn: 0, withdrawn_at: null, withdrawn_by: null, published_section: null })
     expect(d1(`SELECT field FROM signup_audit WHERE signup_id = '${SELF.id}' ORDER BY created_at`).map((item) => item.field)).toEqual(['withdrawn', 'restored'])
   })
 })
+
+/** Resolves when a call to the server function `name` (e.g. saveSignup) has answered. */
+function savedWith(page: Page, name: string) {
+  return page.waitForResponse(
+    (response) => {
+      const match = response.url().match(/\/_serverFn\/([^/?]+)/)
+      if (!match || response.request().method() !== 'POST') return false
+      const id = Buffer.from(match[1]!.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+      return id.includes(`"export":"${name}`)
+    },
+    { timeout: 20_000 },
+  )
+}
 
 async function signIn(page: Page, session: string) {
   await page.context().clearCookies()

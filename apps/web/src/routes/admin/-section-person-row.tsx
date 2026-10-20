@@ -34,7 +34,8 @@ export function SectionPersonRow(props: {
   suggestBusy: string | null
   setSuggestBusy: (id: string | null) => void
   setMessage: (message: string) => void
-  load: () => void
+  /** Reloads the list; the notice stays visible after the reload. */
+  load: (notice?: string) => void
   canPublish: boolean
   /** No-email publish of this row's draft. */
   publish: (id: string) => Promise<unknown>
@@ -119,16 +120,17 @@ export function SectionPersonRow(props: {
                               }
                               else {
                                 setRowWarnings((current) => ({ ...current, [person.id]: result.warnings ?? [] }))
-                                setMessage(
+                                const text = (
                                   result.warning
                                     ? result.blockedOnPublish
                                       ? `Черновата е запазена, но няма да се публикува: ${result.warning}`
                                       : result.warning
                                     : section.trim()
                                       ? 'Черновата е сложена (ръчна) и не се вижда от човека, докато не я публикуваш.'
-                                      : 'Черновата е махната. Следващото разпределение може да сложи друга.',
+                                      : 'Черновата е махната. Следващото разпределение може да сложи друга.'
                                 )
-                                load()
+                                setMessage(text)
+                                load(text)
                               }
                             })
                           }}
@@ -193,8 +195,9 @@ export function SectionPersonRow(props: {
                                       }
                                       else {
                                         setRowWarnings((current) => ({ ...current, [person.id]: result.warnings ?? [] }))
-                                        setMessage(result.warning || `Чернова ${tip.id} от предложение (ръчна). Публикувай я, за да я види човекът.`)
-                                        load()
+                                        const text = result.warning || `Чернова ${tip.id} от предложение (ръчна). Публикувай я, за да я види човекът.`
+                                        setMessage(text)
+                                        load(text)
                                       }
                                     })
                                   }}
@@ -257,7 +260,7 @@ export function SectionPersonRow(props: {
                                 void unpublish(person.id).then((result) => {
                                   setBusy(false)
                                   setMessage(result.message)
-                                  if (result.ok) load()
+                                  if (result.ok) load(result.message)
                                 }).catch(() => setBusy(false))
                               }}
                             >

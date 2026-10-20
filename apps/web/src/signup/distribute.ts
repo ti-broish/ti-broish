@@ -115,7 +115,8 @@ export function distributeSections(input: {
   for (const members of clusters) {
     const pending = pendingEmails(members, known, held)
     const preference = preferred(members, anchors)
-    const placed = placeNear(members, sections, used, preference, pending.length, 'home') ?? placeNear(members, sections, used, preference, pending.length, 'chosen')
+    // One pass over the whole accepted reach (home and travel areas): tier order wins, closeness breaks ties.
+    const placed = placeNear(members, sections, used, preference, pending.length)
     if (placed) {
       if (placed.reserved > 0) for (const email of pending) held.add(email)
       assignments.push(...placed.assignments)
@@ -123,9 +124,7 @@ export function distributeSections(input: {
       continue
     }
     for (const person of members) {
-      const solo =
-        placeNear([person], sections, used, preference, 0, 'home') ??
-        placeNear([person], sections, used, preference, 0, 'chosen')
+      const solo = placeNear([person], sections, used, preference, 0)
       if (solo) assignments.push(...solo.assignments.map((row) => ({ ...row, together: 'solo' as const })))
       else skipped.push({ personId: person.id, email: person.email, reason: 'no-section' })
     }
@@ -222,6 +221,63 @@ export function votersFromResults(payload: unknown) {
   }
 }
 
+/**
+ * Sections from a municipality results file (`results/<mir><municipality>.json`): town → address → section,
+ * with the voter count. One request per municipality instead of one per town, so a volunteer who accepts
+ * a whole oblast sees every section in it.
+ */
+export function readResultsSections(payload: unknown): DistributeSection[] {
+  const sections: DistributeSection[] = []
+  walk(payload, null, '')
+  return sections
+
+  function walk(node: unknown, townId: number | null, place: string) {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, townId, place)
+      return
+    }
+    if (!node || typeof node !== 'object') return
+    const record = node as { type?: unknown; id?: unknown; name?: unknown; segment?: unknown; stats?: { voters?: unknown }; nodes?: unknown }
+    const town = record.type === 'town' && typeof record.id === 'number' ? record.id : townId
+    const where = record.type === 'address' && typeof record.name === 'string' ? record.name : place
+    if (record.type === 'section') {
+      const id = canon(String(record.segment ?? ''))
+      const voters = record.stats?.voters
+      if (id) {
+        sections.push({
+          id,
+          place: where,
+          townId: town,
+          votersCount: typeof voters === 'number' && Number.isFinite(voters) && voters > 0 ? voters : null,
+          isMachine: null,
+          isMobile: isSpecialBulgariaSection(id) ? true : null,
+        })
+      }
+      return
+    }
+    if (record.nodes) walk(record.nodes, town, where)
+  }
+}
+
+/**
+ * MIRs where a person may be drafted in any municipality: the home oblast of a region or distant volunteer
+ * (a region volunteer's picked municipalities narrow it), and the travel MIRs with no municipality picked.
+ */
+export function wholeReachMirs(person: DistributePerson) {
+  if (skipReason(person) !== null) return []
+  if (person.radius !== 'region' && person.radius !== 'distant') return []
+  const picked = new Set(person.travelStops.map((stop) => padMir(stop.regionCode)).filter(Boolean))
+  const mirs = new Set<string>()
+  for (const mir of oblastMirs(person)) if (person.radius === 'distant' || !picked.has(mir)) mirs.add(mir)
+  if (person.radius === 'distant') {
+    for (const code of person.distantMirs) {
+      const mir = padMir(code)
+      if (mir && !picked.has(mir)) mirs.add(mir)
+    }
+  }
+  return [...mirs]
+}
+
 export function readTownIds(payload: unknown) {
   if (!Array.isArray(payload)) return []
   const ids: number[] = []
@@ -270,15 +326,13 @@ function placeNear(
   used: Set<string>,
   preference: { places: Set<string>; towns: Set<number> },
   extra: number,
-  reach: 'home' | 'chosen',
 ) {
-  if (reach === 'chosen' && !members.some((person) => person.radius === 'distant' && (person.distantMirs.length > 0 || person.travelStops.length > 0))) return null
   return (
-    placeCluster(members, sections, used, preference, 'address', extra, reach) ??
-    (extra > 0 ? placeCluster(members, sections, used, preference, 'address', 0, reach) : null) ??
-    placeCluster(members, sections, used, preference, 'town', 0, reach) ??
-    placeCluster(members, sections, used, preference, 'municipality', 0, reach) ??
-    placeCluster(members, sections, used, preference, 'region', 0, reach)
+    placeCluster(members, sections, used, preference, 'address', extra) ??
+    (extra > 0 ? placeCluster(members, sections, used, preference, 'address', 0) : null) ??
+    placeCluster(members, sections, used, preference, 'town', 0) ??
+    placeCluster(members, sections, used, preference, 'municipality', 0) ??
+    placeCluster(members, sections, used, preference, 'region', 0)
   )
 }
 
@@ -289,9 +343,8 @@ function placeCluster(
   preference: { places: Set<string>; towns: Set<number> },
   level: Exclude<Together, 'solo'>,
   extra: number,
-  reach: 'home' | 'chosen',
 ): { assignments: DraftAssignment[]; together: Together; reserved: number } | null {
-  const pools = members.map((person) => allowedSections(person, sections, used, reach))
+  const pools = members.map((person) => allowedSections(person, sections, used))
   if (pools.some((pool) => pool.length === 0)) return null
   const keys = new Set<string>()
   for (const pool of pools) {
@@ -300,12 +353,16 @@ function placeCluster(
       if (key) keys.add(key)
     }
   }
+  const place = members.map((person) => person.place).join(' ')
   const viable: Array<{
     key: string
-    score: number
     pools: DistributeSection[][]
-    priority: { town: number; municipality: number; bestR: number }
-    best: { rank: number; weight: number }
+    /** The bucket's best seats in draft order, one key per seat (see sectionKey). */
+    seats: number[][]
+    desks: number[]
+    nearPlace: boolean
+    paper: number
+    weight: number
     preferred: boolean
   }> = []
   for (const key of keys) {
@@ -314,26 +371,30 @@ function placeCluster(
     const union = dedupeSections(narrowed.flat())
     if (union.length < members.length + extra) continue
     if (!assignDistinct(members, narrowed)) continue
+    const best = [...union].sort((a, b) => compareSections(a, b, place, members)).slice(0, members.length + extra)
     viable.push({
       key,
-      score: bucketScore(key, union, members, preference, level, members.length + extra),
       pools: narrowed,
-      priority: bucketPriority(union, members, members.length),
-      best: bestTier(union),
+      seats: best.map((section) => sectionKey(section, members)),
+      desks: best.map((section) => deskRank(deskOf(section))),
+      nearPlace: level === 'address' && members.some((person) => placeClose(person.place, key)),
+      paper: union.filter((section) => deskOf(section) === 'paper').length,
+      weight: best.reduce((max, section) => Math.max(max, tierOf(section).weight), 0),
       // Joining companions who already have a section beats a priority section elsewhere.
       preferred: (level === 'address' && preference.places.has(key)) || (level === 'town' && preference.towns.has(Number(key.slice('town:'.length)))),
     })
   }
-  // Priority sections first: in the home town, then the municipality, then by R desc.
+  // Companions first. Then the best seats: priority in the home town, the tier (paper > 50, machine > 50,
+  // paper ≤ 50, machine ≤ 50) across the whole reach, priority in the home municipality, closeness
+  // (home town, municipality, МИР, oblast, travel areas). Then paper over unknown, the home address, size.
   viable.sort(
     (a, b) =>
       Number(b.preferred) - Number(a.preferred) ||
-      b.priority.town - a.priority.town ||
-      b.priority.municipality - a.priority.municipality ||
-      b.priority.bestR - a.priority.bestR ||
-      b.score - a.score ||
-      a.best.rank - b.best.rank ||
-      b.best.weight - a.best.weight ||
+      compareKeyLists(a.seats, b.seats) ||
+      compareKeyLists([a.desks], [b.desks]) ||
+      Number(b.nearPlace) - Number(a.nearPlace) ||
+      b.paper - a.paper ||
+      b.weight - a.weight ||
       a.key.localeCompare(b.key, 'bg'),
   )
   const chosen = viable[0]
@@ -407,8 +468,9 @@ function resultsPrefix(sectionId: string) {
   return sectionId.slice(0, 6)
 }
 
-function allowedSections(person: DistributePerson, sections: DistributeSection[], used: Set<string>, reach: 'home' | 'chosen') {
-  return sections.filter((section) => !used.has(section.id) && sectionFits(person, section, reach))
+/** Everything the person accepted: home (town, district, oblast) and, for a distant volunteer, the travel MIRs and municipalities. */
+function allowedSections(person: DistributePerson, sections: DistributeSection[], used: Set<string>) {
+  return sections.filter((section) => !used.has(section.id) && (sectionFits(person, section, 'home') || sectionFits(person, section, 'chosen')))
 }
 
 function sectionFits(person: DistributePerson, section: DistributeSection, reach: 'home' | 'chosen') {
@@ -499,83 +561,90 @@ function priorityR(section: DistributeSection) {
   return Number.isFinite(r) ? r : -1e9
 }
 
-/** 0: priority in a member's town, 1: in a member's municipality, 2: not a priority section for them. */
-function priorityScope(section: DistributeSection, people: readonly DistributePerson[]) {
-  if (!section.priority) return 2
+/**
+ * How close a section is to the person: 0 their own town (in Sofia, Plovdiv and Varna their own район),
+ * 1 elsewhere in their town, 2 their municipality, 3 their МИР, 4 their oblast, 5 a travel area.
+ */
+export function closeness(person: DistributePerson, section: DistributeSection) {
   const parts = sectionParts(section.id)
+  if (!parts) return 9
+  if (section.townId != null && person.townId != null && section.townId === person.townId) return ownDistrict(person, parts.district) ? 0 : 1
+  const mir = padMir(person.mir)
+  const municipality = pad2(person.municipalityCode)
+  if (parts.mir === mir && municipality && parts.municipality === municipality) return 2
+  if (parts.mir === mir) return 3
+  if (oblastMirs(person).has(parts.mir)) return 4
+  return 5
+}
+
+function ownDistrict(person: DistributePerson, district: string) {
+  if (district === '00') return true
+  const home = pad2(person.cityRegionCode)
+  if (!home || district === home) return true
+  return person.radius === 'nearby' && person.extraCityRegionCodes.some((code) => pad2(code) === district)
+}
+
+function groupCloseness(section: DistributeSection, people: readonly DistributePerson[]) {
+  if (people.length === 0) return 0
+  return Math.max(...people.map((person) => closeness(person, section)))
+}
+
+/**
+ * 0: priority in a member's own town (own район in a city split into районы): it comes before any tier.
+ * 1: priority elsewhere in their town or municipality: first inside its tier.
+ * 2: priority further away (another МИР, oblast or travel area): after closer sections of its tier.
+ * 3: not a priority section.
+ */
+function priorityScope(section: DistributeSection, people: readonly DistributePerson[]) {
+  if (!section.priority) return 3
   let best = 2
   for (const person of people) {
-    if (section.townId != null && person.townId != null && section.townId === person.townId) return 0
-    const municipality = pad2(person.municipalityCode)
-    if (parts && municipality && parts.mir === padMir(person.mir) && parts.municipality === municipality) best = 1
+    const near = closeness(person, section)
+    if (near === 0) return 0
+    if (near <= 2) best = 1
   }
   return best
 }
 
-function bucketPriority(sections: DistributeSection[], members: DistributePerson[], seats: number) {
-  let town = 0
-  let municipality = 0
-  let bestR = -2e9
-  for (const section of sections) {
-    const scope = priorityScope(section, members)
-    if (scope === 2) continue
-    if (scope === 0) town += 1
-    else municipality += 1
-    bestR = Math.max(bestR, priorityR(section))
-  }
-  return { town: Math.min(town, seats), municipality: Math.min(municipality, seats), bestR }
+/** Smaller is better. Compared lexicographically. */
+function sectionKey(section: DistributeSection, people: readonly DistributePerson[]) {
+  const scope = priorityScope(section, people)
+  const r = scope < 3 ? -priorityR(section) : 0
+  return [
+    scope === 0 ? 0 : 1,
+    scope === 0 ? r : 0,
+    tierOf(section).rank,
+    scope === 1 ? 0 : 1,
+    scope === 1 ? r : 0,
+    groupCloseness(section, people),
+    scope === 2 ? 0 : 1,
+    scope === 2 ? r : 0,
+  ]
 }
 
-/** The best tier in a bucket: lowest rank, then the most voted (tiers 1–2) or registered (3–4). */
-function bestTier(sections: DistributeSection[]) {
-  let best = { rank: 99, weight: 0 }
-  for (const section of sections) {
-    if (!draftable(section)) continue
-    const tier = tierOf(section)
-    if (tier.rank < best.rank || (tier.rank === best.rank && tier.weight > best.weight)) best = { rank: tier.rank, weight: tier.weight }
+function compareKeys(a: readonly number[], b: readonly number[]) {
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0)
+    if (d !== 0) return d
   }
-  return best
+  return 0
 }
 
-function bucketScore(
-  key: string,
-  sections: DistributeSection[],
-  members: DistributePerson[],
-  preference: { places: Set<string>; towns: Set<number> },
-  level: Exclude<Together, 'solo'>,
-  seats: number,
-) {
-  const paper = sections.filter((section) => deskOf(section) === 'paper').length
-  const unknown = sections.filter((section) => deskOf(section) === 'unknown').length
-  // Tier 1 seats (paper, > 50 voted last time) come first, then tier 2 (machine, > 50), then any paper seat.
-  const tier1 = sections.filter((section) => tierOf(section).tier === 1).length
-  const tier2 = sections.filter((section) => tierOf(section).tier === 2).length
-  const tier1Fit = Math.min(tier1, seats)
-  const tier2Fit = Math.min(tier2, Math.max(0, seats - tier1))
-  // One paper seat outranks any number of sections whose voter count we do not know.
-  const paperFit = Math.min(paper, seats)
-  const unknownFit = Math.min(unknown, Math.max(0, seats - paper))
-  let score = tier1Fit * 100_000_000 + tier2Fit * 10_000_000 + paperFit * 1_000_000 + unknownFit * 1_000 + paper
-  if (level === 'address' && preference.places.has(key)) score += 5_000
-  if (level === 'address' && members.some((person) => placeClose(person.place, key))) score += 500
-  if (level === 'town') {
-    const townId = Number(key.slice('town:'.length))
-    if (preference.towns.has(townId)) score += 5_000
+/** A bucket with more seats wins over one with fewer; otherwise seat by seat. */
+function compareKeyLists(a: readonly (readonly number[])[], b: readonly (readonly number[])[]) {
+  for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+    const d = compareKeys(a[i]!, b[i]!)
+    if (d !== 0) return d
   }
-  return score
+  return b.length - a.length
 }
 
 function compareSections(a: DistributeSection, b: DistributeSection, place: string, people: readonly DistributePerson[] = []) {
-  const scope = priorityScope(a, people) - priorityScope(b, people)
-  if (scope !== 0) return scope
-  if (priorityScope(a, people) < 2) {
-    const r = priorityR(b) - priorityR(a)
-    if (r !== 0) return r
-  }
-  // Tiers: paper > 50 voted, machine > 50, paper ≤ 50 by registered, machine ≤ 50 by registered (section-tiers.ts).
+  // Priority in the home town, then the tier across the whole reach, then closeness (sectionKey).
+  const keys = compareKeys(sectionKey(a, people), sectionKey(b, people))
+  if (keys !== 0) return keys
   const tierA = tierOf(a)
   const tierB = tierOf(b)
-  if (tierA.rank !== tierB.rank) return tierA.rank - tierB.rank
   const placeRank = (section: DistributeSection) => (placeClose(place, placeKey(section.place)) ? 0 : 1)
   if (tierA.tier === 3 || tierA.tier === 4) {
     if (tierA.weight !== tierB.weight) return tierB.weight - tierA.weight

@@ -9,9 +9,11 @@ import {
   distributionHold,
   heldSectionCodes,
   readPollingSections,
+  readResultsSections,
   readTownIds,
   relevantPrefixes,
   votersFromResults,
+  wholeReachMirs,
   type DistributePerson,
   type DistributeSection,
 } from './distribute'
@@ -172,7 +174,7 @@ describe('distributeSections', () => {
     expect(plan.skipped.map((row) => row.reason)).toEqual(['mobile', 'mobile', 'video', 'abroad', 'no-place'])
   })
 
-  it('keeps a volunteer who accepts other oblasts at home until home has no free section', () => {
+  it('keeps a volunteer who accepts other oblasts at home within a tier, and lets the tier win across the reach', () => {
     const homeFirst = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com', radius: 'distant', distantMirs: ['02'], place: 'ул. А 1' })],
       sections: [
@@ -190,8 +192,8 @@ describe('distributeSections', () => {
         section({ id: '163700001', place: 'Пловдив', townId: 99, votersCount: 80 }),
       ],
     })
-    // A machine section at home is a desk now (tiers 2 and 4 cover every machine section).
-    expect(away.assignments[0]?.sectionId).toBe('234615001')
+    // A paper section in a travel oblast beats a machine section at home: tier order wins over closeness.
+    expect(away.assignments[0]?.sectionId).toBe('023700001')
 
     const homeTaken = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com', radius: 'distant', distantMirs: ['02'], place: 'ул. А 1' })],
@@ -705,5 +707,110 @@ describe('distributeSections with priority sections', () => {
       sections: [section({ id: '102700001', place: 'Кочериново', townId: 300, votersCount: 200 })],
     })
     expect(result.assignments[0]?.sectionId).toBe('102700001')
+  })
+})
+
+describe('distributeSections across the whole accepted reach (home and travel oblasts)', () => {
+  // A Лозенец (район 09) volunteer in МИР 23 who also accepts София област (26) and Перник (14).
+  const traveller = (patch: Partial<DistributePerson> = {}) =>
+    person({
+      id: 'v',
+      email: 'v@example.com',
+      radius: 'distant',
+      mir: '23',
+      regionCode: 'sofia-merged',
+      townId: 68134,
+      municipalityCode: '46',
+      cityRegionCode: '09',
+      distantMirs: ['26', '14'],
+      place: 'Лозенец',
+      ...patch,
+    })
+  const turnout = new Map([
+    ['254620045', { voted: 400, registered: 900 }],
+    ['234609001', { voted: 380, registered: 850 }],
+    ['143200001', { voted: 300, registered: 575 }],
+    ['263900001', { voted: 40, registered: 300 }],
+    ['244605063', { voted: 200, registered: 260 }],
+  ])
+  const vrabnitsaMachine = section({ id: '254620045', place: 'Връбница', votersCount: 900, isMachine: true })
+  const pernikPaper = section({ id: '143200001', place: 'Перник', townId: 55871, votersCount: 280 })
+  const samokovSmallPaper = section({ id: '263900001', place: 'Самоков', townId: 65231, votersCount: 120 })
+  const sofiaPaper = section({ id: '244605063', place: 'Оборище', votersCount: 260 })
+
+  it('gives a paper section (tier 1) in a travel oblast before a raised-priority machine section elsewhere in Sofia', () => {
+    const plan = distributeSections({
+      people: [traveller()],
+      sections: [vrabnitsaMachine, pernikPaper, samokovSmallPaper],
+      priority: new Map([['254620045', { r: 5.17, level: 'elevated' }]]),
+      turnout,
+    })
+    expect(plan.assignments.map((row) => [row.sectionId, row.desk])).toEqual([['143200001', 'paper']])
+  })
+
+  it('keeps the tier order across the reach: a home machine > 50 beats a travel paper ≤ 50', () => {
+    const plan = distributeSections({ people: [traveller()], sections: [vrabnitsaMachine, samokovSmallPaper], turnout })
+    expect(plan.assignments[0]?.sectionId).toBe('254620045')
+  })
+
+  it('within one tier prefers the home town over a travel oblast', () => {
+    const plan = distributeSections({ people: [traveller()], sections: [pernikPaper, sofiaPaper], turnout })
+    expect(plan.assignments[0]?.sectionId).toBe('244605063')
+  })
+
+  it('still puts a priority section in the own town (own район in Sofia) first, even a machine one', () => {
+    const lozenetsMachine = section({ id: '234609001', place: 'Лозенец', votersCount: 850, isMachine: true })
+    const plan = distributeSections({
+      people: [traveller()],
+      sections: [lozenetsMachine, pernikPaper],
+      priority: new Map([['234609001', { r: 1.1, level: 'watch' }]]),
+      turnout,
+    })
+    expect(plan.assignments[0]?.sectionId).toBe('234609001')
+  })
+
+  it('keeps companions together at one travel address and never uses a blocked travel section', () => {
+    const plan = distributeSections({
+      people: [
+        traveller({ id: 'a', email: 'a@example.com', companions: [companion('b@example.com')] }),
+        traveller({ id: 'b', email: 'b@example.com', companions: [companion('a@example.com')] }),
+      ],
+      sections: [
+        vrabnitsaMachine,
+        section({ id: '254620046', place: 'Връбница', votersCount: 900, isMachine: true }),
+        pernikPaper,
+        section({ id: '143200002', place: 'Перник', townId: 55871, votersCount: 445 }),
+        section({ id: '143200003', place: 'Перник', townId: 55871, votersCount: 200 }),
+      ],
+      blocked: ['143200001'],
+      turnout: new Map([
+        ...turnout,
+        ['254620046', { voted: 400, registered: 900 }],
+        ['143200002', { voted: 250, registered: 445 }],
+        ['143200003', { voted: 120, registered: 200 }],
+      ]),
+    })
+    expect(plan.assignments.map((row) => row.sectionId).sort()).toEqual(['143200002', '143200003'])
+    expect(new Set(plan.assignments.map((row) => row.together))).toEqual(new Set(['address']))
+  })
+
+  it('lists the whole oblasts to load for a distant volunteer', () => {
+    expect(wholeReachMirs(traveller()).sort()).toEqual(['14', '23', '24', '25', '26'])
+    expect(wholeReachMirs(traveller({ travelStops: [{ regionCode: '26', code: '39' }] })).sort()).toEqual(['14', '23', '24', '25'])
+    expect(wholeReachMirs(person({ id: 'x', email: 'x@example.com' }))).toEqual([])
+  })
+
+  it('reads sections with town and address from a municipality results file', () => {
+    const rows = readResultsSections({
+      segment: '1432',
+      nodes: [
+        {
+          id: 55871,
+          type: 'town',
+          nodes: [{ name: 'ул. Младен Стоянов 1', type: 'address', nodes: [{ segment: '143200001', type: 'section', stats: { voters: 575 } }] }],
+        },
+      ],
+    })
+    expect(rows).toEqual([expect.objectContaining({ id: '143200001', townId: 55871, place: 'ул. Младен Стоянов 1', votersCount: 575 })])
   })
 })

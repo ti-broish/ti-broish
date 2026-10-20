@@ -4,9 +4,11 @@ import {
   distributionHold,
   heldSectionCodes,
   readPollingSections,
+  readResultsSections,
   readTownIds,
   relevantPrefixes,
   votersFromResults,
+  wholeReachMirs,
   type DistributeAnchor,
   type DistributeCompanion,
   type DistributePerson,
@@ -14,6 +16,15 @@ import {
 } from './distribute'
 import type { SignupD1 } from './db-core'
 import { partnerHeldCodes } from './reserved-sections-db'
+import { IMPORT_REGIONS } from './partner-import-regions.data'
+
+const SOFIA_MIRS = new Set(['23', '24', '25'])
+
+/** Municipality codes of a MIR. Sofia (23, 24, 25) is Столична (46). */
+function mirMunicipalities(mir: string) {
+  if (SOFIA_MIRS.has(mir)) return ['46']
+  return IMPORT_REGIONS.find((region) => region.code === mir)?.municipalities.map(([code]) => code) ?? []
+}
 
 /**
  * Country-wide draft distribution, shared by „Направи чернови“ (admin-distribute.ts) and any
@@ -32,7 +43,17 @@ export interface DistributionOptions {
 }
 
 export async function planCountryDistribution(db: Database, options: DistributionOptions = {}) {
-  const getJson = options.fetchJson ?? fetchApiJson
+  const fetchJson = options.fetchJson ?? fetchApiJson
+  // The same results file serves the oblast-wide section list and the voter counts: fetch it once.
+  const cache = new Map<string, Promise<unknown>>()
+  const getJson = (path: string) => {
+    let hit = cache.get(path)
+    if (!hit) {
+      hit = fetchJson(path)
+      cache.set(path, hit)
+    }
+    return hit
+  }
   const keepDrafts = options.keepDrafts === true
   const loaded = await loadPeople(db, keepDrafts)
   const blocked = await blockedSections(db, keepDrafts)
@@ -50,6 +71,26 @@ export async function planCountryDistribution(db: Database, options: Distributio
       if (/^\d{2}$/.test(mir) && /^\d{2}$/.test(code)) municipalities.add(`${mir}:${code}`)
     }
   }
+  // A whole oblast (home oblast of a region/distant volunteer, or a travel MIR with no municipality picked):
+  // read each municipality's results file. Before this only towns where someone lives or a picked
+  // municipality were loaded, so most of a travel oblast (all of Перник, for one) was never a candidate.
+  const whole = new Set<string>()
+  for (const person of loaded.candidates) {
+    for (const mir of wholeReachMirs(person)) {
+      for (const code of mirMunicipalities(mir)) {
+        const key = `${mir}:${code}`
+        if (SOFIA_MIRS.has(mir)) municipalities.add(key)
+        else if (!municipalities.has(key)) whole.add(key)
+      }
+    }
+  }
+  const wholeLists = await pool([...whole], 6, async (key) => {
+    const [mir, code] = key.split(':')
+    const found = readResultsSections(await getJson(`results/${mir}${code}.json`))
+    // A city split into районы has no municipality file: list its towns instead.
+    if (found.length === 0) municipalities.add(key)
+    return found
+  })
   const municipalityTowns = await pool([...municipalities], 6, async (key) => {
     const [mir, code] = key.split(':')
     return readTownIds(await getJson(`towns?country=000&election_region=${mir}&municipality=${code}`))
@@ -61,7 +102,7 @@ export async function planCountryDistribution(db: Database, options: Distributio
   if (loaded.candidates.length > 0 && townIds.size > 0 && fetched === 0) {
     return { ok: false as const, message: 'Не можах да заредя секциите. Опитай пак след малко.' }
   }
-  const sections = mergeSections(lists.flat())
+  const sections = mergeSections([...lists.flat(), ...wholeLists.flat()])
   const voters = new Map<string, number>()
   const prefixes = relevantPrefixes(loaded.candidates, sections)
   const voterMaps = await pool(prefixes, 6, async (prefix) => votersFromResults(await getJson(`results/${prefix}.json`)))

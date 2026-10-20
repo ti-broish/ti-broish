@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const STAFF_EMAIL = 'iaz.admin-e2e@example.com'
 const SESSION = 'e2e-iaz-admin-session'
@@ -112,6 +112,9 @@ test.describe('partner import („И аз“) for пълномощни only', ()
   })
 
   test('„И аз“ — секции: drafts in the МИР, publish reserves as „И аз“, one quota per section, no mail', async ({ page }) => {
+    // Two full /admin/sections loads plus publish on the one shared dev server; in CI the other worker runs the
+    // country distribute (real section API, 120s budget) at the same time, so 30s is not enough there.
+    test.setTimeout(90_000)
     // Priority sections next to every partner person (named by municipality), so no section API call is needed.
     const places = d1(`SELECT DISTINCT designation_mir AS mir, municipality_name AS muni FROM partner_people WHERE COALESCE(designation_mir, '') != ''`) as Array<{ mir: string; muni: string }>
     expect(places.length).toBeGreaterThan(0)
@@ -135,7 +138,7 @@ test.describe('partner import („И аз“) for пълномощни only', ()
       await page.setViewportSize({ width: 1280, height: 900 })
       await page.goto('/admin/sections')
       const panel = page.getByTestId('partner-sections-panel')
-      await panel.locator('summary').click()
+      await openDetails(panel)
       await panel.getByRole('button', { name: 'Преглед за „И аз“' }).click()
       await expect(panel.getByTestId('partner-sections-preview')).toContainText('Преглед (нищо не е записано)')
       expect(d1(`SELECT COUNT(*) AS n FROM partner_people WHERE COALESCE(section_draft, '') != ''`)[0]).toMatchObject({ n: 0 })
@@ -173,9 +176,9 @@ test.describe('partner import („И аз“) for пълномощни only', ()
       }
 
       const again = page.getByTestId('partner-sections-panel')
-      await again.locator('summary').click()
+      await openDetails(again)
       const published1 = again.getByTestId('partner-section-row').filter({ hasText: 'Тодор Пробов' })
-      await expect(published1.getByRole('button', { name: 'Махни публикуването' })).toBeVisible({ timeout: 20_000 })
+      await expect(published1.getByRole('button', { name: 'Махни публикуването' })).toBeVisible({ timeout: 30_000 })
       await published1.getByRole('button', { name: 'Махни публикуването' }).click()
       await expect(page.getByText(/вече не е публикувана и не е резервирана/)).toBeVisible()
       expect(d1(`SELECT COUNT(*) AS n FROM taken_sections WHERE section_code = '${published!.code}'`)[0]).toMatchObject({ n: 0 })
@@ -190,6 +193,13 @@ test.describe('partner import („И аз“) for пълномощни only', ()
     }
   })
 })
+
+/** A summary click toggles: only click when closed, then wait until it is really open. */
+async function openDetails(details: Locator) {
+  await expect(details).toBeVisible({ timeout: 30_000 })
+  if (!(await details.evaluate((element) => (element as HTMLDetailsElement).open))) await details.locator('summary').first().click()
+  await expect(details).toHaveJSProperty('open', true)
+}
 
 async function openTools(page: Page) {
   const tools = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Инструменти' }) })

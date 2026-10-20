@@ -8,6 +8,7 @@ import { bulkDesignationSignedFilename, isPdfBytes, personIdOk } from './designa
 import { parseStoredNumber } from './designation-number'
 import { httpStatusForStaffDenial, namesFromPayload } from './designation-preview'
 import { PARTNER_DESIGNATION_COLUMNS, isPartnerPersonId } from './partner-people-sql'
+import { SIGNED_WAVE_SET_SQL } from './signed-waves-sql'
 
 /** Drive simple/multipart uploads (uploadType=multipart|media) take at most 5 MB; signed PDFs are ~170 KB. */
 export const MAX_SIGNED_PDF_BYTES = 5 * 1024 * 1024
@@ -75,9 +76,9 @@ export async function serveDesignationUpload(request: Request): Promise<Response
     const now = new Date().toISOString()
     await access.db
       .prepare(
-        `UPDATE ${partner ? 'partner_people' : 'signups'} SET designation_pdf_url = ?, designation_drive_file_id = ?, designation_signed_at = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE ${partner ? 'partner_people' : 'signups'} SET designation_pdf_url = ?, designation_drive_file_id = ?, ${SIGNED_WAVE_SET_SQL}, designation_signed_at = ?, updated_at = ? WHERE id = ?`,
       )
-      .bind(file.webViewLink, file.id, now, now, personId)
+      .bind(file.webViewLink, file.id, now, now, now, personId)
       .run()
     // „И аз“ partner people never reach Brevo: the link stays in D1 and Drive only.
     const brevo: SignedLinkBrevo | PartnerNoBrevo = partner

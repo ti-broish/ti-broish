@@ -55,7 +55,7 @@ describe('profile facts', () => {
     expect(facts['Име']).toBe('Иван Иванов Иванов')
     expect(facts['Роля']).toBe('Мобилен екип')
     expect(facts['Дни']).toBe('25 октомври')
-    expect(facts['Място']).toContain('Младост')
+    expect(facts['Желано място']).toContain('Младост')
     expect(facts['Пътуване']).toContain('Лозенец')
     expect(facts['Пътуване']).not.toContain('Козлодуй')
     expect(facts['Пътуване']).toContain('кола, 2 места')
@@ -64,6 +64,23 @@ describe('profile facts', () => {
     expect(facts['Група']).toBe('Мария Петрова · като координатор: Петър Георгиев')
     expect(facts['ЕГН']).toBe('Въведено')
     expect(JSON.stringify(facts)).not.toContain('0041010002')
+  })
+
+  it('drops the polling place picked at signup once a section is assigned', () => {
+    const place = {
+      regionCode: '26',
+      regionName: 'София област',
+      municipalityName: 'Елин Пелин',
+      townName: 'с. Мусачево',
+      sectionPlace: 'НАРОДНО ЧИТАЛИЩЕ "ОТЕЦ ПАИСИЙ", пл. "Възраждане"',
+    }
+    const before = Object.fromEntries(profileFacts({ ...emptyProfile(), place }).map((fact) => [fact.label, fact.value]))
+    expect(before['Желано място']).toContain('ОТЕЦ ПАИСИЙ')
+    const after = Object.fromEntries(
+      profileFacts({ ...emptyProfile(), place, assignedSection: '261700022' }).map((fact) => [fact.label, fact.value]),
+    )
+    expect(after['Желано място']).toContain('с. Мусачево')
+    expect(after['Желано място']).not.toContain('ОТЕЦ ПАИСИЙ')
   })
 
   it('marks a blank national number as missing', () => {

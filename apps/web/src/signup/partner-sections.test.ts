@@ -14,7 +14,9 @@ import {
   PARTNER_DRAFT_WRITE_SQL,
   blockedCodes,
   municipalityCodeOf,
+  planPartnerDistribution,
   planPartnerSections,
+  partnerReachMirs,
   priorityCandidates,
   rankForPerson,
   type PartnerCandidate,
@@ -252,4 +254,59 @@ describe('no email, no Brevo for partner sections', () => {
       expect(read(`./${file}`)).not.toMatch(/partner_people|partner-sections|PARTNER_SECTION/)
     },
   )
+})
+
+describe('„И аз“ with the country ranking', () => {
+  const base = { id: 'pp-x', mir: '14', regionCode: '14', municipality: 'Перник', note: '', draft: '', published: '' }
+
+  it('reads the reach: the МИР, the oblast and every МИР named in Общини', () => {
+    expect(partnerReachMirs(base)).toEqual(['14'])
+    expect(partnerReachMirs({ ...base, mir: '', regionCode: 'sofia-merged', municipality: 'Столична', note: 'неразпознати: Перник, Кюстендил, София-област' })).toEqual([
+      '10',
+      '14',
+      '23',
+      '24',
+      '25',
+      '26',
+    ])
+    expect(partnerReachMirs({ ...base, mir: '17', regionCode: '17', municipality: 'Карлово', note: 'и: Сопот; коментар: Перник е далеч' })).toEqual(['17'])
+  })
+
+  const results = (sections: Array<[string, number]>) => ({
+    nodes: [{ id: 55871, type: 'town', nodes: sections.map(([segment, voters]) => ({ name: `адрес ${segment}`, type: 'address', nodes: [{ segment, type: 'section', stats: { voters } }] })) }],
+  })
+
+  it('takes the more important section across the reach, a machine one included, and never a held one', async () => {
+    const getJson = async (path: string) => {
+      if (path === 'results/1432.json') return results([['143200001', 900], ['143200002', 250]])
+      if (path.startsWith('towns?') && path.includes('election_region=14') && path.endsWith('municipality=32')) return [{ id: 55871 }]
+      if (path === 'sections?town=55871') return ['143200001', '143200002'].map((id) => ({ id, place: `адрес ${id}`, town: { id: 55871 } }))
+      if (path === 'results/1029.json') return results([['102900001', 200]])
+      return null
+    }
+    const people = [
+      { ...base, id: 'pp-a', note: 'неразпознати: Кюстендил' },
+      { ...base, id: 'pp-b' },
+      { ...base, id: 'pp-c', draft: '143200009' },
+      { ...base, id: 'pp-d' },
+    ]
+    const planned = await planPartnerDistribution({
+      people,
+      blocked: new Set(['143200002']),
+      priority: new Map([['102900001', { r: 2, level: 'elevated' }]]),
+      alsoVolunteer: new Set(['pp-d']),
+      getJson,
+    })
+    expect(planned.ok).toBe(true)
+    if (!planned.ok) return
+    const byPerson = Object.fromEntries(planned.plan.drafts.map((row) => [row.personId, row.code]))
+    // pp-b can only use Перник: planned first (fewest options), takes the machine section (no paper free).
+    expect(byPerson['pp-b']).toBe('143200001')
+    // pp-a also accepts Кюстендил: gets the priority section there.
+    expect(byPerson['pp-a']).toBe('102900001')
+    expect(planned.plan.skipped.map((row) => [row.personId, row.reason]).sort()).toEqual([
+      ['pp-c', 'has-section'],
+      ['pp-d', 'also-volunteer'],
+    ])
+  })
 })

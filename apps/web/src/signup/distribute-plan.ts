@@ -43,10 +43,31 @@ export interface DistributionOptions {
 }
 
 export async function planCountryDistribution(db: Database, options: DistributionOptions = {}) {
-  const fetchJson = options.fetchJson ?? fetchApiJson
-  // The same results file serves the oblast-wide section list and the voter counts: fetch it once.
+  const getJson = cachedJson(options.fetchJson ?? fetchApiJson)
+  const keepDrafts = options.keepDrafts === true
+  const loaded = await loadPeople(db, keepDrafts)
+  const blocked = await blockedSections(db, keepDrafts)
+  const priority = await loadPriorityMap(db)
+  const reach = await loadReachSections(loaded.candidates, getJson)
+  if (!reach.ok) return reach
+  const counted = reach.sections
+  const anchors = anchorsWithPlaces(loaded.anchors, counted)
+  const plan = distributeSections({
+    people: loaded.candidates,
+    sections: counted,
+    blocked,
+    anchors,
+    knownEmails: loaded.knownEmails,
+    priority,
+  })
+
+  return { ok: true as const, plan, loaded, sections: counted, priority, blocked }
+}
+
+/** A fetch that asks each path once (the same results file serves the section list and the voter counts). */
+export function cachedJson(fetchJson: (path: string) => Promise<unknown>) {
   const cache = new Map<string, Promise<unknown>>()
-  const getJson = (path: string) => {
+  return (path: string) => {
     let hit = cache.get(path)
     if (!hit) {
       hit = fetchJson(path)
@@ -54,13 +75,16 @@ export async function planCountryDistribution(db: Database, options: Distributio
     }
     return hit
   }
-  const keepDrafts = options.keepDrafts === true
-  const loaded = await loadPeople(db, keepDrafts)
-  const blocked = await blockedSections(db, keepDrafts)
-  const priority = await loadPriorityMap(db)
+}
+
+/**
+ * Every section these people can reach, with voter counts: their towns, picked municipalities and
+ * whole oblasts in reach (results file per municipality). Shared by the country and „И аз“ planners.
+ */
+export async function loadReachSections(people: DistributePerson[], getJson: (path: string) => Promise<unknown>) {
   const townIds = new Set<number>()
   const municipalities = new Set<string>()
-  for (const person of loaded.candidates) {
+  for (const person of people) {
     if (person.townId != null) townIds.add(person.townId)
     if ((person.radius === 'municipality' || person.radius === 'region' || person.radius === 'distant') && person.municipalityCode && person.mir) {
       municipalities.add(`${person.mir.padStart(2, '0')}:${person.municipalityCode.padStart(2, '0')}`)
@@ -75,7 +99,7 @@ export async function planCountryDistribution(db: Database, options: Distributio
   // read each municipality's results file. Before this only towns where someone lives or a picked
   // municipality were loaded, so most of a travel oblast (all of Перник, for one) was never a candidate.
   const whole = new Set<string>()
-  for (const person of loaded.candidates) {
+  for (const person of people) {
     for (const mir of wholeReachMirs(person)) {
       for (const code of mirMunicipalities(mir)) {
         const key = `${mir}:${code}`
@@ -99,29 +123,18 @@ export async function planCountryDistribution(db: Database, options: Distributio
 
   const lists = await pool([...townIds], 6, async (townId) => readPollingSections(await getJson(`sections?town=${townId}`), townId))
   const fetched = lists.reduce((count, list) => count + list.length, 0)
-  if (loaded.candidates.length > 0 && townIds.size > 0 && fetched === 0) {
+  if (people.length > 0 && townIds.size > 0 && fetched === 0) {
     return { ok: false as const, message: 'Не можах да заредя секциите. Опитай пак след малко.' }
   }
   const sections = mergeSections([...lists.flat(), ...wholeLists.flat()])
   const voters = new Map<string, number>()
-  const prefixes = relevantPrefixes(loaded.candidates, sections)
+  const prefixes = relevantPrefixes(people, sections)
   const voterMaps = await pool(prefixes, 6, async (prefix) => votersFromResults(await getJson(`results/${prefix}.json`)))
   for (const map of voterMaps) for (const [id, count] of map) voters.set(id, count)
-  const counted = sections.map((section) => ({ ...section, votersCount: voters.get(section.id) ?? section.votersCount ?? null }))
-  const anchors = anchorsWithPlaces(loaded.anchors, counted)
-  const plan = distributeSections({
-    people: loaded.candidates,
-    sections: counted,
-    blocked,
-    anchors,
-    knownEmails: loaded.knownEmails,
-    priority,
-  })
-
-  return { ok: true as const, plan, loaded, sections: counted, priority, blocked }
+  return { ok: true as const, sections: sections.map((section) => ({ ...section, votersCount: voters.get(section.id) ?? section.votersCount ?? null })) }
 }
 
-async function loadPriorityMap(db: Database) {
+export async function loadPriorityMap(db: Database) {
   const map = new Map<string, { r: number | null; level: string }>()
   try {
     const result = await db.prepare('SELECT section_code, r, level FROM priority_sections').all<{ section_code: string; r: number | null; level: string }>()

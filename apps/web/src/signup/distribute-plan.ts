@@ -13,6 +13,7 @@ import {
   type DistributeSection,
 } from './distribute'
 import type { SignupD1 } from './db-core'
+import { partnerHeldCodes } from './reserved-sections-db'
 
 /**
  * Country-wide draft distribution, shared by „Направи чернови“ (admin-distribute.ts) and any
@@ -206,6 +207,8 @@ async function blockedSections(db: Database, keepDrafts: boolean) {
   const blocked = new Set<string>()
   const taken = await db.prepare('SELECT section_code FROM taken_sections').all<{ section_code: string }>()
   for (const row of taken.results ?? []) blocked.add(normalizeSection(row.section_code))
+  // „И аз“ partner people: their draft or published section is theirs, whatever the mode.
+  for (const code of await partnerHeldCodes(db)) blocked.add(code)
   const used = await db
     .prepare(
       `SELECT COALESCE(draft_section, '') AS draft_section,
@@ -321,7 +324,7 @@ function mergeSections(sections: DistributeSection[]) {
   return [...byId.values()]
 }
 
-async function fetchApiJson(path: string): Promise<unknown> {
+export async function fetchApiJson(path: string): Promise<unknown> {
   try {
     const response = await fetch(`${API}/${path}`, { headers: HEADERS, signal: AbortSignal.timeout(20_000) })
     if (!response.ok) return null

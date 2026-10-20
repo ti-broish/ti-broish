@@ -1,6 +1,7 @@
 import type { SignupD1 } from './db-core'
 import { mfaAbroadSection } from './abroad-section-addresses'
 import { isSpecialBulgariaSection } from './stationary-sections'
+import { PARTNER_HELD_SQL, PARTNER_RESERVATION_ORG } from './partner-people-sql'
 import { conflictsFor, reservedCode, type AssignedPerson, type ExistingReservation } from './reserved-sections'
 
 /** Organisation that reserved this section, or null. Codes are compared as 9 digits. */
@@ -8,7 +9,21 @@ export async function reservedOrgOf(db: SignupD1, section: string) {
   const code = reservedCode(section)
   if (!code) return null
   const row = await db.prepare('SELECT organisation FROM taken_sections WHERE section_code = ?').bind(code).first<{ organisation: string }>()
-  return row?.organisation ?? null
+  if (row?.organisation) return row.organisation
+  return (await partnerHeldCodes(db)).has(code) ? PARTNER_RESERVATION_ORG : null
+}
+
+/**
+ * Sections a „И аз“ partner person holds as a draft or published. To every signup path they
+ * count as reserved by „И аз“ (one person per section). Empty before the columns exist.
+ */
+export async function partnerHeldCodes(db: Pick<SignupD1, 'prepare'>) {
+  try {
+    const result = await db.prepare(PARTNER_HELD_SQL).all<{ code: string }>()
+    return new Set((result.results ?? []).map((row) => reservedCode(row.code)).filter(Boolean))
+  } catch {
+    return new Set<string>()
+  }
 }
 
 export async function loadReservations(db: SignupD1): Promise<Array<ExistingReservation & { mirCode: string; createdAt: string }>> {
@@ -25,8 +40,11 @@ export async function loadReservations(db: SignupD1): Promise<Array<ExistingRese
   }))
 }
 
+/** Reservations plus partner-held sections (as „И аз“): everything a signup may not take. */
 export async function reservedMap(db: SignupD1) {
-  return new Map((await loadReservations(db)).map((row) => [row.sectionCode, row.organisation]))
+  const map = new Map((await loadReservations(db)).map((row) => [row.sectionCode, row.organisation]))
+  for (const code of await partnerHeldCodes(db)) if (!map.has(code)) map.set(code, PARTNER_RESERVATION_ORG)
+  return map
 }
 
 export async function loadAssignedPeople(db: SignupD1): Promise<AssignedPerson[]> {

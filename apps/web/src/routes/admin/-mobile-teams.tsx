@@ -1,14 +1,14 @@
 import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { adminGhost } from '../../components/admin-ui'
+import { adminGhost, adminInput } from '../../components/admin-ui'
 import { priorityLevelLabel, formatR } from '../../signup/priority-sections'
 import type { MobileArea, MobileTarget } from '../../signup/mobile-teams'
 import {
+  adminMobileAreas,
   adminMobileDistribute,
   adminMobileDrafts,
   adminMobileRemove,
   adminMobileSave,
-  adminMobileSuggest,
 } from '../../signup/mobile-teams-admin'
 
 export type MobileDraftView = {
@@ -197,15 +197,35 @@ export function MobileTeamsPanel({ canEdit, setMessage }: { canEdit: boolean; se
   )
 }
 
-/** Person page: the mobile draft, „Предложи“ and saving one area. */
+/** Person page: the mobile draft. Pick an area and „Запази“ saves it as a manual draft (never published). */
 export function MobileDraftCard({ personId, canEdit, mobile }: { personId: string; canEdit: boolean; mobile: boolean }) {
   const [version, setVersion] = useState(0)
   const index = useMobileIndex(version)
   const draft = index[personId]
   const [areas, setAreas] = useState<MobileArea[] | null>(null)
+  const [areaKey, setAreaKey] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!canEdit || !mobile) return
+    let live = true
+    void adminMobileAreas({ data: { id: personId } })
+      .then((result) => {
+        if (!live) return
+        const list = result.ok ? result.areas : []
+        setAreas(list)
+        setAreaKey(list[0]?.key ?? '')
+        if (!result.ok || !list.length) setMessage(result.message)
+      })
+      .catch(() => {
+        if (live) setAreas([])
+      })
+    return () => {
+      live = false
+    }
+  }, [personId, canEdit, mobile, version])
   if (!mobile && !draft) return null
+  const picked = areas?.find((area) => area.key === areaKey)
   return (
     <section className="grid gap-2 rounded-2xl border-2 border-[#1f4d7a] bg-white p-4 text-sm text-[#1a1020]" data-testid="mobile-card">
       <h2 className="text-base font-black">Мобилен екип</h2>
@@ -220,22 +240,46 @@ export function MobileDraftCard({ personId, canEdit, mobile }: { personId: strin
         <p>Няма чернова за мобилен екип.</p>
       )}
       {canEdit ? (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={adminGhost}
-            disabled={busy}
-            onClick={() => {
-              setBusy(true)
-              void adminMobileSuggest({ data: { id: personId } }).then((result) => {
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!areaKey) return
+            setBusy(true)
+            void adminMobileSave({ data: { id: personId, areaKey } })
+              .then((result) => {
                 setBusy(false)
-                setAreas(result.ok ? result.areas : [])
                 setMessage(result.message)
+                if (result.ok) setVersion((value) => value + 1)
               })
-            }}
-          >
-            Предложи
-          </button>
+              .catch(() => {
+                setBusy(false)
+                setMessage('Не се запази. Опитай пак.')
+              })
+          }}
+        >
+          {mobile ? (
+            <>
+              <select
+                className={adminInput}
+                aria-label="Район за мобилния екип"
+                value={areaKey}
+                disabled={busy || !areas?.length}
+                onChange={(event) => setAreaKey(event.target.value)}
+              >
+                {areas === null ? <option value="">Зареждаме районите…</option> : null}
+                {areas?.length === 0 ? <option value="">Няма свободен район</option> : null}
+                {areas?.map((area) => (
+                  <option key={area.key} value={area.key}>
+                    {area.label} · сбор R {formatR(area.score)} · {area.targets.length} секц.
+                  </option>
+                ))}
+              </select>
+              <button type="submit" className={adminGhost} disabled={busy || !areaKey}>
+                {busy ? 'Записваме…' : 'Запази'}
+              </button>
+            </>
+          ) : null}
           {draft ? (
             <button
               type="button"
@@ -251,39 +295,14 @@ export function MobileDraftCard({ personId, canEdit, mobile }: { personId: strin
               Махни черновата
             </button>
           ) : null}
+        </form>
+      ) : null}
+      {picked ? (
+        <div data-testid="mobile-area-preview">
+          <Targets targets={picked.targets} />
         </div>
       ) : null}
       {message ? <p className="font-bold">{message}</p> : null}
-      {areas && areas.length ? (
-        <ul className="grid gap-2" data-testid="mobile-suggestions">
-          {areas.map((area) => (
-            <li key={area.key} className="rounded-xl border p-2">
-              <p className="font-bold">
-                {area.label} · сбор R {formatR(area.score)}
-              </p>
-              <Targets targets={area.targets} />
-              <button
-                type="button"
-                className={adminGhost}
-                disabled={busy}
-                onClick={() => {
-                  setBusy(true)
-                  void adminMobileSave({ data: { id: personId, areaKey: area.key } }).then((result) => {
-                    setBusy(false)
-                    setMessage(result.message)
-                    if (result.ok) {
-                      setAreas(null)
-                      setVersion((value) => value + 1)
-                    }
-                  })
-                }}
-              >
-                Запиши като чернова
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </section>
   )
 }

@@ -17,7 +17,6 @@ import {
   planPartnerSections,
   priorityCandidates,
   publishStatements,
-  rankForPerson,
   unpublishStatements,
   type PartnerCandidate,
   type PartnerSectionPerson,
@@ -144,25 +143,6 @@ export const adminPartnerDistribute = createServerFn({ method: 'POST' })
       plan,
       message: `Записани чернови ${drafted}${refused ? ` (${refused} секции вече бяха заети)` : ''}. ${describePartnerPlan(plan)}`,
     }
-  })
-
-/** „Предложи“ for one person: the best open sections in their МИР. */
-export const adminPartnerSuggest = createServerFn({ method: 'POST' })
-  .inputValidator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
-  .handler(async ({ data }) => {
-    const access = await gate('edit')
-    if (!access.ok) return access
-    const context = await loadContext(access.db)
-    const person = context.people.find((row) => row.id === data.id)
-    if (!person) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
-    if (!/^\d{2}$/.test(person.mir)) return { ok: false as const, message: 'Първо задай МИР.' }
-    const blocked = blockedCodes(context.held, person.id)
-    const open = { ...person, draft: '', published: '' }
-    const candidates = await withOrdinary([open], context.priority, blocked)
-    const options = rankForPerson(open, candidates, blocked)
-      .slice(0, 8)
-      .map((row) => ({ code: row.candidate.code, scope: row.scope, priority: row.candidate.priority, town: row.candidate.town, place: row.candidate.place }))
-    return { ok: true as const, options }
   })
 
 /** „Запази“ a draft (or clear it with an empty section). Locked: „Чернови“ will not change it. */

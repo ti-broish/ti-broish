@@ -63,8 +63,8 @@ export const adminMobileDistribute = createServerFn({ method: 'POST' })
     return { ok: true as const, drafted, plan, message: `${describeMobilePlan(plan)} Записани чернови: ${drafted}. Нищо не е публикувано.` }
   })
 
-/** „Предложи“ for one mobile person. */
-export const adminMobileSuggest = createServerFn({ method: 'POST' })
+/** The open areas within one mobile person's reach, for the person page's area picker. */
+export const adminMobileAreas = createServerFn({ method: 'POST' })
   .inputValidator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
@@ -74,7 +74,7 @@ export const adminMobileSuggest = createServerFn({ method: 'POST' })
     return { ok: true as const, areas, message: areas.length ? '' : 'Няма непокрита приоритетна секция в обхвата на човека.' }
   })
 
-/** Save one suggested area as this person's mobile draft (replaces their previous one). */
+/** „Запази“: save one area as this person's manual mobile draft (replaces their previous one). Never publishes. */
 export const adminMobileSave = createServerFn({ method: 'POST' })
   .inputValidator((input: { id: string; areaKey: string }) => ({ id: String(input?.id ?? ''), areaKey: String(input?.areaKey ?? '') }))
   .handler(async ({ data }) => {
@@ -82,7 +82,7 @@ export const adminMobileSave = createServerFn({ method: 'POST' })
     if (!access.ok) return access
     const { person, areas } = await suggestMobileAreas(access.db, data.id, 50)
     const area = areas.find((item) => item.key === data.areaKey)
-    if (!person || !area) return { ok: false as const, message: 'Това предложение вече не е свободно. Натисни „Предложи“ пак.' }
+    if (!person || !area) return { ok: false as const, message: 'Този район вече не е свободен. Избери друг.' }
     const ok = await saveDraft(access.db, person.id, person.id, area, 'manual', access.email, new Date().toISOString(), false)
     return ok
       ? { ok: true as const, message: `Чернова за мобилен екип: ${area.label}, ${area.targets.length} секции. Не е публикувана.` }

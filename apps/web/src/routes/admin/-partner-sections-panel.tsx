@@ -6,7 +6,6 @@ import {
   adminPartnerPublish,
   adminPartnerSave,
   adminPartnerSections,
-  adminPartnerSuggest,
   adminPartnerUnpublish,
 } from '../../signup/partner-sections-admin'
 import { PriorityBadge } from './-priority-badge'
@@ -24,7 +23,6 @@ type PartnerRow = {
   draftPriority: PriorityInfo | null
   publishedPriority: PriorityInfo | null
 }
-type Option = { code: string; scope: string; priority: PriorityInfo | null; town: string; place: string }
 type Counts = { total: number; drafted: number; published: number; waiting: number }
 
 async function withRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
@@ -38,8 +36,6 @@ async function withRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
   }
 }
 
-const SCOPE: Record<string, string> = { town: 'в града', municipality: 'в общината', mir: 'другаде в МИР' }
-
 /**
  * Секции → „И аз“ — секции. Partner people get sections like signups, but publishing only sets the
  * section and the „И аз“ reservation: no email, no Brevo, no profile, no login.
@@ -52,7 +48,6 @@ export function PartnerSectionsPanel({ canEdit, canPublish, setMessage }: { canE
   const [armed, setArmed] = useState<'draft' | 'publish' | null>(null)
   const [preview, setPreview] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
-  const [options, setOptions] = useState<Record<string, Option[]>>({})
 
   useEffect(() => {
     let live = true
@@ -180,47 +175,17 @@ export function PartnerSectionsPanel({ canEdit, canPublish, setMessage }: { canE
                           />
                           <button
                             type="button"
-                            className="text-xs font-bold underline"
+                            className={adminGhost}
                             onClick={() =>
+                              // „Запази“ only saves a manual draft: no publishing, no email.
                               void adminPartnerSave({ data: { id: row.id, section: values[row.id] ?? row.draft } })
                                 .then(after)
                                 .catch(() => after({ ok: false, message: 'Не се запази.' }))
                             }
                           >
-                            Сложи чернова
-                          </button>
-                          <button
-                            type="button"
-                            className="text-xs font-bold underline"
-                            onClick={() =>
-                              void adminPartnerSuggest({ data: { id: row.id } }).then((result) => {
-                                if (!result.ok) return setMessage(result.message)
-                                setOptions((prev) => ({ ...prev, [row.id]: result.options as Option[] }))
-                              })
-                            }
-                          >
-                            Предложи
+                            Запази
                           </button>
                         </span>
-                      ) : null}
-                      {options[row.id]?.length ? (
-                        <ul className="grid gap-0.5 text-xs">
-                          {options[row.id]!.map((option) => (
-                            <li key={option.code}>
-                              <button type="button" className="font-mono underline" onClick={() => {
-                                setValues((prev) => ({ ...prev, [row.id]: option.code }))
-                                setOptions((prev) => ({ ...prev, [row.id]: [] }))
-                                void adminPartnerSave({ data: { id: row.id, section: option.code } })
-                                  .then(after)
-                                  .catch(() => after({ ok: false, message: 'Не се запази.' }))
-                              }}>
-                                {option.code}
-                              </button>{' '}
-                              {SCOPE[option.scope] ?? ''} {option.town || option.place}
-                              <PriorityBadge info={option.priority} />
-                            </li>
-                          ))}
-                        </ul>
                       ) : null}
                     </td>
                     <td className="px-2 py-2">

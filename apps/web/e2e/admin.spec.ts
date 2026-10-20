@@ -202,7 +202,8 @@ test.describe('staff admin', () => {
     await expect(page.getByText(/Започнал е, но не е завършил/)).toBeVisible()
     await expect(page.getByText('Няма ЕГН', { exact: true })).toBeVisible()
     await expect(page.getByLabel('Бележка от екипа')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Запази' })).toBeVisible()
+    // The person form's „Запази“; a mobile person's card has its own „Запази“ for the area draft.
+    await expect(page.locator('form').filter({ has: page.getByLabel('Бележка от екипа') }).getByRole('button', { name: 'Запази' })).toBeVisible()
   })
 
   test('admin unregisters a volunteer, frees the section, filters them, then restores', async ({ page }) => {
@@ -339,7 +340,7 @@ test.describe('staff admin', () => {
     }
   })
 
-  test('mobile teams: „Предложи“ picks open priority sections in reach, saves a draft, and the button previews', async ({ page }) => {
+  test('mobile teams: the person page lists open priority areas in reach, „Запази“ saves a draft, and the button previews', async ({ page }) => {
     seedMobileTeam()
     await signIn(page)
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -347,19 +348,20 @@ test.describe('staff admin', () => {
       await page.goto('/admin/signups/e2e-mobile')
       const card = page.getByTestId('mobile-card')
       await expect(card).toContainText('Няма чернова за мобилен екип.')
-      const suggestions = card.getByTestId('mobile-suggestions')
+      await expect(card.getByRole('button', { name: 'Предложи' })).toHaveCount(0)
+      const picker = card.getByLabel('Район за мобилния екип')
+      await expect(picker).toContainText('МИР 29 · с.Мобилно', { timeout: 30_000 })
+      const preview = card.getByTestId('mobile-area-preview')
+      await expect(preview).toContainText('299900001')
+      await expect(preview).toContainText('299900002')
+      await expect(preview).not.toContainText('299900003')
+      await expect(preview).not.toContainText('299900004')
+      await expect(preview).not.toContainText('299900005')
       // The first click can land before hydration on a cold dev server, so retry it.
       await expect(async () => {
-        await card.getByRole('button', { name: 'Предложи' }).click()
-        await expect(suggestions).toContainText('МИР 29 · с.Мобилно', { timeout: 5_000 })
+        await card.getByRole('button', { name: 'Запази', exact: true }).click()
+        await expect(card.getByTestId('mobile-badge')).toContainText('Мобилен · МИР 29 · с.Мобилно · 2 секц.', { timeout: 5_000 })
       }).toPass({ timeout: 40_000 })
-      await expect(suggestions).toContainText('299900001')
-      await expect(suggestions).toContainText('299900002')
-      await expect(suggestions).not.toContainText('299900003')
-      await expect(suggestions).not.toContainText('299900004')
-      await expect(suggestions).not.toContainText('299900005')
-      await suggestions.getByRole('button', { name: 'Запиши като чернова' }).first().click()
-      await expect(card.getByTestId('mobile-badge')).toContainText('Мобилен · МИР 29 · с.Мобилно · 2 секц.')
 
       await page.goto('/admin/sections')
       const panel = page.getByTestId('mobile-panel')

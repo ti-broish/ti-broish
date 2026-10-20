@@ -15,12 +15,9 @@ tofu apply
 
 The token needs DNS edit, Origin Rules edit and Config Rules edit (Zone Rulesets) on zone `tibroish.bg` in the Da Bulgaria account. State stays on this machine. Do not commit it.
 
-A zone has one entry-point ruleset per phase. If `plan` or `apply` reports that an `http_request_origin` or `http_config_settings` ruleset already exists, import it and copy its existing rules into `origin.tf` before you apply:
+The record and both rulesets already exist. They were created with the Cloudflare CLI on 2026-10-20, and `imports.tf` adopts them on the first apply, so `plan` should show three imports and no changes. Before that the zone had no `http_request_origin` or `http_config_settings` ruleset.
 
-```bash
-tofu import cloudflare_ruleset.origin zones/<zone_id>/<ruleset_id>
-tofu import cloudflare_ruleset.config zones/<zone_id>/<ruleset_id>
-```
+A zone has one entry-point ruleset per phase. Rules added to these two rulesets in the dashboard must also go into `origin.tf`, or the next apply removes them.
 
 Check it:
 

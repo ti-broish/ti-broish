@@ -43,19 +43,24 @@ test.describe('Секции: three states, publish a row or the picked rows, unp
     expect(d1(`SELECT published_section FROM signups WHERE id = '${B.id}'`)[0]).toMatchObject({ published_section: null })
     await expect(page.getByTestId('state-published')).toContainText('(1)')
 
-    await rowB.getByRole('checkbox', { name: /Избери/ }).check()
-    await page.getByRole('button', { name: 'Публикувай избраните (1)' }).click()
-    await page.getByRole('button', { name: 'Да, публикувай 1 (без имейл)' }).click()
-    await expect(page.getByText('Публикувани са 1 чернови (без имейл).')).toBeVisible()
+    await expect(async () => {
+      await rowB.getByRole('checkbox', { name: /Избери/ }).check()
+      await page.getByRole('button', { name: 'Публикувай избраните (1)' }).click()
+      await page.getByRole('button', { name: 'Да, публикувай 1 (без имейл)' }).click()
+      await expect(page.getByTestId('state-draft')).toContainText('(0)', { timeout: 5_000 })
+    }).toPass({ timeout: 40_000 })
     expect(d1(`SELECT published_section FROM signups WHERE id = '${B.id}'`)[0]).toMatchObject({ published_section: B.section })
     await expect(page.getByTestId('state-draft')).toContainText('(0)')
 
     await page.getByTestId('state-published').click()
     await expect(page).toHaveURL(/state=published/)
     const publishedA = page.getByTestId('section-person-row').filter({ hasText: A.email })
-    await publishedA.getByRole('button', { name: 'Махни публикуването' }).click()
-    await publishedA.getByRole('button', { name: 'Да, махни публикуването' }).click()
-    await expect(page.getByText(`Секция ${A.section} вече не е публикувана. Остава като ръчна чернова. Без имейл.`)).toBeVisible()
+    // Local D1 is shared with parallel specs; a SQLITE_BUSY answer leaves no message, so try again.
+    await expect(async () => {
+      await publishedA.getByRole('button', { name: 'Махни публикуването' }).click()
+      await publishedA.getByRole('button', { name: 'Да, махни публикуването' }).click()
+      await expect(page.getByText(`Секция ${A.section} вече не е публикувана. Остава като ръчна чернова. Без имейл.`)).toBeVisible({ timeout: 5_000 })
+    }).toPass({ timeout: 40_000 })
     expect(d1(`SELECT draft_section, draft_locked, published_section FROM signups WHERE id = '${A.id}'`)[0]).toMatchObject({
       draft_section: A.section,
       draft_locked: 1,

@@ -10,7 +10,10 @@ import {
 import { cleanOrg, type ReservationConflict } from '../../signup/reserved-sections'
 import { ReservedBadge } from './-reserved-badge'
 
-export type ReservedRowView = { sectionCode: string; organisation: string; note: string; place: string }
+export type ReservedRowView = { sectionCode: string; organisation: string; note: string; place: string; managed?: boolean }
+
+const MANAGED_HINT = 'Управлява се от разпределението „И аз“ (Секции → „И аз“ — секции)'
+const isManaged = (organisation: string) => organisation.replace(/[„“"]/g, '').trim().toLocaleLowerCase('bg') === 'и аз'
 
 export function ReservedSectionsPanel(props: {
   canEdit: boolean
@@ -179,7 +182,8 @@ export function ReservedSectionsPanel(props: {
             {orgs.map((item) => (
               <li key={item.organisation} className="flex items-center gap-2 rounded-full border border-[#2b062f] px-3 py-1 text-sm">
                 <b>{item.organisation}</b> {item.count}
-                {canEdit ? (
+                {isManaged(item.organisation) ? <span className="text-xs" title={MANAGED_HINT}>· от разпределението „И аз“</span> : null}
+                {canEdit && !isManaged(item.organisation) ? (
                   <button
                     type="button"
                     className="text-xs font-bold text-[#8f1d1d] underline"
@@ -216,7 +220,9 @@ export function ReservedSectionsPanel(props: {
                       <td className="px-2 py-2"><ReservedBadge org={row.organisation} /></td>
                       <td className="px-2 py-2">{[row.note, row.place].filter(Boolean).join(' · ')}</td>
                       <td className="px-2 py-2">
-                        {canEdit ? (
+                        {row.managed || isManaged(row.organisation) ? (
+                          <span className="text-xs" data-testid="reserved-managed">{MANAGED_HINT}</span>
+                        ) : canEdit ? (
                           <button type="button" className="text-xs font-bold underline" onClick={() => remove({ codes: [row.sectionCode] })}>
                             Махни
                           </button>
@@ -263,6 +269,11 @@ function PreviewBox({ preview, fileName }: { preview: ReservedPreview; fileName:
         <p>Сменят организацията: {preview.moved.map((row) => `${row.sectionCode} ${row.from} → ${row.to}`).join('; ')}</p>
       ) : null}
       {preview.removeCount ? <p>Махаме резервацията на: {preview.remove.join(', ')}</p> : null}
+      {preview.managedCount ? (
+        <p className="font-bold" data-testid="reserved-preview-managed">
+          Пропускаме {preview.managedCount} секции на „И аз“ (управляват се от разпределението „И аз“): {preview.managed.join(', ')}
+        </p>
+      ) : null}
       <p className={preview.conflictCount ? 'font-bold text-[#8f1d1d]' : ''}>
         Наши хора на тези секции: {preview.conflictCount}. Няма да ги махнем сами.
       </p>

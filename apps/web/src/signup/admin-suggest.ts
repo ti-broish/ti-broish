@@ -9,6 +9,7 @@ import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows } from './staff'
 import { rankWithPriority } from './priority-sections'
 import { loadPriorityRows } from './priority-sections-admin'
+import { partnerHeldCodes } from './reserved-sections-db'
 
 type Database = SignupD1
 
@@ -119,6 +120,7 @@ async function blockedSectionCodes(db: Database, personId: string) {
   const blocked = new Set<string>()
   const taken = await db.prepare('SELECT section_code FROM taken_sections').all<{ section_code: string }>()
   for (const row of taken.results ?? []) blocked.add(normalizeSection(row.section_code))
+  for (const code of await partnerHeldCodes(db)) blocked.add(code)
   const used = await db
     .prepare(
       `SELECT COALESCE(draft_section, '') AS draft_section, COALESCE(published_section, '') AS published_section

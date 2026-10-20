@@ -51,7 +51,16 @@ export interface ReservationPlan {
   invalid: Array<{ line: number; value: string; reason: string }>
   duplicates: Array<{ sectionCode: string; lines: number[] }>
   conflicts: ReservationConflict[]
+  /** Rows skipped because the „И аз“ partner allocation manages that section. */
+  managed: ReservedRow[]
   errors: string[]
+}
+
+/** „И аз“ reservations come from the partner allocation (Секции → „И аз“), never from a file. */
+export const MANAGED_ORG = 'И аз'
+
+export function isManagedOrg(organisation: string) {
+  return sameOrg(organisation.replace(/[„“"]/g, ''), MANAGED_ORG)
 }
 
 const COL_CODE = ['сик', 'секция', 'section', 'section_code', 'code', 'код', 'номер', 'номер_на_секция']
@@ -159,10 +168,19 @@ export function planReservations(input: {
   existing: ExistingReservation[]
   people: AssignedPerson[]
   isKnown: (code: string) => boolean
+  /** Sections a „И аз“ partner person holds (draft or published). */
+  managed?: ReadonlySet<string>
 }): ReservationPlan {
   const parsed = parseReservedCsv(input.csv, input.formOrg)
   const organisation = cleanOrg(input.formOrg)
   const errors = [...parsed.errors]
+  if (organisation && isManagedOrg(organisation)) {
+    errors.push('Резервациите на „И аз“ се правят от разпределението „И аз“ в Секции, не от файл.')
+  }
+  const managedOrgRow = parsed.rows.find((row) => isManagedOrg(row.organisation))
+  if (managedOrgRow && !errors.length) {
+    errors.push(`Ред ${managedOrgRow.line}: резервациите на „И аз“ се правят от разпределението „И аз“ в Секции, не от файл.`)
+  }
   if (input.mode === 'replace') {
     if (!organisation) errors.push('За „Замени списъка на организацията“ напиши организацията във формата.')
     const other = parsed.rows.find((row) => !sameOrg(row.organisation, organisation))
@@ -182,10 +200,16 @@ export function planReservations(input: {
     invalid: parsed.invalid,
     duplicates: parsed.duplicates,
     conflicts: [],
+    managed: [],
     errors,
   }
   for (const row of parsed.rows) {
     const current = existing.get(row.sectionCode)
+    // Never overwrite an „И аз“ reservation or a section a partner person holds: skip and list it.
+    if ((current && isManagedOrg(current.organisation)) || input.managed?.has(row.sectionCode)) {
+      plan.managed.push(row)
+      continue
+    }
     if (!current) plan.add.push(row)
     else if (!sameOrg(current.organisation, row.organisation)) plan.moved.push({ ...row, from: current.organisation })
     else if ((current.note ?? '') !== row.note || (row.place && (current.place ?? '') !== row.place) || current.organisation !== row.organisation) plan.update.push(row)
@@ -193,12 +217,13 @@ export function planReservations(input: {
   }
   if (input.mode === 'replace' && organisation) {
     const keep = new Set(parsed.rows.map((row) => row.sectionCode))
-    plan.remove = input.existing.filter((row) => sameOrg(row.organisation, organisation) && !keep.has(row.sectionCode))
+    plan.remove = input.existing.filter((row) => sameOrg(row.organisation, organisation) && !isManagedOrg(row.organisation) && !keep.has(row.sectionCode))
   }
   const after = new Map(input.existing.map((row) => [row.sectionCode, row.organisation]))
   for (const row of plan.remove) after.delete(row.sectionCode)
-  for (const row of parsed.rows) after.set(row.sectionCode, row.organisation)
-  const touched = new Set(parsed.rows.map((row) => row.sectionCode))
+  const written = [...plan.add, ...plan.update, ...plan.unchanged, ...plan.moved]
+  for (const row of written) after.set(row.sectionCode, row.organisation)
+  const touched = new Set(written.map((row) => row.sectionCode))
   plan.conflicts = conflictsFor(after, input.people).filter((conflict) => touched.has(conflict.sectionCode))
   return plan
 }
@@ -215,6 +240,7 @@ export function describePlan(plan: ReservationPlan) {
   if (plan.duplicates.length) parts.push(`повторени ${plan.duplicates.length}`)
   if (plan.unknown.length) parts.push(`непознати кодове ${plan.unknown.length}`)
   if (plan.conflicts.length) parts.push(`с наши хора ${plan.conflicts.length}`)
+  if (plan.managed.length) parts.push(`пропуснати, „И аз“ ${plan.managed.length}`)
   return parts.join(' · ')
 }
 

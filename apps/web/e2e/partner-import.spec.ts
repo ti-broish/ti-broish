@@ -107,6 +107,83 @@ test.describe('partner import („И аз“) for пълномощни only', ()
     await expect(summary).toContainText('Вече внесени (дубликати): 5')
     await expect(preview.getByRole('button', { name: /Потвърди вноса/ })).toBeDisabled()
   })
+
+  test('„И аз“ — секции: drafts in the МИР, publish reserves as „И аз“, one quota per section, no mail', async ({ page }) => {
+    // Priority sections next to every partner person (named by municipality), so no section API call is needed.
+    const places = d1(`SELECT DISTINCT designation_mir AS mir, municipality_name AS muni FROM partner_people WHERE COALESCE(designation_mir, '') != ''`) as Array<{ mir: string; muni: string }>
+    expect(places.length).toBeGreaterThan(0)
+    const rows: string[] = []
+    places.forEach((place, index) => {
+      for (let n = 1; n <= 3; n += 1) {
+        rows.push(`('${place.mir}99${String(index).padStart(2, '0')}00${n}', 'Е2Е', '${place.muni.replace(/'/g, "''")}', 'Е2Е', ${10 - n}, 'watch', '{}', datetime('now'))`)
+      }
+    })
+    const held = `${places[0]!.mir}9900001`
+    wranglerLocal([
+      '--command',
+      `DELETE FROM priority_sections WHERE town = 'Е2Е';
+       UPDATE partner_people SET section_draft = NULL, section_published = NULL, section_draft_locked = 0 WHERE email LIKE 'iaz.%-e2e@example.com';
+       DELETE FROM taken_sections WHERE section_code LIKE '__99%';
+       INSERT INTO priority_sections (section_code, town, municipality, oblast, r, level, components, updated_at) VALUES ${rows.join(', ')};
+       UPDATE signups SET draft_section = '${held}' WHERE id = 'e2e-iaz-existing';`,
+    ])
+    try {
+      await signIn(page)
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto('/admin/sections')
+      const panel = page.getByTestId('partner-sections-panel')
+      await panel.locator('summary').click()
+      await panel.getByRole('button', { name: 'Преглед за „И аз“' }).click()
+      await expect(panel.getByTestId('partner-sections-preview')).toContainText('Преглед (нищо не е записано)')
+      expect(d1(`SELECT COUNT(*) AS n FROM partner_people WHERE COALESCE(section_draft, '') != ''`)[0]).toMatchObject({ n: 0 })
+
+      await panel.getByTestId('partner-sections-distribute').click()
+      await panel.getByTestId('partner-sections-distribute').click()
+      await expect(page.getByText(/Записани чернови \d+/)).toBeVisible()
+      const drafts = d1(`SELECT designation_mir AS mir, section_draft AS code, section_published AS published FROM partner_people WHERE email LIKE 'iaz.%-e2e@example.com' AND COALESCE(designation_mir, '') != ''`) as Array<{ mir: string; code: string | null; published: string | null }>
+      expect(drafts.length).toBeGreaterThan(0)
+      for (const row of drafts) {
+        expect(row.code?.startsWith(row.mir)).toBe(true)
+        expect(row.code).not.toBe(held)
+        expect(row.published).toBeNull()
+      }
+      // Drafts reserve nothing.
+      expect(d1(`SELECT COUNT(*) AS n FROM taken_sections WHERE organisation = 'И аз'`)[0]).toMatchObject({ n: 0 })
+
+      const todor = panel.getByTestId('partner-section-row').filter({ hasText: 'Тодор Пробов' })
+      await todor.getByRole('button', { name: 'Публикувай' }).click()
+      await expect(page.getByText(/Публикувани 1\..*Без писма и без Brevo/)).toBeVisible()
+      const [published] = d1(`SELECT section_published AS code FROM partner_people WHERE email = 'iaz.one-e2e@example.com'`) as Array<{ code: string }>
+      expect(published!.code).toMatch(/^\d{9}$/)
+      expect(d1(`SELECT organisation FROM taken_sections WHERE section_code = '${published!.code}'`)[0]).toMatchObject({ organisation: 'И аз' })
+      // One quota: a signup can never take a partner section.
+      expect(() => d1(`UPDATE signups SET draft_section = '${published!.code}' WHERE id = 'e2e-iaz-admin'`)).toThrow()
+      // Nobody became a signup and nothing was queued for mail.
+      expect(d1(`SELECT COUNT(*) AS n FROM signups WHERE email LIKE 'iaz.%-e2e@example.com' AND id != 'e2e-iaz-admin'`)[0]).toMatchObject({ n: 1 })
+
+      // The reserved list shows it as managed by the partner allocation, without „Махни“.
+      await page.reload()
+      const reserved = page.locator('details').filter({ has: page.locator('summary', { hasText: /Резервирани/ }) }).first()
+      if (await reserved.count()) {
+        await reserved.locator('summary').first().click()
+        await expect(reserved.getByTestId('reserved-managed').first()).toBeVisible()
+      }
+
+      const again = page.getByTestId('partner-sections-panel')
+      await again.locator('summary').click()
+      await again.getByTestId('partner-section-row').filter({ hasText: 'Тодор Пробов' }).getByRole('button', { name: 'Махни публикуването' }).click()
+      await expect(page.getByText(/вече не е публикувана и не е резервирана/)).toBeVisible()
+      expect(d1(`SELECT COUNT(*) AS n FROM taken_sections WHERE section_code = '${published!.code}'`)[0]).toMatchObject({ n: 0 })
+    } finally {
+      wranglerLocal([
+        '--command',
+        `UPDATE signups SET draft_section = NULL WHERE id = 'e2e-iaz-existing';
+         DELETE FROM taken_sections WHERE organisation = 'И аз' AND section_code LIKE '__99%';
+         UPDATE partner_people SET section_draft = NULL, section_published = NULL, section_draft_locked = 0 WHERE email LIKE 'iaz.%-e2e@example.com';
+         DELETE FROM priority_sections WHERE town = 'Е2Е';`,
+      ])
+    }
+  })
 })
 
 async function openTools(page: Page) {
@@ -136,7 +213,8 @@ function wranglerLocal(args: string[]) {
       }).toString()
     } catch (error) {
       const text = String((error as { stdout?: unknown }).stdout ?? '') + String((error as { stderr?: unknown }).stderr ?? '') + String(error)
-      if (!/SQLITE_BUSY|database is locked/.test(text) || attempt >= 5) throw error
+      // Another spec may hold the local SQLite file; a trigger or constraint refusal is a real answer.
+      if (/reserved_section|section_held|constraint failed/i.test(text) || attempt >= 5) throw error
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500 * attempt)
     }
   }

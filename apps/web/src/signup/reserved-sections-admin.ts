@@ -1,8 +1,8 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
-import { cleanOrg, describePlan, sameOrg, planReservations, reservedCode, type ReservationPlan, type ReserveMode } from './reserved-sections'
-import { knownSectionCheck, loadAssignedPeople, loadConflicts, loadReservations } from './reserved-sections-db'
+import { MANAGED_ORG, cleanOrg, describePlan, isManagedOrg, sameOrg, planReservations, reservedCode, type ReservationPlan, type ReserveMode } from './reserved-sections'
+import { knownSectionCheck, loadAssignedPeople, loadConflicts, loadReservations, partnerHeldCodes } from './reserved-sections-db'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
 type Database = SignupD1
@@ -21,7 +21,7 @@ export const adminReservedSections = createServerFn({ method: 'POST' }).handler(
   for (const row of rows) orgs.set(row.organisation, (orgs.get(row.organisation) ?? 0) + 1)
   return {
     ok: true as const,
-    rows: rows.map(({ sectionCode, organisation, note, place }) => ({ sectionCode, organisation, note: note ?? '', place: place ?? '' })),
+    rows: rows.map(({ sectionCode, organisation, note, place }) => ({ sectionCode, organisation, note: note ?? '', place: place ?? '', managed: isManagedOrg(organisation) })),
     orgs: [...orgs.entries()].map(([organisation, count]) => ({ organisation, count })),
     conflicts: await loadConflicts(access.db),
   }
@@ -48,7 +48,7 @@ export const adminReservedCommit = createServerFn({ method: 'POST' })
     if (plan.rows.length === 0 && plan.remove.length === 0) return { ok: false as const, message: 'Няма валидни редове.', plan: summary(plan) }
     const now = new Date().toISOString()
     const statements = [
-      ...plan.remove.map((row) => db.prepare('DELETE FROM taken_sections WHERE section_code = ?').bind(row.sectionCode)),
+      ...plan.remove.map((row) => db.prepare(`DELETE FROM taken_sections WHERE section_code = ? AND organisation != '${MANAGED_ORG}'`).bind(row.sectionCode)),
       ...[...plan.add, ...plan.update, ...plan.moved].map((row) =>
         db
           .prepare(
@@ -58,7 +58,8 @@ export const adminReservedCommit = createServerFn({ method: 'POST' })
                mir_code = excluded.mir_code,
                place = CASE WHEN excluded.place != '' THEN excluded.place ELSE taken_sections.place END,
                organisation = excluded.organisation,
-               note = excluded.note`,
+               note = excluded.note
+             WHERE taken_sections.organisation != '${MANAGED_ORG}'`,
           )
           .bind(row.sectionCode, row.sectionCode.slice(0, 2), row.place, row.organisation, row.note, now),
       ),
@@ -82,17 +83,29 @@ export const adminReservedRemove = createServerFn({ method: 'POST' })
     const access = await gate('edit')
     if (!access.ok) return access
     const db = access.db
+    if (data.org && isManagedOrg(data.org)) {
+      return { ok: false as const, message: 'Резервациите на „И аз“ се махат от разпределението „И аз“ в Секции (Махни публикуването).' }
+    }
     if (data.org) {
       const codes = (await loadReservations(db)).filter((row) => sameOrg(row.organisation, data.org)).map((row) => row.sectionCode)
       if (codes.length === 0) return { ok: false as const, message: `Няма резервации на ${data.org}.` }
       for (let index = 0; index < codes.length; index += 5000) {
-        await db.batch(codes.slice(index, index + 5000).map((code) => db.prepare('DELETE FROM taken_sections WHERE section_code = ?').bind(code)))
+        await db.batch(codes.slice(index, index + 5000).map((code) => db.prepare(`DELETE FROM taken_sections WHERE section_code = ? AND organisation != '${MANAGED_ORG}'`).bind(code)))
       }
       return { ok: true as const, removed: codes.length, message: `Махнахме ${codes.length} резервации на ${data.org}.` }
     }
     if (data.codes.length === 0) return { ok: false as const, message: 'Няма секции за махане.' }
-    await db.batch(data.codes.map((code) => db.prepare('DELETE FROM taken_sections WHERE section_code = ?').bind(code)))
-    return { ok: true as const, removed: data.codes.length, message: `Махнахме резервацията на ${data.codes.join(', ')}.` }
+    const managed = new Set((await loadReservations(db)).filter((row) => isManagedOrg(row.organisation)).map((row) => row.sectionCode))
+    const codes = data.codes.filter((code) => !managed.has(code))
+    const kept = data.codes.length - codes.length
+    if (codes.length === 0) return { ok: false as const, message: 'Тези резервации са на „И аз“. Махат се от разпределението „И аз“ в Секции.' }
+    // Never an „И аз“ reservation, even if the code is listed: the partner allocation owns it.
+    await db.batch(codes.map((code) => db.prepare(`DELETE FROM taken_sections WHERE section_code = ? AND organisation != '${MANAGED_ORG}'`).bind(code)))
+    return {
+      ok: true as const,
+      removed: codes.length,
+      message: `Махнахме резервацията на ${codes.join(', ')}.${kept ? ` ${kept} на „И аз“ не са махнати.` : ''}`,
+    }
   })
 
 function cleanInput(input: ImportInput) {
@@ -114,6 +127,7 @@ async function buildPlan(db: Database, data: { csv: string; org: string; mode: R
     existing: await loadReservations(db),
     people: await loadAssignedPeople(db),
     isKnown: await knownSectionCheck(db),
+    managed: await partnerHeldCodes(db),
   })
   if (plan.rows.length > MAX_ROWS) plan.errors.push(`Най-много ${MAX_ROWS} секции наведнъж.`)
   return plan
@@ -144,6 +158,8 @@ function summary(plan: ReservationPlan) {
     duplicateCount: plan.duplicates.length,
     conflicts: plan.conflicts.slice(0, 100),
     conflictCount: plan.conflicts.length,
+    managed: plan.managed.slice(0, 50).map((row) => row.sectionCode),
+    managedCount: plan.managed.length,
     orgs: [...new Set(plan.rows.map((row) => row.organisation))].slice(0, 20),
     errors: plan.errors,
   }

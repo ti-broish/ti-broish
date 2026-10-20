@@ -7,7 +7,7 @@ import { normalizeCantReachSection } from './cant-reach'
 import { emptyProfile, type Profile } from './model'
 import { parseAdminEmails } from './staff'
 import { PRIORITY_SECTIONS_INDEXES, PRIORITY_SECTIONS_TABLE } from './priority-sections-sql'
-import { PARTNER_PEOPLE_INDEXES, PARTNER_PEOPLE_TABLE } from './partner-people-sql'
+import { PARTNER_PEOPLE_INDEXES, PARTNER_PEOPLE_TABLE, PARTNER_SECTION_COLUMNS, PARTNER_SECTION_GUARDS } from './partner-people-sql'
 import { RESERVED_SECTION_GUARDS } from './reserved-sections-sql'
 import { MOBILE_DRAFTS_GUARDS, MOBILE_DRAFTS_TABLE } from './mobile-teams-sql'
 
@@ -206,6 +206,14 @@ export async function signupDatabase() {
   for (const sql of PRIORITY_SECTIONS_INDEXES) await db.prepare(sql).run()
   await db.prepare(PARTNER_PEOPLE_TABLE).run()
   for (const sql of PARTNER_PEOPLE_INDEXES) await db.prepare(sql).run()
+  for (const sql of PARTNER_SECTION_COLUMNS) {
+    try {
+      await db.prepare(sql).run()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!/duplicate column/i.test(message)) throw error
+    }
+  }
   await db.prepare(STAFF).run()
   await db.prepare(AUDIT).run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_signup_audit_signup ON signup_audit(signup_id, created_at)').run()
@@ -213,6 +221,7 @@ export async function signupDatabase() {
   for (const sql of RESERVED_SECTION_GUARDS) await db.prepare(sql).run()
   await db.prepare(MOBILE_DRAFTS_TABLE).run()
   for (const sql of MOBILE_DRAFTS_GUARDS) await db.prepare(sql).run()
+  for (const sql of PARTNER_SECTION_GUARDS) await db.prepare(sql).run()
   try {
     await db.prepare(DESIGNATION_NUMBER_UNIQUE_INDEX_SQL).run()
   } catch {

@@ -12,6 +12,7 @@ import type { RosterFields } from '../../signup/admin-csv'
 import type { SectionSpot } from '../../signup/section-where'
 import { ReservedSectionsPanel, type ReservedRowView } from './-reserved-sections-panel'
 import { MobileTeamsPanel } from './-mobile-teams'
+import { PartnerSectionsPanel } from './-partner-sections-panel'
 import { loadReservedIndex } from './-reserved-badge'
 import { adminReservedSections } from '../../signup/reserved-sections-admin'
 import type { ReservationConflict } from '../../signup/reserved-sections'
@@ -218,6 +219,7 @@ export function SectionsPage() {
         reload={(notice) => loadReserved(notice)}
       />
       <MobileTeamsPanel canEdit={canEdit} setMessage={setMessage} />
+      <PartnerSectionsPanel canEdit={canEdit} canPublish={canPublish} setMessage={setMessage} />
       <form
         className="flex flex-wrap items-end gap-2"
         onSubmit={(event) => {

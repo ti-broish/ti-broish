@@ -1,6 +1,8 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { AssignedSectionMap } from '../components/AssignedSectionMap'
+import { loadAssignedSectionPlace } from '../signup/assigned-section-load'
+import type { AssignedSectionPlace } from '../signup/assigned-section-place'
 import { ProfileSummary } from '../components/ProfileSummary'
 import { PageIntro } from '../components/SiteChrome'
 import { ShareSignup } from '../components/ShareSignup'
@@ -308,7 +310,7 @@ function ProfilePage() {
           <button
             type="button"
             className="flex min-h-14 w-full items-center justify-center rounded-[20px] border border-[#333] bg-white px-5 text-xl font-bold"
-            onClick={() => updateProfile({ withdrawn: true, submitted: true, withdrawnByAdmin: false })}
+            onClick={() => updateProfile({ withdrawn: true, submitted: true, withdrawnByAdmin: false, assignedSection: '' })}
           >
             Оттегли записването
           </button>
@@ -419,8 +421,44 @@ function CantReachSection({ profile }: { profile: Profile }) {
   )
 }
 
+/** Address and settlement of the assigned section itself, never the place picked at signup. */
+function AssignedSectionWhere({ place }: { place: AssignedSectionPlace | null }) {
+  if (!place) return null
+  return (
+    <div className="grid gap-1" aria-label="Адрес на секцията">
+      {place.address ? <p className="leading-7">{place.address}</p> : null}
+      {place.settlement ? <p className="font-bold leading-7">{place.settlement}</p> : null}
+    </div>
+  )
+}
+
+function useAssignedSectionPlace(section: string | null) {
+  const [loaded, setLoaded] = useState<{ section: string; place: AssignedSectionPlace | null } | null>(null)
+  useEffect(() => {
+    if (!section) {
+      setLoaded(null)
+      return
+    }
+    let cancelled = false
+    void loadAssignedSectionPlace()
+      .then((result) => {
+        if (cancelled) return
+        // A lookup for another section (or none) shows the code only.
+        setLoaded({ section, place: result && result.section === section ? result.place : null })
+      })
+      .catch(() => {
+        if (!cancelled) setLoaded({ section, place: null })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [section])
+  return loaded
+}
+
 function NextStep({ profile }: { profile: Profile }) {
   const view = profileView(profile)
+  const assigned = useAssignedSectionPlace(view === 'assigned' ? profile.assignedSection : null)
   if (view === 'incomplete') {
     const adminUnregistered = profile.withdrawn && profile.withdrawnByAdmin
     const selfWithdrawn = profile.withdrawn && !profile.withdrawnByAdmin
@@ -481,17 +519,20 @@ function NextStep({ profile }: { profile: Profile }) {
     )
   }
   if (view === 'assigned') {
+    const assignedPlace = assigned?.section === profile.assignedSection ? assigned.place : null
     return (
       <section className="grid gap-3" aria-label="Назначена секция">
         <p className="text-sm font-bold text-[#666]">Назначена секция</p>
         <h2 className="text-3xl font-black text-[#444]">
           {profile.assignedSection}
         </h2>
-        {profile.place?.sectionPlace ? <p className="leading-7">{profile.place.sectionPlace}</p> : null}
+        <AssignedSectionWhere place={assignedPlace} />
         <p className="text-lg leading-7">
           {assignedDays(profile)}. Екипът вече е определил секцията. Отпечатай значката и я вземи в изборния ден.
         </p>
-        {profile.assignedSection ? <AssignedSectionMap place={profile.place} section={profile.assignedSection} /> : null}
+        {profile.assignedSection ? (
+          <AssignedSectionMap place={profile.place} section={profile.assignedSection} assigned={assignedPlace} />
+        ) : null}
         <Link to="/znachka" className="brand-button">
           Отпечатай значката
         </Link>

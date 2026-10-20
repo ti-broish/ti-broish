@@ -104,7 +104,7 @@ describe('roster exclusions for withdrawn', () => {
   })
 
   it('marks admin unregister in the payload so /profil can keep self-service copy', () => {
-    expect(unregisterSql()).toContain("'$.withdrawnByAdmin', json('true')")
+    expect(unregisterSql()).toContain("'$.withdrawnByAdmin', json(?)")
     expect(restoreSql()).toContain("'$.withdrawnByAdmin', json('false')")
   })
 })

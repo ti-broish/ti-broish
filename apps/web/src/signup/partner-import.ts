@@ -28,6 +28,7 @@ export const PARTNER_COLUMNS = {
   oblast: ['област', 'oblast', 'region'],
   municipalities: ['общини', 'община', 'municipalities', 'municipality'],
   submitted: ['подадено', 'submitted', 'дата'],
+  comment: ['коментар', 'comment', 'бележка'],
 } as const
 
 export const PARTNER_MAPPING: ReadonlyArray<{ column: string; field: string }> = [
@@ -50,6 +51,8 @@ export interface PartnerRawRow {
   oblast: string
   municipalities: string
   submitted: string
+  /** Free-text comment column (optional). Kept in place_note for staff. */
+  comment?: string
 }
 
 export interface PartnerPerson {
@@ -67,6 +70,7 @@ export interface PartnerPerson {
   /** МИР for the пълномощно, or '' when the file does not say (София без район). */
   mir: string
   submittedAt: string | null
+  comment: string
   warnings: string[]
 }
 
@@ -115,6 +119,7 @@ export function parsePartnerCsv(text: string): { rows: PartnerRawRow[]; errors: 
     oblast: index(PARTNER_COLUMNS.oblast),
     municipalities: index(PARTNER_COLUMNS.municipalities),
     submitted: index(PARTNER_COLUMNS.submitted),
+    comment: index(PARTNER_COLUMNS.comment),
   }
   const missing = (['name', 'email', 'egn'] as const).filter((key) => columns[key] < 0)
   if (missing.length) {
@@ -133,6 +138,7 @@ export function parsePartnerCsv(text: string): { rows: PartnerRawRow[]; errors: 
       oblast: at(columns.oblast),
       municipalities: at(columns.municipalities),
       submitted: at(columns.submitted),
+      comment: at(columns.comment),
     })
   })
   return { rows, errors: [] }
@@ -372,6 +378,46 @@ export function mapPlace(oblast: string, municipalities: string, regions: Readon
   return { place, travel, unmatched, oblastKnown: true }
 }
 
+/** MIRs of one oblast/municipality region code. София-град is 23, 24 and 25. */
+function regionMirs(code: string) {
+  return code === 'sofia-merged' ? ['23', '24', '25'] : /^\d{2}$/.test(code) ? [code] : []
+}
+
+function mirsOfName(value: string, regions: ReadonlyArray<ImportRegion>) {
+  const found = new Set<string>()
+  if (!placeKey(value)) return found
+  for (const region of regionsFor(value, regions)) for (const mir of regionMirs(region.code)) found.add(mir)
+  if (found.size) return found
+  for (const region of regions) if (municipalityIn(region, value)) for (const mir of regionMirs(region.code)) found.add(mir)
+  if (found.size) return found
+  const district = sofiaMir(value.replace(/\d+/g, '').trim())
+  if (district) found.add(district)
+  return found
+}
+
+/**
+ * MIRs named in a free-text Общини value: an oblast („София-област“, „Перник“), a municipality of any
+ * oblast („Кюстендил“, „Карлово“) or a Sofia district („Младост 3“). A sentence is read word by word
+ * (one and two words), so „близко до София или Плевен“ names 23–25 and 15.
+ */
+export function mirsNamed(value: string, regions: ReadonlyArray<ImportRegion> = IMPORT_REGIONS) {
+  const whole = mirsOfName(value, regions)
+  if (whole.size) return [...whole].sort()
+  const words = value.split(/[^\p{L}\p{N}-]+/u).filter(Boolean)
+  const found = new Set<string>()
+  for (let i = 0; i < words.length; i += 1) {
+    const two = i + 1 < words.length ? mirsOfName(`${words[i]} ${words[i + 1]}`, regions) : new Set<string>()
+    if (two.size) {
+      for (const mir of two) found.add(mir)
+      i += 1
+      continue
+    }
+    if ((words[i] ?? '').length < 4) continue
+    for (const mir of mirsOfName(words[i]!, regions)) found.add(mir)
+  }
+  return [...found].sort()
+}
+
 // ---------- row mapping ----------
 
 /** МИР the пълномощно is for: the oblast's МИР, Пловдив by municipality, София only by district. */
@@ -421,6 +467,7 @@ export function mapPartnerRow(raw: PartnerRawRow, regions: ReadonlyArray<ImportR
       unmatched: place.unmatched,
       mir,
       submittedAt,
+      comment: (raw.comment ?? '').replace(/\s+/g, ' ').trim(),
       warnings,
     },
   }
@@ -535,11 +582,12 @@ export const INSERT_PARTNER_PERSON_SQL = `INSERT INTO partner_people (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(partner, egn) DO NOTHING`
 
-function placeNote(person: PartnerPerson) {
+export function placeNote(person: Pick<PartnerPerson, 'place' | 'travel' | 'unmatched'> & { comment?: string }) {
   const bits = [
     person.place?.cityRegionName ? `район ${person.place.cityRegionName}` : '',
     person.travel.length ? `и: ${person.travel.map((stop) => stop.name).join(', ')}` : '',
     person.unmatched.length ? `неразпознати: ${person.unmatched.join(', ')}` : '',
+    person.comment ? `коментар: ${person.comment}` : '',
   ].filter(Boolean)
   return bits.join('; ').slice(0, 400)
 }

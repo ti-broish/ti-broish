@@ -31,6 +31,8 @@ export interface DistributePerson {
   travelStops: Array<{ regionCode: string; code: string }>
   place: string
   companions: DistributeCompanion[]
+  /** On an exact tie, a travel area before home (default). „И аз“ people set false: closer wins the tie. */
+  preferTravel?: boolean
 }
 
 export interface DistributeSection {
@@ -595,6 +597,7 @@ function groupCloseness(section: DistributeSection, people: readonly DistributeP
 
 /** A volunteer who accepted places outside their home oblast (ticked МИРs or named municipalities). */
 function travels(person: DistributePerson) {
+  if (person.preferTravel === false) return false
   return person.radius === 'distant' && (person.distantMirs.some((code) => padMir(code)) || person.travelStops.length > 0)
 }
 

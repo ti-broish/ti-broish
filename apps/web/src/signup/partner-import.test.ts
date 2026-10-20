@@ -5,6 +5,8 @@ import {
   inlineSql,
   mapPartnerRow,
   mapPlace,
+  mirsNamed,
+  placeNote,
   normalizeEgn,
   normalizePhone,
   parsePartnerCsv,
@@ -226,3 +228,23 @@ describe('the „И аз“ import', () => {
     }
   })
 })
+
+describe('comment column and named МИРs', () => {
+  it('keeps the Коментар column in the place note', () => {
+    const text = `Име,Имейл,ЕГН,Телефон,Област,Общини,Коментар,Секция\nИван Петров Иванов,a@example.com,${A},888123456,Софийска,"Перник, Кюстендил",Само събота,\n`
+    const parsed = parsePartnerCsv(text)
+    expect(parsed.rows[0]?.comment).toBe('Само събота')
+    const mapped = mapPartnerRow(parsed.rows[0]!)
+    expect(mapped.ok).toBe(true)
+    if (!mapped.ok) return
+    expect(placeNote(mapped.person)).toBe('неразпознати: Перник, Кюстендил; коментар: Само събота')
+  })
+
+  it('reads МИРs from oblast, municipality, district and free text', () => {
+    expect(mirsNamed('София-област')).toEqual(['26'])
+    expect(mirsNamed('Кюстендил')).toEqual(['10'])
+    expect(mirsNamed('Карлово')).toEqual(['17'])
+    expect(mirsNamed('Бих могла близко до София или Плевен')).toEqual(['15', '23', '24', '25'])
+  })
+})
+

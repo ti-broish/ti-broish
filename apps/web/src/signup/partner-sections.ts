@@ -1,15 +1,19 @@
-import { readPollingSections, readTownIds } from './distribute'
+import { distributeSections, readPollingSections, readTownIds, tierOf, type DistributePerson, type DistributeSection } from './distribute'
+import { cachedJson, loadReachSections } from './distribute-plan'
+import { mirsNamed } from './partner-import'
+import { lastTurnout } from './section-tiers'
 import { PARTNER_RESERVATION_ORG } from './partner-people-sql'
 import { IMPORT_REGIONS } from './partner-import-regions.data'
 import { foldPlace, rKey } from './priority-sections'
 import { sectionDesk } from './sections'
 
 /**
- * Sections for „И аз“ partner people. Pure planning, shared by the admin tab and the one-off
- * script, so a dry run and a write always agree. Each person stays in their МИР (the пълномощно
- * is for the МИР): their named municipality first, else anywhere in the МИР. Priority sections
- * first by R desc; ordinary sections only paper or unknown (machine only when priority). A held
- * section (signup, partner, mobile target, reservation) is never offered. Nothing here writes,
+ * Sections for „И аз“ partner people, shared by the admin tab and the one-off script, so a dry run
+ * and a write always agree. „Чернови за „И аз““ uses planPartnerDistribution: the country ranking
+ * (tier, priority-list R, voters; every machine section counts) across the person's whole reach
+ * (partnerReachMirs). A draft outside the пълномощно's МИР needs a new пълномощно before publishing.
+ * rankForPerson / planPartnerSections are the older МИР-only planner, kept for reference.
+ * A held section (signup, partner, mobile target, reservation) is never offered. Nothing here writes,
  * mails or syncs.
  */
 
@@ -43,7 +47,7 @@ export interface PartnerSectionDraft {
   priority: { r: number | null; level: string } | null
 }
 
-export type PartnerSkipReason = 'no-mir' | 'no-section' | 'has-section'
+export type PartnerSkipReason = 'no-mir' | 'no-section' | 'has-section' | 'also-volunteer'
 
 export interface PartnerSectionPlan {
   drafts: PartnerSectionDraft[]
@@ -294,7 +298,124 @@ export function describePartnerPlan(plan: PartnerSectionPlan) {
   if (count('has-section')) parts.push(`вече със секция ${count('has-section')}`)
   if (count('no-section')) parts.push(`без свободна секция в МИР ${count('no-section')}`)
   if (count('no-mir')) parts.push(`без МИР ${count('no-mir')}`)
+  if (count('also-volunteer')) parts.push(`и наш доброволец със секция ${count('also-volunteer')}`)
   return `${parts.join(' · ')}. Без публикуване, без писма и без Brevo.`
+}
+
+/** Partner people who are also our volunteers with a draft or published section (same ЕГН or email). */
+export const PARTNER_ALSO_VOLUNTEER_SQL = `SELECT DISTINCT p.id AS id FROM partner_people p
+JOIN signups s ON (REPLACE(COALESCE(s.egn, ''), ' ', '') = p.egn OR (COALESCE(p.email, '') != '' AND lower(s.email) = lower(p.email)))
+WHERE COALESCE(s.withdrawn, 0) = 0 AND (COALESCE(s.draft_section, '') != '' OR COALESCE(s.published_section, '') != '')`
+
+/** The named lists in place_note („и: …“ and „неразпознати: …“), not the comment. */
+function noteNames(note: string) {
+  const names: string[] = []
+  for (const part of note.split(';')) {
+    const match = part.trim().match(/^(и|неразпознати):\s*(.*)$/u)
+    if (match) names.push(...(match[2] ?? '').split(',').map((value) => value.trim()).filter(Boolean))
+  }
+  return names
+}
+
+/**
+ * Where a „И аз“ person can be drafted: the whole МИР of the пълномощно, the whole Област from the file
+ * (София-град is 23, 24 and 25), and every МИР their Общини name (another oblast, a municipality of
+ * another oblast, a Sofia district).
+ */
+export function partnerReachMirs(person: Pick<PartnerSectionPerson, 'mir' | 'regionCode' | 'note'>) {
+  const mirs = new Set<string>()
+  const mir = person.mir.trim()
+  if (/^\d{2}$/.test(mir) && mir !== '32') mirs.add(mir)
+  if (person.regionCode === 'sofia-merged') for (const code of ['23', '24', '25']) mirs.add(code)
+  else if (/^\d{2}$/.test(person.regionCode) && person.regionCode !== '32') mirs.add(person.regionCode)
+  for (const name of noteNames(person.note)) for (const code of mirsNamed(name)) if (code !== '32') mirs.add(code)
+  return [...mirs].sort()
+}
+
+/** The country planner's person for a „И аз“ person: the whole reach, no companions, closer wins a tie. */
+export function partnerDistributePerson(person: PartnerSectionPerson): DistributePerson | null {
+  const reach = partnerReachMirs(person)
+  if (reach.length === 0) return null
+  const sofia = person.regionCode === 'sofia-merged'
+  const home = sofia ? 'sofia-merged' : /^\d{2}$/.test(person.regionCode) ? person.regionCode : reach[0]!
+  const mir = /^\d{2}$/.test(person.mir) ? person.mir : sofia ? '23' : home
+  const homeMirs = new Set(sofia ? ['23', '24', '25'] : [home, mir])
+  return {
+    id: person.id,
+    email: `partner:${person.id}`,
+    role: 'section',
+    mobileTeam: false,
+    radius: 'distant',
+    mir,
+    regionCode: home,
+    townId: null,
+    municipalityCode: municipalityCodeOf(person),
+    cityRegionCode: '',
+    extraCityRegionCodes: [],
+    distantMirs: reach.filter((code) => !homeMirs.has(code)),
+    travelStops: [],
+    place: '',
+    companions: [],
+    preferTravel: false,
+  }
+}
+
+/**
+ * „Чернови за „И аз““ with the country ranking: across the whole reach, tier (paper > 50 voted, machine > 50,
+ * paper ≤ 50, machine ≤ 50; every machine section counts), then priority-list R, then voters; closeness
+ * only on a tie. The person with the fewest options goes first. Held codes are never offered.
+ */
+export async function planPartnerDistribution(input: {
+  people: PartnerSectionPerson[]
+  blocked: ReadonlySet<string>
+  priority: ReadonlyMap<string, { r: number | null; level: string }>
+  alsoVolunteer?: ReadonlySet<string>
+  getJson: (path: string) => Promise<unknown>
+}) {
+  const plan: PartnerSectionPlan = { drafts: [], skipped: [] }
+  const candidates: DistributePerson[] = []
+  const byId = new Map<string, PartnerSectionPerson>()
+  for (const person of input.people) {
+    if (person.draft || person.published) {
+      plan.skipped.push({ personId: person.id, mir: person.mir, reason: 'has-section' })
+      continue
+    }
+    if (input.alsoVolunteer?.has(person.id)) {
+      plan.skipped.push({ personId: person.id, mir: person.mir, reason: 'also-volunteer' })
+      continue
+    }
+    const adapted = partnerDistributePerson(person)
+    if (!adapted) {
+      plan.skipped.push({ personId: person.id, mir: person.mir, reason: 'no-mir' })
+      continue
+    }
+    candidates.push(adapted)
+    byId.set(person.id, person)
+  }
+  const reach = await loadReachSections(candidates, cachedJson(input.getJson))
+  if (!reach.ok) return { ok: false as const, message: reach.message }
+  const result = distributeSections({ people: candidates, sections: reach.sections, blocked: [...input.blocked], priority: input.priority })
+  const sectionById = new Map(reach.sections.map((section) => [section.id, section]))
+  for (const row of result.assignments) {
+    const person = byId.get(row.personId)!
+    const municipality = municipalityCodeOf(person)
+    const local = row.sectionId.slice(0, 2) === person.mir.padStart(2, '0') && municipality !== '' && row.sectionId.slice(2, 4) === municipality
+    plan.drafts.push({
+      personId: row.personId,
+      mir: row.sectionId.slice(0, 2),
+      code: row.sectionId,
+      scope: local ? 'municipality' : 'mir',
+      priority: input.priority.get(row.sectionId) ?? null,
+    })
+  }
+  for (const row of result.skipped) plan.skipped.push({ personId: row.personId, mir: byId.get(row.personId)?.mir ?? '', reason: 'no-section' })
+  return { ok: true as const, plan, sections: reach.sections as DistributeSection[], sectionById }
+}
+
+/** Tier 1–4 of a drafted section (null: no April data), for reports. */
+export function partnerSectionTier(section: DistributeSection | undefined) {
+  if (!section) return null
+  return tierOf({ ...section, turnout: section.turnout ?? lastTurnout().get(section.id) ?? null })
 }
 
 /** Guarded write: only people still without a section; the triggers refuse a held section. */

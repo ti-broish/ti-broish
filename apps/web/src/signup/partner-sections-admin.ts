@@ -4,6 +4,7 @@ import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { fetchApiJson } from './distribute-plan'
 import { PARTNER_RESERVATION_ORG, isSectionHeldAbort } from './partner-people-sql'
 import {
+  PARTNER_ALSO_VOLUNTEER_SQL,
   PARTNER_BLOCKED_SQL,
   PARTNER_DRAFT_WRITE_SQL,
   PARTNER_PRIORITY_SQL,
@@ -11,15 +12,10 @@ import {
   blockedCodes,
   code9,
   describePartnerPlan,
-  municipalitiesToFetch,
-  ordinaryCandidates,
   partnerPersonFrom,
-  planPartnerSections,
-  priorityCandidates,
+  planPartnerDistribution,
   publishStatements,
   unpublishStatements,
-  type PartnerCandidate,
-  type PartnerSectionPerson,
   type PriorityRow,
 } from './partner-sections'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
@@ -42,15 +38,18 @@ async function loadContext(db: Database) {
   } catch {
     priorityRows = []
   }
-  return { people, held, priority: priorityCandidates(priorityRows) }
-}
-
-async function withOrdinary(people: PartnerSectionPerson[], priority: PartnerCandidate[], blocked: ReadonlySet<string>) {
-  const extra: PartnerCandidate[] = []
-  for (const item of municipalitiesToFetch(people, priority, blocked)) {
-    extra.push(...(await ordinaryCandidates(fetchApiJson, item.mir, item.municipality, item.name)))
+  let alsoVolunteer = new Set<string>()
+  try {
+    alsoVolunteer = new Set(((await db.prepare(PARTNER_ALSO_VOLUNTEER_SQL).all<{ id: string }>()).results ?? []).map((row) => row.id))
+  } catch {
+    alsoVolunteer = new Set()
   }
-  return [...priority, ...extra]
+  const priority = new Map<string, { r: number | null; level: string }>()
+  for (const row of priorityRows) {
+    const code = code9(row.section_code)
+    if (code) priority.set(code, { r: row.r === null || row.r === undefined ? null : Number(row.r), level: row.level ?? '' })
+  }
+  return { people, held, priority, alsoVolunteer }
 }
 
 /** The tab: every partner person with their draft and published section. */
@@ -122,8 +121,15 @@ export const adminPartnerDistribute = createServerFn({ method: 'POST' })
     const db = access.db
     const context = await loadContext(db)
     const blocked = blockedCodes(context.held)
-    const candidates = await withOrdinary(context.people, context.priority, blocked)
-    const plan = planPartnerSections({ people: context.people, candidates, blocked })
+    const planned = await planPartnerDistribution({
+      people: context.people,
+      blocked,
+      priority: context.priority,
+      alsoVolunteer: context.alsoVolunteer,
+      getJson: fetchApiJson,
+    })
+    if (!planned.ok) return { ok: false as const, state: 'nodb' as const, email: '', message: planned.message }
+    const plan = planned.plan
     if (data.dryRun) return { ok: true as const, drafted: 0, plan, message: `Преглед (нищо не е записано): ${describePartnerPlan(plan)}` }
     const now = new Date().toISOString()
     let drafted = 0

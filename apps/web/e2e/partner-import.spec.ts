@@ -79,6 +79,9 @@ test.describe('partner import („И аз“) for пълномощни only', ()
     await page.getByRole('button', { name: 'Номерирай' }).click()
     await expect(status).toContainText('номерирани 5')
     const todor = page.getByRole('row').filter({ hasText: 'Тодор Иванов Пробов' })
+    // „И аз“ people have no admin profile: plain name with the badge, never a signup link.
+    await expect(todor.getByRole('link')).toHaveCount(0)
+    await expect(todor.getByText('И аз', { exact: true })).toBeVisible()
     await expect(todor.getByRole('cell').first()).toHaveText(/^\d{3,}$/)
     await expect(todor.getByRole('cell').nth(3)).toHaveText('02')
 

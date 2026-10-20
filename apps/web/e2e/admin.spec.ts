@@ -551,6 +551,8 @@ test.describe('staff admin', () => {
     await page.goto('/admin/palnomoshtni')
     await expect(page.getByRole('heading', { name: 'Пълномощни' })).toBeVisible()
     await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    // Names in „Хора“ open the admin profile, like Записани and Секции.
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' }).getByRole('link', { name: 'Мария Георгиева Петрова' })).toHaveAttribute('href', '/admin/signups/e2e-maria')
     const pdf = Buffer.from('%PDF-1.4 test')
     await page.getByLabel('Подписани PDF или ZIP').setInputFiles([
       { name: '0001_234600101_Petrova_signed.pdf', mimeType: 'application/pdf', buffer: pdf },
@@ -567,6 +569,7 @@ test.describe('staff admin', () => {
     await page.getByRole('button', { name: 'Качи 1 подписани' }).click()
     await expect(page.getByRole('status')).toHaveText('Качени 1 от 1; Brevo (DOCUMENT_URL): 1 обновени / 0 грешки.')
     await expect(page.getByRole('table', { name: 'Резултат от качването' }).getByRole('cell', { name: 'обновен', exact: true })).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Резултат от качването' }).getByRole('link', { name: 'Иван Иванов Иванов' })).toHaveAttribute('href', '/admin/signups/e2e-ivanov')
     expect(uploads).toEqual(['e2e-ivanov'])
     // The upload itself syncs DOCUMENT_URL on the server; no second Brevo round trip from the page.
     expect(brevoCalls).toEqual([])

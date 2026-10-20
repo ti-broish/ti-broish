@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl } from '@tanstack/react-start/server'
-import { publishBlocked, validateAssignment, warningSummary } from './admin-assign'
+import { PERSON_REACH_COLUMNS, personReachFrom, publishBlocked, validateAssignment, warningSummary, type PersonReach } from './admin-assign'
 import { normalizeSection } from './admin-csv'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { assignmentMail, deliverMail } from './mail'
@@ -29,7 +29,7 @@ function origin() {
   return `${url.protocol}//${url.host}`
 }
 
-async function blockReason(db: SignupD1, section: string, personId: string, personMir: string) {
+async function blockReason(db: SignupD1, section: string, personId: string, reach: PersonReach) {
   const code = normalizeSection(section)
   const takenOrg = await reservedOrgOf(db, code)
   const published = await db
@@ -50,7 +50,8 @@ async function blockReason(db: SignupD1, section: string, personId: string, pers
   const warnings = validateAssignment({
     section: code,
     personId,
-    personMir,
+    personMir: reach.mir,
+    reach,
     takenOrg,
     duplicate,
   })
@@ -66,18 +67,18 @@ export const adminPublishOne = createServerFn({ method: 'POST' })
     const row = await db
       .prepare(
         `SELECT email,
-                COALESCE(mir_code, '') AS mir,
+                ${PERSON_REACH_COLUMNS},
                 COALESCE(draft_section, '') AS draft_section,
                 COALESCE(published_section, '') AS published_section,
                 json_extract(payload, '$.place.townId') AS town_id
          FROM signups WHERE id = ?`,
       )
       .bind(data.id)
-      .first<{ email: string; mir: string; draft_section: string; published_section: string; town_id: number | string | null }>()
+      .first<{ email: string; mir: string; region: string; radius: string; distant_region_codes: string; travel_municipalities: string; draft_section: string; published_section: string; town_id: number | string | null }>()
     if (!row) return { ok: false as const, message: 'Няма такова записване.' }
     const section = row.draft_section || row.published_section
     if (!section) return { ok: false as const, message: 'Няма чернова или публикувана секция за този човек.' }
-    const blocked = await blockReason(db, section, data.id, row.mir)
+    const blocked = await blockReason(db, section, data.id, personReachFrom(row))
     if (blocked) return { ok: false as const, message: `Не публикувам: ${blocked}` }
     const now = new Date().toISOString()
     if (row.draft_section && row.draft_section !== row.published_section) {

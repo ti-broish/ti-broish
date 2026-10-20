@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { distributionWhere, normalizeSection, type RosterView } from './admin-csv'
-import { publishBlocked, validateAssignment, warningSummary, type AssignWarning, type DuplicateOwner } from './admin-assign'
+import { PERSON_REACH_COLUMNS, personReachFrom, publishBlocked, validateAssignment, warningSummary, type AssignWarning, type DuplicateOwner, type PersonReach } from './admin-assign'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 import { reservedCode, reservedMessage } from './reserved-sections'
@@ -46,14 +46,14 @@ export const adminDraft = createServerFn({ method: 'POST' })
     const db = access.db
     const section = normalizeSection(data.section).slice(0, 32)
     const person = await db
-      .prepare(`SELECT id, email, COALESCE(mir_code, '') AS mir FROM signups WHERE id = ?`)
+      .prepare(`SELECT id, email, ${PERSON_REACH_COLUMNS} FROM signups WHERE id = ?`)
       .bind(data.id)
-      .first<{ id: string; email: string; mir: string }>()
+      .first<{ id: string; email: string; mir: string; region: string; radius: string; distant_region_codes: string; travel_municipalities: string }>()
     if (!person) return { ok: false as const, message: 'Няма такова записване.' }
     // Reserved by another organisation: refuse, do not save a draft that could never be published.
     const reservedBy = section ? await reservedOrgOf(db, section) : null
     if (reservedBy) return { ok: false as const, reserved: reservedBy, message: reservedMessage(reservedCode(section) || section, reservedBy) }
-    const warnings = section ? await assignmentWarnings(db, section, person.id, person.mir) : []
+    const warnings = section ? await assignmentWarnings(db, section, person.id, personReachFrom(person)) : []
     try {
       await db
       .prepare(
@@ -88,16 +88,16 @@ export const adminPublish = createServerFn({ method: 'POST' })
     const pending = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
     const rows = await bound(
       db,
-      `SELECT id, email, COALESCE(mir_code, '') AS mir, COALESCE(draft_section, '') AS draft_section
+      `SELECT id, email, ${PERSON_REACH_COLUMNS}, COALESCE(draft_section, '') AS draft_section
        FROM signups WHERE (${filter.clause}) AND ${pending}`,
       filter.binds,
-    ).all<{ id: string; email: string; mir: string; draft_section: string }>()
+    ).all<{ id: string; email: string; mir: string; region: string; radius: string; distant_region_codes: string; travel_municipalities: string; draft_section: string }>()
     const now = new Date().toISOString()
     let published = 0
     const blocked: Array<{ email: string; section: string; warning: string }> = []
     for (const row of rows.results ?? []) {
       const section = normalizeSection(row.draft_section)
-      const warnings = await assignmentWarnings(db, section, row.id, row.mir)
+      const warnings = await assignmentWarnings(db, section, row.id, personReachFrom(row))
       if (publishBlocked(warnings)) {
         blocked.push({ email: row.email, section, warning: warningSummary(warnings) })
         continue
@@ -117,13 +117,14 @@ export const adminPublish = createServerFn({ method: 'POST' })
     return { ok: true as const, published, blocked }
   })
 
-async function assignmentWarnings(db: Database, section: string, personId: string, personMir: string): Promise<AssignWarning[]> {
+async function assignmentWarnings(db: Database, section: string, personId: string, reach: PersonReach): Promise<AssignWarning[]> {
   const takenOrg = await reservedOrgOf(db, section)
   const duplicate = await findDuplicateOwner(db, section, personId)
   return validateAssignment({
     section,
     personId,
-    personMir,
+    personMir: reach.mir,
+    reach,
     takenOrg,
     duplicate,
   })

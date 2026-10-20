@@ -79,12 +79,26 @@ describe('section tiers', () => {
     expect(tierOf({ ...now, turnout: turnout.get(now.id) })).toMatchObject({ tier: 2 })
   })
 
-  it('keeps the priority-list rule: a machine section is drafted only when it is on the priority list', () => {
+  it('drafts every machine section: machine > 50 voted comes before paper ≤ 50', () => {
     const turnout = new Map<string, Turnout>([
       ['234615001', { voted: 400, registered: 700 }],
       ['234615002', { voted: 30, registered: 200 }],
+      ['234615003', { voted: 10, registered: 900 }],
+      ['234615004', { voted: 90, registered: 150 }],
     ])
-    expect(order([machine('234615001'), paper('234615002')], turnout)).toEqual(['234615002'])
+    // t1 004, t2 001, t3 002, t4 003. None is on the priority list.
+    expect(order([machine('234615001'), paper('234615002'), machine('234615003'), paper('234615004')], turnout)).toEqual([
+      '234615004',
+      '234615001',
+      '234615002',
+      '234615003',
+    ])
+  })
+
+  it('never drafts a reserved machine section', () => {
+    const turnout = new Map<string, Turnout>([['234615001', { voted: 400, registered: 700 }]])
+    const plan = distributeSections({ people: [person('a')], sections: [machine('234615001')], turnout, blocked: ['234615001'] })
+    expect(plan.assignments).toEqual([])
   })
 
   it('priority-list sections still come first, then the tiers', () => {
@@ -94,7 +108,7 @@ describe('section tiers', () => {
       ['234615003', { voted: 200, registered: 250 }],
     ])
     const priority = new Map([['234615002', { r: 3, level: 'elevated' }]])
-    expect(order([machine('234615001'), paper('234615002'), paper('234615003')], turnout, priority)).toEqual(['234615002', '234615003'])
+    expect(order([machine('234615001'), paper('234615002'), paper('234615003')], turnout, priority)).toEqual(['234615002', '234615003', '234615001'])
   })
 
   it('prefers an address with a tier 1 section for a group', () => {

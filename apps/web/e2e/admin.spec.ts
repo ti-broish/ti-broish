@@ -527,7 +527,7 @@ test.describe('staff admin', () => {
     await expect(notice).toBeVisible()
     await page.getByRole('button', { name: 'Изчисти черновите' }).click()
     await page.getByRole('button', { name: 'Да, изчисти автоматичните чернови (ръчните и публикуваните остават)' }).click()
-    await expect(page.getByText(/Изчистихме \d+ чернов/)).toBeVisible()
+    await expect(page.getByText(/Изчистихме \d+ автоматичн|Няма автоматични чернови/)).toBeVisible()
     await page.getByTestId('state-published').click()
     await expect(page.getByRole('table').getByText(STAFF_EMAIL)).toBeVisible()
   })

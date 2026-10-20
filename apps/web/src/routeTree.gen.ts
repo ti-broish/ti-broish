@@ -34,6 +34,7 @@ import { Route as AdminPalnomoshtniRouteImport } from './routes/admin/palnomosht
 import { Route as AdminSectionsRouteImport } from './routes/admin/sections'
 import { Route as AdminSignupsRouteImport } from './routes/admin/signups'
 import { Route as IzprateniIdRouteImport } from './routes/izprateni.$id'
+import { Route as PhotosSplatRouteImport } from './routes/photos.$'
 import { Route as PokanaCodeRouteImport } from './routes/pokana.$code'
 import { Route as PostsIndexRouteImport } from './routes/posts.index'
 import { Route as PostsSlugRouteImport } from './routes/posts.$slug'
@@ -169,6 +170,11 @@ const IzprateniIdRoute = IzprateniIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => IzprateniRoute,
 } as any)
+const PhotosSplatRoute = PhotosSplatRouteImport.update({
+  id: '/photos/$',
+  path: '/photos/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PokanaCodeRoute = PokanaCodeRouteImport.update({
   id: '/pokana/$code',
   path: '/pokana/$code',
@@ -242,6 +248,7 @@ export interface FileRoutesByFullPath {
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
+  '/photos/$': typeof PhotosSplatRoute
   '/pokana/$code': typeof PokanaCodeRoute
   '/posts/$slug': typeof PostsSlugRoute
   '/r/$code': typeof RCodeRoute
@@ -276,6 +283,7 @@ export interface FileRoutesByTo {
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
+  '/photos/$': typeof PhotosSplatRoute
   '/pokana/$code': typeof PokanaCodeRoute
   '/posts/$slug': typeof PostsSlugRoute
   '/r/$code': typeof RCodeRoute
@@ -313,6 +321,7 @@ export interface FileRoutesById {
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
+  '/photos/$': typeof PhotosSplatRoute
   '/pokana/$code': typeof PokanaCodeRoute
   '/posts/$slug': typeof PostsSlugRoute
   '/r/$code': typeof RCodeRoute
@@ -351,6 +360,7 @@ export interface FileRouteTypes {
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
+    | '/photos/$'
     | '/pokana/$code'
     | '/posts/$slug'
     | '/r/$code'
@@ -385,6 +395,7 @@ export interface FileRouteTypes {
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
+    | '/photos/$'
     | '/pokana/$code'
     | '/posts/$slug'
     | '/r/$code'
@@ -421,6 +432,7 @@ export interface FileRouteTypes {
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
+    | '/photos/$'
     | '/pokana/$code'
     | '/posts/$slug'
     | '/r/$code'
@@ -452,6 +464,7 @@ export interface RootRouteChildren {
   SignupRoute: typeof SignupRoute
   VhodRoute: typeof VhodRoute
   ZnachkaRoute: typeof ZnachkaRoute
+  PhotosSplatRoute: typeof PhotosSplatRoute
   PokanaCodeRoute: typeof PokanaCodeRoute
   RCodeRoute: typeof RCodeRoute
 }
@@ -633,6 +646,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IzprateniIdRouteImport
       parentRoute: typeof IzprateniRoute
     }
+    '/photos/$': {
+      id: '/photos/$'
+      path: '/photos/$'
+      fullPath: '/photos/$'
+      preLoaderRoute: typeof PhotosSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pokana/$code': {
       id: '/pokana/$code'
       path: '/pokana/$code'
@@ -775,6 +795,7 @@ const rootRouteChildren: RootRouteChildren = {
   SignupRoute: SignupRoute,
   VhodRoute: VhodRoute,
   ZnachkaRoute: ZnachkaRoute,
+  PhotosSplatRoute: PhotosSplatRoute,
   PokanaCodeRoute: PokanaCodeRoute,
   RCodeRoute: RCodeRoute,
 }

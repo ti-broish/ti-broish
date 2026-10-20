@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { personReachFrom, publishBlocked, scoreSectionSuggestions, travelLabelOf, validateAssignment, warningSummary, type PersonReach } from './admin-assign'
+import { personReachFrom, publishBlocked, travelLabelOf, validateAssignment, warningSummary, type PersonReach } from './admin-assign'
 
 describe('validateAssignment', () => {
   it('blocks taken and duplicate; a MIR outside the stated places only warns', () => {
@@ -43,34 +43,7 @@ describe('validateAssignment', () => {
   })
 })
 
-describe('scoreSectionSuggestions', () => {
-  it('ranks free same-MIR sections and skips taken or wrong MIR', () => {
-    const suggestions = scoreSectionSuggestions(
-      [
-        { id: '254600001', place: 'училище в друга МИР' },
-        { id: '234600101', place: 'ул. Пример 1, гр. София', votersCount: 120 },
-        { id: '234600199', place: 'друго място' },
-        { id: '234600150', place: 'ул. Пример 1', isMachine: true },
-      ],
-      {
-        mir: '23',
-        town: 'гр. София',
-        municipality: 'Столична',
-        place: 'ул. Пример 1',
-        radius: 'settlement',
-        travelMunicipalities: '[]',
-      },
-      new Set(['234600199']),
-      5,
-    )
-    expect(suggestions.map((item) => item.id)).toEqual(['234600101', '234600150'])
-    expect(suggestions[0]?.reason).toContain('място')
-    expect(suggestions[0]?.reason).toContain('хартиена')
-    expect(suggestions[0]?.desk).toBe('paper')
-    expect(suggestions[1]?.desk).toBe('machine')
-    expect(suggestions.every((item) => item.id.startsWith('23'))).toBe(true)
-  })
-
+describe('travelLabelOf', () => {
   it('labels the first travel stops', () => {
     expect(travelLabelOf('[{"name":"Младост"},{"name":"Люлин"},{"name":"Овча купел"},{"name":"Излишък"}]', 'region')).toBe('Младост, Люлин, Овча купел')
     expect(travelLabelOf('[{"name":"Козлодуй"}]', 'municipality')).toBe('')
@@ -121,16 +94,6 @@ describe('MIR check respects the places the person accepts', () => {
     expect(check('254611067', sofia)).toEqual([])
     expect(check('244607077', sofia)).toEqual([])
     expect(check('162200155', sofia)[0]?.level).toBe('warn')
-  })
-
-  it('offers sections in the MIR they travel to in „Предложи“', () => {
-    const picks = scoreSectionSuggestions(
-      [{ id: '102700001', place: 'Кочериново' }, { id: '162200155', place: 'Пловдив' }],
-      { reach: travels, mir: '01', town: '', municipality: '', place: '', radius: 'distant', travelMunicipalities: '' },
-      new Set(),
-      8,
-    )
-    expect(picks.map((item) => item.id)).toEqual(['102700001'])
   })
 })
 

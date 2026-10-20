@@ -1,5 +1,4 @@
 import { mirFromSection, normalizeSection } from './admin-csv'
-import { sectionDesk } from './sections'
 
 export type AssignWarningCode = 'taken' | 'duplicate' | 'mir_mismatch' | 'outside_places'
 
@@ -14,25 +13,6 @@ export interface DuplicateOwner {
   id: string
   email: string
   kind: 'draft' | 'published'
-}
-
-export interface SectionCandidate {
-  id: string
-  place: string
-  score: number
-  reason: string
-  desk: 'paper' | 'machine' | 'unknown'
-}
-
-export interface SuggestPerson {
-  /** When set, sections in any accepted MIR are offered, not just the home MIR. */
-  reach?: PersonReach
-  mir: string
-  town: string
-  municipality: string
-  place: string
-  radius: string
-  travelMunicipalities: string
 }
 
 /** Where a volunteer said they can go: what the signup stores and the allocator reads. */
@@ -161,77 +141,6 @@ export function warningSummary(warnings: AssignWarning[]) {
   return warnings.map((warning) => warning.message).join(' ')
 }
 
-export function scoreSectionSuggestions(
-  sections: Array<{ id: string; place: string; votersCount?: number | null; isMachine?: boolean | null }>,
-  person: SuggestPerson,
-  blocked: Set<string>,
-  limit = 8,
-): SectionCandidate[] {
-  const personMir = padMir(person.mir)
-  const placeNorm = fold(person.place)
-  const townNorm = fold(person.town)
-  const municipalityNorm = fold(person.municipality)
-  const travelNames = travelNamesOf(person.travelMunicipalities).map(fold).filter(Boolean)
-
-  const scored: SectionCandidate[] = []
-  for (const section of sections) {
-    const id = normalizeSection(section.id)
-    if (!id || blocked.has(id)) continue
-
-    const sectionMir = mirFromSection(id)
-    if (person.reach ? sectionOutsideReach(id, person.reach)?.kind === 'mir' : personMir && sectionMir && sectionMir !== personMir) continue
-
-    let score = 10
-    const reasons: string[] = ['свободна']
-
-    if (personMir && sectionMir === personMir) {
-      score += 40
-      reasons.push('МИР')
-    }
-
-    const sectionPlace = fold(section.place)
-    if (placeNorm && sectionPlace.includes(placeNorm)) {
-      score += 35
-      reasons.push('място')
-    } else if (placeNorm && tokens(placeNorm).some((token) => token.length > 3 && sectionPlace.includes(token))) {
-      score += 18
-      reasons.push('близко място')
-    }
-
-    if (townNorm && sectionPlace.includes(townNorm)) {
-      score += 12
-      reasons.push('град')
-    }
-
-    if (municipalityNorm && sectionPlace.includes(municipalityNorm)) {
-      score += 8
-      reasons.push('община')
-    }
-
-    if (person.radius) score += 2
-
-    if (travelNames.some((name) => name && sectionPlace.includes(name))) {
-      score += 15
-      reasons.push('пътуване')
-    }
-
-    const desk = sectionDesk(section)
-    if (desk === 'paper') reasons.push('хартиена')
-    else if (desk === 'machine') reasons.push('машинна')
-
-    scored.push({
-      id,
-      place: section.place,
-      score,
-      reason: [...new Set(reasons)].join(' · '),
-      desk,
-    })
-  }
-
-  scored.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-  return scored.slice(0, limit)
-}
-
 function parseJsonArray(raw: string | null | undefined): unknown[] {
   try {
     const parsed = JSON.parse(raw || '[]') as unknown
@@ -245,19 +154,6 @@ function padMir(value: string) {
   const trimmed = value.trim()
   if (!/^\d{1,2}$/.test(trimmed)) return ''
   return trimmed.padStart(2, '0')
-}
-
-function fold(value: string) {
-  return value
-    .trim()
-    .toLocaleLowerCase('bg')
-    .replace(/^гр\.?\s*/i, '')
-    .replace(/^с\.?\s*/i, '')
-    .replace(/\s+/g, ' ')
-}
-
-function tokens(value: string) {
-  return value.split(/[\s,./\-]+/).filter(Boolean)
 }
 
 export function travelLabelOf(raw: string, radius = '') {

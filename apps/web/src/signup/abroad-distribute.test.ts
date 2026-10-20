@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { distributeAbroad, scoreAbroadSuggestions, type AbroadDistributePerson, type AbroadDistributeSection } from './abroad-distribute'
+import { distributeAbroad, type AbroadDistributePerson, type AbroadDistributeSection } from './abroad-distribute'
 
 function person(patch: Partial<AbroadDistributePerson> & Pick<AbroadDistributePerson, 'id' | 'email'>): AbroadDistributePerson {
   return {
@@ -129,19 +129,5 @@ describe('distributeAbroad', () => {
       blocked: ['320021002'],
     })
     expect(plan.assignments[0]?.sectionId).toBe('320021001')
-  })
-})
-
-describe('scoreAbroadSuggestions', () => {
-  it('ranks city and lower tier higher', () => {
-    const scored = scoreAbroadSuggestions(
-      [...vienna, ...bremen],
-      { countryName: 'Австрия', cityName: 'Виена' },
-      new Set(['320021001']),
-      5,
-    )
-    expect(scored.every((row) => row.country === 'Австрия')).toBe(true)
-    expect(scored[0]?.id).toBe('320021002')
-    expect(scored.some((row) => row.id === '320021001')).toBe(false)
   })
 })

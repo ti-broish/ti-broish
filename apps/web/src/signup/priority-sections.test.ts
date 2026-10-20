@@ -13,7 +13,6 @@ import {
   personPriorityReach,
   priorityCode,
   priorityLevelLabel,
-  rankWithPriority,
   sortForAssignment,
   summarizePriorityCoverage,
 } from './priority-sections'
@@ -112,34 +111,6 @@ const PRIORITY = [
   { sectionCode: '040400150', town: 'гр.Велико Търново', municipality: 'Велико Търново', r: 4.1, level: 'watch' },
   { sectionCode: '153900020', town: 'гр.Кнежа', municipality: 'Кнежа', r: 4.21, level: 'elevated' },
 ]
-
-describe('rankWithPriority', () => {
-  const person = { town: 'Велико Търново', municipality: 'Велико Търново', mir: '4' }
-  const plain = [
-    { id: '040400001', place: 'Училище', score: 80, reason: 'свободна', desk: 'paper' as const },
-    { id: '040400143', place: 'Читалище', score: 20, reason: 'свободна', desk: 'paper' as const },
-  ]
-
-  it('puts town priority sections first by R, then the municipality, then the rest', () => {
-    const ranked = rankWithPriority(plain, PRIORITY, person, new Set(), 8)
-    expect(ranked.map((item) => item.id)).toEqual(['040400150', '040400143', '040400082', '040400001'])
-    expect(ranked[1]).toMatchObject({ place: 'Читалище', desk: 'paper', priority: { r: 3.28, level: 'watch', scope: 'town' } })
-    expect(ranked[1].reason).toMatch(/^приоритет наблюдение R 3\.28/)
-    expect(ranked[2].priority?.scope).toBe('municipality')
-    expect(ranked[3].priority).toBeUndefined()
-  })
-
-  it('skips blocked codes, other МИР and other municipalities, and honours the limit', () => {
-    const ranked = rankWithPriority(plain, PRIORITY, person, new Set(['040400150']), 2)
-    expect(ranked.map((item) => item.id)).toEqual(['040400143', '040400082'])
-    expect(rankWithPriority([], PRIORITY, { town: 'Кнежа', municipality: 'Кнежа', mir: '04' }, new Set()).map((item) => item.id)).toEqual([])
-    expect(rankWithPriority([], PRIORITY, { town: 'Кнежа', municipality: 'Кнежа', mir: '15' }, new Set()).map((item) => item.id)).toEqual(['153900020'])
-  })
-
-  it('keeps the plain order when there is no priority list', () => {
-    expect(rankWithPriority(plain, [], person, new Set()).map((item) => item.id)).toEqual(['040400001', '040400143'])
-  })
-})
 
 describe('personPriorityReach / orderByPriority', () => {
   it('prefers the town over a higher R elsewhere in the municipality', () => {

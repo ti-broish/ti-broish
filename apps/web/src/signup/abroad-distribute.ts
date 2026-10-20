@@ -50,16 +50,6 @@ export interface AbroadDistributePlan {
   }
 }
 
-export interface AbroadSectionCandidate {
-  id: string
-  country: string
-  city: string
-  placeLabel: string
-  tierLetter: AbroadTierLetter
-  score: number
-  reason: string
-}
-
 /** DRAFT planner only — never publishes; caller persists drafts. */
 export function distributeAbroad(input: {
   people: AbroadDistributePerson[]
@@ -137,55 +127,6 @@ export function distributeAbroad(input: {
   }
 
   return { assignments, unmatched, counts: countPlan(assignments, unmatched) }
-}
-
-export function scoreAbroadSuggestions(
-  sections: AbroadDistributeSection[],
-  person: Pick<AbroadDistributePerson, 'countryName' | 'cityName'>,
-  blocked: Set<string>,
-  limit = 8,
-): AbroadSectionCandidate[] {
-  const country = person.countryName.trim()
-  const city = person.cityName.trim()
-  const scored: AbroadSectionCandidate[] = []
-
-  for (const section of sections) {
-    const id = normalizeSection(section.id)
-    if (!id || blocked.has(id)) continue
-    if (country && !namesMatch(country, section.country)) continue
-
-    let score = 10
-    const reasons: string[] = ['свободна']
-
-    const tierBonus = 30 - TIER_RANK[section.tierLetter] * 8
-    score += tierBonus
-    reasons.push(`tier ${section.tierLetter}`)
-
-    if (city && namesMatch(city, section.city)) {
-      score += 40
-      reasons.push('град')
-    } else if (city && namesMatch(city, section.placeLabel)) {
-      score += 28
-      reasons.push('място')
-    } else if (city) {
-      score -= 15
-    }
-
-    score += Math.min(section.emptyPpdbSeats ?? 0, 5)
-
-    scored.push({
-      id,
-      country: section.country,
-      city: section.city,
-      placeLabel: section.placeLabel,
-      tierLetter: section.tierLetter,
-      score,
-      reason: [...new Set(reasons)].join(' · '),
-    })
-  }
-
-  scored.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-  return scored.slice(0, limit)
 }
 
 function cityMatchesSection(city: string, section: AbroadDistributeSection) {

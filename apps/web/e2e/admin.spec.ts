@@ -324,7 +324,7 @@ test.describe('staff admin', () => {
       const row = people.getByRole('row', { name: /reserved\.admin-e2e@example\.com/ })
       await expect(row.getByTestId('reserved-badge').first()).toContainText('Резервирана от E2E Резерв')
       await row.getByLabel('Чернова за reserved.admin-e2e@example.com').fill('234600151')
-      await row.getByRole('button', { name: 'Сложи чернова' }).click()
+      await row.getByRole('button', { name: 'Запази', exact: true }).click()
       await expect(page.getByText('Секция 234600151 е резервирана от E2E Резерв. Там не записваме наши хора.').first()).toBeVisible()
       await page.reload()
       await expect(page.getByLabel('Чернова за reserved.admin-e2e@example.com')).toHaveValue('234600150')

@@ -2,8 +2,8 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { publishBlocked, scoreSectionSuggestions, validateAssignment, warningSummary } from './admin-assign'
-import { orderByPriority, rankWithPriority, summarizePriorityCoverage } from './priority-sections'
+import { publishBlocked, validateAssignment, warningSummary } from './admin-assign'
+import { orderByPriority, summarizePriorityCoverage } from './priority-sections'
 import {
   cleanOrg,
   conflictsFor,
@@ -131,14 +131,6 @@ describe('enforcement', () => {
     const warnings = validateAssignment({ section: '010100001', personId: 'a', personMir: '01', takenOrg: 'ГЕРБ', duplicate: null })
     expect(publishBlocked(warnings)).toBe(true)
     expect(warningSummary(warnings)).toBe('Секцията е резервирана от ГЕРБ. Там не записваме наши хора.')
-  })
-
-  it('keeps reserved sections out of „Предложи“, including priority ones', () => {
-    const blocked = new Set(['010100001'])
-    const plain = scoreSectionSuggestions([{ id: '010100001', place: 'А' }, { id: '010100002', place: 'Б' }], { mir: '01', town: '', municipality: '', place: '', radius: '', travelMunicipalities: '' }, blocked, 8)
-    expect(plain.map((item) => item.id)).toEqual(['010100002'])
-    const priority = [{ sectionCode: '010100001', town: 'Банско', municipality: 'Банско', r: 9, level: 'elevated' }]
-    expect(rankWithPriority(plain, priority, { town: 'Банско', municipality: 'Банско', mir: '01' }, blocked).map((item) => item.id)).toEqual(['010100002'])
   })
 
   it('counts reserved priority sections apart from ours and from open ones', () => {

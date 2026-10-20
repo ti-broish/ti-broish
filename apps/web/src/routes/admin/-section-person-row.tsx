@@ -3,14 +3,12 @@ import { useState } from 'react'
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import { adminDraft } from '../../signup/admin-assign-actions'
-import { adminSuggest } from '../../signup/admin-suggest'
+import { adminGhost } from '../../components/admin-ui'
 import { addressDeskLine, deskLabel } from '../../signup/sections'
 import { EMPTY_SECTION_DIRECTORY, sectionSpot, signupSpot, type SectionSpot } from '../../signup/section-where'
 import type { PriorityInfo } from '../../signup/priority-sections'
 import { PriorityBadge } from './-priority-badge'
 import { ReservedBadge, reservedOrgFor } from './-reserved-badge'
-
-type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown'; priority?: PriorityInfo }
 
 export function DeskBadge({ desk }: { desk: 'paper' | 'machine' | 'unknown' }) {
   const tone =
@@ -29,10 +27,6 @@ export function SectionPersonRow(props: {
   setDraftValues: (updater: (current: Record<string, string>) => Record<string, string>) => void
   warnings: AssignWarning[]
   setRowWarnings: (updater: (current: Record<string, AssignWarning[]>) => Record<string, AssignWarning[]>) => void
-  tips: Suggestion[]
-  setSuggestions: (updater: (current: Record<string, Suggestion[]>) => Record<string, Suggestion[]>) => void
-  suggestBusy: string | null
-  setSuggestBusy: (id: string | null) => void
   setMessage: (message: string) => void
   /** Reloads the list; the notice stays visible after the reload. */
   load: (notice?: string) => void
@@ -53,7 +47,7 @@ export function SectionPersonRow(props: {
 }) {
   const {
     person, canEdit, draftValues, setDraftValues, warnings, setRowWarnings,
-    tips, setSuggestions, suggestBusy, setSuggestBusy, setMessage, load,
+    setMessage, load,
     canPublish, publish, unpublish, picked, onPick, notifyAgain, spots, priority = {}, reach = null, reserved = {},
   } = props
   const pendingDraft = Boolean(person.draftSection && person.draftSection !== person.publishedSection)
@@ -61,6 +55,7 @@ export function SectionPersonRow(props: {
   const draftCode = draftValues[person.id] ?? person.draftSection
   const [armedUnpublish, setArmedUnpublish] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
   const name = [person.firstName, person.lastName].filter(Boolean).join(' ') || person.email
   return (
                 <tr className="border-b border-[#eee] align-top" data-testid="section-person-row">
@@ -112,8 +107,11 @@ export function SectionPersonRow(props: {
                           className="flex flex-wrap gap-2"
                           onSubmit={(event) => {
                             event.preventDefault()
-                            const section = draftValues[person.id] ?? ''
+                            // „Запази“ only saves a manual draft: never publishes, never sends email.
+                            const section = draftValues[person.id] ?? person.draftSection
+                            setSaving(true)
                             void adminDraft({ data: { id: person.id, section } }).then((result) => {
+                              setSaving(false)
                               if (!result.ok) {
                                 setMessage(result.message)
                                 if ('reserved' in result) setRowWarnings((current) => ({ ...current, [person.id]: [{ code: 'taken', level: 'block', message: result.message }] }))
@@ -132,6 +130,9 @@ export function SectionPersonRow(props: {
                                 setMessage(text)
                                 load(text)
                               }
+                            }).catch(() => {
+                              setSaving(false)
+                              setMessage('Не се запази. Опитай пак.')
                             })
                           }}
                         >
@@ -142,27 +143,8 @@ export function SectionPersonRow(props: {
                             onChange={(event) => setDraftValues((current) => ({ ...current, [person.id]: event.target.value }))}
                             aria-label={`Чернова за ${person.email}`}
                           />
-                          <button className="text-sm font-bold" type="submit">
-                            {(draftValues[person.id] ?? person.draftSection).trim() || !person.draftSection ? 'Сложи чернова' : 'Махни черновата'}
-                          </button>
-                          <button
-                            className="text-sm font-bold"
-                            type="button"
-                            disabled={suggestBusy === person.id}
-                            onClick={() => {
-                              setSuggestBusy(person.id)
-                              void adminSuggest({ data: { id: person.id } }).then((result) => {
-                                setSuggestBusy(null)
-                                if (!result.ok) {
-                                  setMessage(result.message)
-                                  return
-                                }
-                                setSuggestions((current) => ({ ...current, [person.id]: result.suggestions }))
-                                if (result.message) setMessage(result.message)
-                              })
-                            }}
-                          >
-                            {suggestBusy === person.id ? 'Търся…' : 'Предложи'}
+                          <button className={adminGhost} type="submit" disabled={saving}>
+                            {saving ? 'Записваме…' : 'Запази'}
                           </button>
                         </form>
                         {warnings.length > 0 ? (
@@ -175,40 +157,6 @@ export function SectionPersonRow(props: {
                                 className={warning.level === 'block' ? 'text-[#a33]' : 'rounded bg-[#fdf3d8] px-1 text-[#5c4300]'}
                               >
                                 {warning.message}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                        {tips.length > 0 ? (
-                          <ul className="grid gap-1">
-                            {tips.map((tip) => (
-                              <li key={tip.id}>
-                                <button
-                                  type="button"
-                                  className="text-left text-xs font-bold text-[#135]"
-                                  onClick={() => {
-                                    setDraftValues((current) => ({ ...current, [person.id]: tip.id }))
-                                    void adminDraft({ data: { id: person.id, section: tip.id } }).then((result) => {
-                                      if (!result.ok) {
-                                        setMessage(result.message)
-                                        if ('reserved' in result) setRowWarnings((current) => ({ ...current, [person.id]: [{ code: 'taken', level: 'block', message: result.message }] }))
-                                      }
-                                      else {
-                                        setRowWarnings((current) => ({ ...current, [person.id]: result.warnings ?? [] }))
-                                        const text = result.warning || `Чернова ${tip.id} от предложение (ръчна). Публикувай я, за да я види човекът.`
-                                        setMessage(text)
-                                        load(text)
-                                      }
-                                    })
-                                  }}
-                                >
-                                  <span className="mr-2 inline-flex align-middle"><DeskBadge desk={tip.desk} /></span>
-                                  {tip.priority ?? priority[tip.id] ? (
-                                    <span className="mr-2 inline-flex align-middle"><PriorityBadge info={tip.priority ?? priority[tip.id]} /></span>
-                                  ) : null}
-                                  {tip.id}
-                                  <span className="font-normal text-[#333]"> — {tip.place || tip.reason}</span>
-                                </button>
                               </li>
                             ))}
                           </ul>

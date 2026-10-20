@@ -63,7 +63,7 @@ test.describe('self-withdraw on /profil frees the section', () => {
     await expect(input).toBeVisible({ timeout: 30_000 })
     await input.fill(SECTION)
     const drafted = savedWith(admin, 'adminDraft')
-    await input.locator('xpath=ancestor::form[1]').getByRole('button', { name: 'Сложи чернова' }).click()
+    await input.locator('xpath=ancestor::form[1]').getByRole('button', { name: 'Запази', exact: true }).click()
     await drafted
     await expect(admin.getByText(/Секцията вече е/)).toHaveCount(0)
     expect(d1(`SELECT draft_section FROM signups WHERE id = '${NEXT.id}'`)[0]).toMatchObject({ draft_section: SECTION })

@@ -1,3 +1,4 @@
+import { MobileDraftCard } from './-mobile-teams'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
@@ -122,6 +123,7 @@ function PersonPage() {
           </div>
           <PersonFacts person={person} />
           <ReservedNotice codes={[person.publishedSection, person.draftSection]} />
+          <MobileDraftCard personId={person.id} canEdit={canEdit} mobile={person.role === 'mobile'} />
           <UnregisterPanel person={person} canEdit={canEdit} onChanged={reload} />
           {person.publishedSection ? (
             <p className="text-sm font-bold text-[#1a1020]">

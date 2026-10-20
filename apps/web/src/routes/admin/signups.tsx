@@ -23,6 +23,7 @@ import { BulkUnregisterBar } from './-bulk-unregister'
 import { useDebouncedQuery } from './-debounced-query'
 import { downloadCsv } from './-brevo-sections-export'
 import { ReservedBadge, reservedOrgFor, useReservedIndex } from './-reserved-badge'
+import { MobileBadge, useMobileIndex } from './-mobile-teams'
 
 export const Route = createFileRoute('/admin/signups')({
   validateSearch: (search: Record<string, unknown>): SignupSearch => parseSignupSearch(search),
@@ -524,9 +525,11 @@ function PeopleCards({ people, select }: { people: RosterFields[]; select: RowSe
 
 function SectionCell({ person }: { person: RosterFields }) {
   const reserved = useReservedIndex()
-  if (!person.publishedSection && !person.draftSection) return <p>—</p>
+  const mobile = useMobileIndex()[person.id]
+  if (!person.publishedSection && !person.draftSection && !mobile) return <p>—</p>
   return (
     <div>
+      {mobile ? <p><MobileBadge draft={mobile} /></p> : null}
       {person.publishedSection ? <p>Публ. {person.publishedSection} <ReservedBadge org={reservedOrgFor(person.publishedSection, reserved)} conflict /></p> : null}
       {person.draftSection && person.draftSection !== person.publishedSection ? <p>Чернова {person.draftSection} <ReservedBadge org={reservedOrgFor(person.draftSection, reserved)} conflict /></p> : null}
     </div>

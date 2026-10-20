@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { MOBILE_DRAFTS_TABLE } from '../src/signup/mobile-teams-sql'
+import { PRIORITY_SECTIONS_TABLE } from '../src/signup/priority-sections-sql'
 
 const STAFF_EMAIL = 'maria.admin-e2e@example.com'
 const SESSION = 'e2e-admin-session'
@@ -321,6 +323,42 @@ test.describe('staff admin', () => {
       await expect(page.getByText('Махнахме 2 резервации на E2E Резерв.')).toBeVisible()
     } finally {
       runLocalD1("DELETE FROM taken_sections WHERE organisation = 'E2E Резерв'; DELETE FROM signups WHERE id = 'e2e-reserved';")
+    }
+  })
+
+  test('mobile teams: „Предложи“ picks open priority sections in reach, saves a draft, and the button previews', async ({ page }) => {
+    seedMobileTeam()
+    await signIn(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    try {
+      await page.goto('/admin/signups/e2e-mobile')
+      const card = page.getByTestId('mobile-card')
+      await expect(card).toContainText('Няма чернова за мобилен екип.')
+      const suggestions = card.getByTestId('mobile-suggestions')
+      // The first click can land before hydration on a cold dev server, so retry it.
+      await expect(async () => {
+        await card.getByRole('button', { name: 'Предложи' }).click()
+        await expect(suggestions).toContainText('МИР 29 · с.Мобилно', { timeout: 5_000 })
+      }).toPass({ timeout: 40_000 })
+      await expect(suggestions).toContainText('299900001')
+      await expect(suggestions).toContainText('299900002')
+      await expect(suggestions).not.toContainText('299900003')
+      await expect(suggestions).not.toContainText('299900004')
+      await expect(suggestions).not.toContainText('299900005')
+      await suggestions.getByRole('button', { name: 'Запиши като чернова' }).first().click()
+      await expect(card.getByTestId('mobile-badge')).toContainText('Мобилен · МИР 29 · с.Мобилно · 2 секц.')
+
+      await page.goto('/admin/sections')
+      const panel = page.getByTestId('mobile-panel')
+      await panel.locator('summary').click()
+      await expect(panel.getByTestId('mobile-drafts')).toContainText('Мира Мобилна')
+      await expect(panel.getByTestId('mobile-drafts')).toContainText('299900001')
+      await panel.getByRole('button', { name: 'Преглед за мобилни екипи' }).click()
+      await expect(panel.getByTestId('mobile-preview')).toContainText('Преглед (нищо не е записано)', { timeout: 20_000 })
+    } finally {
+      runLocalD1(
+        "DELETE FROM mobile_drafts WHERE signup_id = 'e2e-mobile'; DELETE FROM priority_sections WHERE section_code LIKE '2999%'; DELETE FROM taken_sections WHERE organisation = 'E2E Мобилен резерв'; DELETE FROM signups WHERE id IN ('e2e-mobile', 'e2e-mobile-covered');",
+      )
     }
   })
 
@@ -863,6 +901,51 @@ ON CONFLICT(email) DO UPDATE SET
   mir_code = '23',
   draft_section = '234600150',
   published_section = NULL;
+`
+  runLocalD1(sql)
+}
+
+function seedMobileTeam() {
+  // 001 and 002 are open priority sections in the person's village; 003 is reserved by another org;
+  // 004 already has a section person; 005 is in another village, out of reach without a car.
+  const sql = `
+${MOBILE_DRAFTS_TABLE};
+${PRIORITY_SECTIONS_TABLE};
+DELETE FROM mobile_drafts WHERE signup_id = 'e2e-mobile';
+DELETE FROM priority_sections WHERE section_code LIKE '2999%';
+INSERT INTO priority_sections (section_code, town, municipality, oblast, r, level, components, updated_at) VALUES
+  ('299900001', 'с.Мобилно', 'Мобилна', 'ШУМЕН', 4.2, 'elevated', '{}', datetime('now')),
+  ('299900002', 'с. Мобилно', 'Мобилна', 'ШУМЕН', 3.1, 'watch', '{}', datetime('now')),
+  ('299900003', 'с.Мобилно', 'Мобилна', 'ШУМЕН', 4.9, 'elevated', '{}', datetime('now')),
+  ('299900004', 'с.Мобилно', 'Мобилна', 'ШУМЕН', 4.8, 'elevated', '{}', datetime('now')),
+  ('299900005', 'с.Другo', 'Мобилна', 'ШУМЕН', 4.7, 'elevated', '{}', datetime('now'));
+INSERT INTO taken_sections (section_code, mir_code, place, organisation, note, created_at) VALUES ('299900003', '29', '', 'E2E Мобилен резерв', '', datetime('now'))
+  ON CONFLICT(section_code) DO UPDATE SET organisation = excluded.organisation;
+INSERT INTO signups (
+  id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, role,
+  mir_code, region_code, town_name, section_place, draft_section, published_section, notes,
+  rounds_first, rounds_runoff, radius, has_car, created_at, updated_at
+) VALUES (
+  'e2e-mobile',
+  'mobile.admin-e2e@example.com',
+  'e2e-mobile-session',
+  'e2emob01',
+  '{"firstName":"Мира","middleName":"","lastName":"Мобилна","phone":"0888000333","email":"mobile.admin-e2e@example.com","role":"mobile","mobileTeam":true,"rounds":{"first":true,"runoff":true},"place":{"regionCode":"29","regionName":"Шумен","municipalityCode":"99","municipalityName":"Мобилна","townName":"с.Мобилно"}}',
+  1, 0, 1, '', 'mobile',
+  '29', '29', 'с.Мобилно', '', NULL, NULL, '',
+  1, 1, 'settlement', 0, datetime('now'), datetime('now')
+), (
+  'e2e-mobile-covered',
+  'mobile.covered-e2e@example.com',
+  'e2e-mobile-covered-session',
+  'e2emob02',
+  '{"firstName":"Кира","lastName":"Покрита","role":"section"}',
+  1, 0, 1, '', 'section',
+  '29', '29', 'с.Мобилно', '', '299900004', NULL, '',
+  1, 1, 'settlement', 0, datetime('now'), datetime('now')
+)
+ON CONFLICT(email) DO UPDATE SET payload = excluded.payload, submitted = 1, withdrawn = 0, role = excluded.role,
+  mir_code = '29', draft_section = excluded.draft_section, published_section = NULL, radius = 'settlement', has_car = 0;
 `
   runLocalD1(sql)
 }

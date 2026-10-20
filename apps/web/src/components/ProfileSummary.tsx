@@ -7,7 +7,7 @@ export function profileFacts(profile: Profile): { label: string; value: string }
     { label: 'Телефон', value: profile.phone.trim() || 'Липсва' },
     { label: 'Роля', value: profile.role ? roleLabel(profile.role, profile.mobileTeam) : 'Още не е избрана' },
     { label: 'Дни', value: daysValue(profile) },
-    { label: 'Място', value: placeLabel(profile.place) },
+    { label: 'Желано място', value: preferredPlace(profile) },
     { label: 'Пътуване', value: travelValue(profile) },
     { label: 'Опит', value: EXPERIENCE.find((item) => item.id === profile.experience)?.title ?? 'Още не е избран' },
     { label: 'Група', value: groupValue(profile) },
@@ -29,6 +29,15 @@ export function ProfileSummary({ profile }: { profile: Profile }) {
       </dl>
     </section>
   )
+}
+
+/**
+ * The place the person picked at signup is only a preference. Once a section is assigned, its
+ * polling place is left out here, so it is never mistaken for the assigned section's address.
+ */
+function preferredPlace(profile: Profile) {
+  if (!profile.assignedSection || !profile.place) return placeLabel(profile.place)
+  return placeLabel({ ...profile.place, sectionPlace: undefined })
 }
 
 function fullName(profile: Profile) {

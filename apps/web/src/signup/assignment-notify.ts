@@ -4,6 +4,8 @@ import { publishBlocked, validateAssignment, warningSummary } from './admin-assi
 import { normalizeSection } from './admin-csv'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { assignmentMail, deliverMail } from './mail'
+import { resolveAssignedSectionPlace } from './assigned-section-resolve'
+import { assignedSectionLine } from './assigned-section-place'
 import { parseStaffRole, roleAllows } from './staff'
 import { reservedOrgOf } from './reserved-sections-db'
 
@@ -67,12 +69,11 @@ export const adminPublishOne = createServerFn({ method: 'POST' })
                 COALESCE(mir_code, '') AS mir,
                 COALESCE(draft_section, '') AS draft_section,
                 COALESCE(published_section, '') AS published_section,
-                COALESCE(section_place, '') AS section_place,
-                COALESCE(json_extract(payload, '$.place.sectionPlace'), '') AS payload_place
+                json_extract(payload, '$.place.townId') AS town_id
          FROM signups WHERE id = ?`,
       )
       .bind(data.id)
-      .first<{ email: string; mir: string; draft_section: string; published_section: string; section_place: string; payload_place: string }>()
+      .first<{ email: string; mir: string; draft_section: string; published_section: string; town_id: number | string | null }>()
     if (!row) return { ok: false as const, message: 'Няма такова записване.' }
     const section = row.draft_section || row.published_section
     if (!section) return { ok: false as const, message: 'Няма чернова или публикувана секция за този човек.' }
@@ -85,7 +86,7 @@ export const adminPublishOne = createServerFn({ method: 'POST' })
         .bind(now, now, data.id)
         .run()
     }
-    const address = row.section_place || row.payload_place || ''
+    const address = await assignedAddressLine(section, row.town_id)
     const sent = await deliverMail(assignmentMail(row.email, section, address, `${origin()}/profil`))
     return {
       ok: true as const,
@@ -107,15 +108,14 @@ export const adminNotifyAssignment = createServerFn({ method: 'POST' })
       .prepare(
         `SELECT email,
                 COALESCE(published_section, '') AS published_section,
-                COALESCE(section_place, '') AS section_place,
-                COALESCE(json_extract(payload, '$.place.sectionPlace'), '') AS payload_place
+                json_extract(payload, '$.place.townId') AS town_id
          FROM signups WHERE id = ?`,
       )
       .bind(data.id)
-      .first<{ email: string; published_section: string; section_place: string; payload_place: string }>()
+      .first<{ email: string; published_section: string; town_id: number | string | null }>()
     if (!row) return { ok: false as const, message: 'Няма такова записване.' }
     if (!row.published_section) return { ok: false as const, message: 'Първо публикувай секцията за този човек, после извести.' }
-    const address = row.section_place || row.payload_place || ''
+    const address = await assignedAddressLine(row.published_section, row.town_id)
     const sent = await deliverMail(assignmentMail(row.email, row.published_section, address, `${origin()}/profil`))
     return {
       ok: true as const,
@@ -123,3 +123,12 @@ export const adminNotifyAssignment = createServerFn({ method: 'POST' })
       message: sent ? `Изпратено до ${row.email}.` : 'Писмото не тръгна. Пробвай пак по-късно.',
     }
   })
+
+/**
+ * „адрес, населено място“ of the section being announced, by its exact code. Empty when the lookup
+ * fails: the mail then points to the profile and never names the place picked at signup.
+ */
+async function assignedAddressLine(section: string, townId: number | string | null) {
+  const id = Number(townId)
+  return assignedSectionLine(await resolveAssignedSectionPlace(section, Number.isInteger(id) && id > 0 ? [id] : []))
+}

@@ -65,7 +65,7 @@ const columns = [
   }),
   columnHelper.accessor((row) => row.mir || (row.region === '32' ? 'Чужбина' : ''), {
     id: 'mir',
-    header: 'МИР / място',
+    header: 'МИР / желано място',
     cell: (info) => (
       <div>
         <p>{info.getValue() || '—'}</p>

@@ -4,31 +4,27 @@ import { geocodePlace } from '../signup/geo'
 import { highlightCodes, placeOutline, type HomePlace } from '../signup/model'
 import { sectionNumber } from '../signup/sections'
 import { useOutlines } from '../signup/use-outlines'
+import { assignedSectionLine, assignedSectionQuery, type AssignedSectionPlace } from '../signup/assigned-section-place'
 
-function townPlain(name: string | undefined) {
-  return (name ?? '').replace(/^(гр\.|с\.|к\.|ман\.)\s*/u, '')
-}
-
-function sectionQuery(place: HomePlace | null) {
-  if (!place) return null
-  const address = place.sectionPlace?.trim() ?? ''
-  const town = townPlain(place.townName)
-  if (place.regionCode === '32') {
-    const query = [address || town, place.countryName].filter(Boolean).join(', ')
-    return query || null
-  }
-  if (address && town) return `${address}, ${town}, България`
-  if (address) return `${address}, България`
-  if (town) return `${town}, България`
-  return null
-}
-
-export function AssignedSectionMap({ place, section }: { place: HomePlace | null; section: string }) {
+/**
+ * Map of the assigned section. The pin comes from the section's own address and settlement
+ * (looked up by its code); the place the person picked at signup is never used for the pin.
+ */
+export function AssignedSectionMap({
+  place,
+  section,
+  assigned,
+}: {
+  place: HomePlace | null
+  section: string
+  assigned: AssignedSectionPlace | null
+}) {
   const outlines = useOutlines(placeOutline(place))
   const [point, setPoint] = useState<MapPoint | null>(null)
-  const query = sectionQuery(place)
-  const abroad = place?.regionCode === '32'
-  const address = place?.sectionPlace?.trim() ?? ''
+  const own = assigned && assigned.section === section ? assigned : null
+  const query = assignedSectionQuery(own)
+  const abroad = section.startsWith('32')
+  const address = assignedSectionLine(own)
 
   useEffect(() => {
     if (!query) {

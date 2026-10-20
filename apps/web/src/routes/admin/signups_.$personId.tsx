@@ -5,6 +5,8 @@ import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminInput } from '../../components/admin-ui'
 import { StaffTravel, type StaffTravelValue } from '../../components/StaffTravel'
 import { adminPerson, adminUpdatePerson } from '../../signup/admin'
+import { adminSectionPlaces } from '../../signup/admin-section-places'
+import { assignedPlaceFromSpot, assignedSectionLine } from '../../signup/assigned-section-place'
 import { describeAudit, formatAuditWhen, type AuditLine } from '../../signup/admin-audit'
 import { progressLabel, roleLabel, signupProgress, type AdminPerson } from '../../signup/admin-progress'
 import { defaultSignupSearch } from '../../signup/admin-search'
@@ -310,9 +312,10 @@ function PersonFacts({ person }: { person: AdminPerson }) {
       <Fact label="Имейл" value={person.email} />
       <Fact label="Потвърждение" value={person.emailConfirmed ? 'Имейлът е потвърден' : 'Имейлът не е потвърден'} />
       <Fact label="ЕГН" value={person.hasEgn ? 'ЕГН е въведено' : 'Няма ЕГН'} />
-      <Fact label="Място" value={where || 'Няма избрано място'} />
+      <Fact label="Желано място (от записването)" value={where || 'Няма избрано място'} />
       <Fact label="Докъде" value={person.radiusLabel || 'Не е избрано докъде може да стигне.'} />
       <Fact label="Секция" value={sectionLine(person)} />
+      {person.publishedSection ? <AssignedSectionAddress section={person.publishedSection} /> : null}
       {person.designationPdfUrl ? (
         <div className="grid gap-1">
           <dt className="font-bold">Пълномощно в Drive</dt>
@@ -332,6 +335,28 @@ function PersonFacts({ person }: { person: AdminPerson }) {
       ) : null}
     </dl>
   )
+}
+
+/** Address of the published section itself, by its code (not the place the person picked). */
+function AssignedSectionAddress({ section }: { section: string }) {
+  const [state, setState] = useState<{ section: string; text: string } | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void adminSectionPlaces({ data: { codes: [section] } })
+      .then((result) => {
+        if (cancelled) return
+        const place = result.ok ? assignedPlaceFromSpot(section, result.places[section]) : null
+        setState({ section, text: assignedSectionLine(place) || 'Адресът на секцията не е намерен.' })
+      })
+      .catch(() => {
+        if (!cancelled) setState({ section, text: 'Адресът на секцията не е намерен.' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [section])
+  const text = state?.section === section ? state.text : 'Зареждам адреса…'
+  return <Fact label="Адрес на публикуваната секция" value={text} />
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

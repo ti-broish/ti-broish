@@ -268,6 +268,62 @@ test('an assigned profile leads with the section and the badge', async ({ page }
   await expect(page.getByRole('heading', { name: nextWaveLabel() })).toHaveCount(0)
 })
 
+const musachevo: HomePlace = {
+  regionCode: '26',
+  regionName: 'София област',
+  municipalityCode: '17',
+  municipalityName: 'Елин Пелин',
+  townId: 49388,
+  townName: 'с. Мусачево',
+  sectionPlace: 'НАРОДНО ЧИТАЛИЩЕ "ОТЕЦ ПАИСИЙ", пл. "Възраждане"',
+  paperCount: 0,
+  machineCount: 0,
+}
+
+/** Answer loadAssignedSectionPlace like the server would; every other server function runs as usual. */
+async function mockAssignedPlace(page: import('@playwright/test').Page, body: unknown) {
+  await page.route('**/_serverFn/**', async (route) => {
+    const segment = new URL(route.request().url()).pathname.split('/').pop() ?? ''
+    let exported = ''
+    try {
+      exported = (JSON.parse(Buffer.from(segment, 'base64url').toString('utf8')) as { export?: string }).export ?? ''
+    } catch {
+      exported = ''
+    }
+    if (!exported.startsWith('loadAssignedSectionPlace_')) return route.fallback()
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: body }) })
+  })
+}
+
+test('an assigned section shows its own address and settlement, not the place picked at signup', async ({ page }) => {
+  // Picked 261700019 in с. Мусачево at signup, assigned 261700022 in с. Елешница.
+  await mockAssignedPlace(page, {
+    section: '261700022',
+    place: { section: '261700022', address: 'НАРОДНО ЧИТАЛИЩЕ "ЕЛИН ПЕЛИН 1929"', settlement: 'с. Елешница' },
+  })
+  await seedProfile(page, registered({ place: { ...musachevo }, assignedSection: '261700022' }))
+  await page.goto('/profil')
+  const block = page.getByRole('region', { name: 'Назначена секция' })
+  await expect(block.getByRole('heading', { name: '261700022' })).toBeVisible()
+  const where = block.getByLabel('Адрес на секцията')
+  await expect(where).toContainText('НАРОДНО ЧИТАЛИЩЕ "ЕЛИН ПЕЛИН 1929"')
+  await expect(where).toContainText('с. Елешница')
+  await expect(block).not.toContainText('ОТЕЦ ПАИСИЙ')
+  await expect(block).not.toContainText('Мусачево')
+})
+
+test('an assigned section shows only its code when its address cannot be looked up', async ({ page }) => {
+  await mockAssignedPlace(page, { section: '261700022', place: null })
+  await seedProfile(page, registered({ place: { ...musachevo }, assignedSection: '261700022' }))
+  await page.goto('/profil')
+  const block = page.getByRole('region', { name: 'Назначена секция' })
+  await expect(block.getByRole('heading', { name: '261700022' })).toBeVisible()
+  await expect(block.getByText('Екипът вече е определил секцията.', { exact: false })).toBeVisible()
+  await expect(block.getByLabel('Адрес на секцията')).toHaveCount(0)
+  await expect(block).not.toContainText('ОТЕЦ ПАИСИЙ')
+  await expect(block).not.toContainText('Мусачево')
+})
+
 test('cannot reach the assigned section appends to an open call request', async ({ page }) => {
   await seedProfile(
     page,

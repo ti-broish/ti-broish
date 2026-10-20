@@ -164,9 +164,16 @@ export function SectionPersonRow(props: {
                           </button>
                         </form>
                         {warnings.length > 0 ? (
-                          <ul className="grid gap-1 text-xs font-semibold text-[#a33]">
+                          <ul className="grid gap-1 text-xs font-semibold">
                             {warnings.map((warning) => (
-                              <li key={warning.code + warning.message}>{warning.message}</li>
+                              // Only a blocking warning is red; a soft note (МИР outside the person's places) is an amber hint.
+                              <li
+                                key={warning.code + warning.message}
+                                data-level={warning.level}
+                                className={warning.level === 'block' ? 'text-[#a33]' : 'rounded bg-[#fdf3d8] px-1 text-[#5c4300]'}
+                              >
+                                {warning.message}
+                              </li>
                             ))}
                           </ul>
                         ) : null}

@@ -73,4 +73,27 @@ describe('planCountryDistribution', () => {
     const planned = await planCountryDistribution(db, { fetchJson: sectionsApi })
     expect(planned.ok && planned.plan.assignments.map((row) => row.personId)).toEqual(['drafted'])
   })
+
+  it('loads every municipality of a travel oblast, not only towns where someone lives', async () => {
+    const db = fakeDb({
+      signups: [signup('far', { radius: 'distant', distant_region_codes: '["14"]', region_code: 'sofia-merged', city_region_code: '09' })],
+    })
+    const fetched: string[] = []
+    const planned = await planCountryDistribution(db, {
+      fetchJson: async (path: string) => {
+        fetched.push(path)
+        if (path === 'results/1432.json') {
+          return { nodes: [{ id: 55871, type: 'town', nodes: [{ name: 'Перник', type: 'address', nodes: [{ segment: '143200001', type: 'section', stats: { voters: 200 } }] }] }] }
+        }
+        if (path.startsWith('sections?town=68134')) return [{ id: '234609001', place: 'Лозенец', town: { id: 68134 }, isMachine: true }]
+        return null
+      },
+    })
+    expect(planned.ok).toBe(true)
+    if (!planned.ok) return
+    expect(fetched).toContain('results/1432.json')
+    expect(fetched.filter((path) => path === 'results/1432.json')).toHaveLength(1)
+    expect(planned.sections.map((row) => row.id)).toContain('143200001')
+    expect(planned.plan.assignments.map((row) => [row.personId, row.sectionId])).toEqual([['far', '143200001']])
+  })
 })

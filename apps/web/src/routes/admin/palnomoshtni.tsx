@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminGhost, adminInput } from '../../components/admin-ui'
 import {
@@ -33,6 +33,7 @@ import { ELECTION_DISTRICTS } from '../../signup/designation-config'
 import { IAZ_LABEL, partnerBadge } from '../../signup/partner-import'
 import { adminPartnerSetMir } from '../../signup/partner-import-admin'
 import { PartnerImportPanel } from './-partner-import-panel'
+import { PersonName } from './-person-name'
 import { SignedWavesPanel } from './-signed-waves-panel'
 
 export const Route = createFileRoute('/admin/palnomoshtni')({
@@ -270,7 +271,8 @@ function PalnomoshtniPage() {
                     return {
                       personId: row.personId,
                       fileName: row.fileName,
-                      person: `${row.number} · ${row.name}`,
+                      number: row.number,
+                      name: row.name,
                       drive: failure ? `грешка: ${failure.error}` : 'качен',
                       brevo: done ? uploadBrevoCell(done.brevo) : '—',
                       ok: Boolean(done && done.brevo.ok),
@@ -406,7 +408,7 @@ function PalnomoshtniPage() {
                   <tr key={row.id} className="border-b border-[#e7dce9]">
                     <td className="px-2 py-2">{row.number ?? '—'}</td>
                     <td className="px-2 py-2 font-bold">
-                      {row.name}
+                      {row.partner ? row.name : <PersonName id={row.id} name={row.name} />}
                       {partnerBadge(row.partner) ? (
                         <span className="ml-2 rounded-full border border-[#2b062f] bg-[#f4e4b3] px-2 py-0.5 text-xs font-bold text-[#1a1020]">
                           {partnerBadge(row.partner)}
@@ -511,10 +513,10 @@ function UploadPreview({ preview }: { preview: SignedUploadMatch }) {
           </thead>
           <tbody>
             {preview.matched.map((row) => (
-              <PreviewRow key={`m-${row.fileName}`} fileName={row.fileName} status={matchedStatus(row)} person={`${row.number} · ${row.name}`} />
+              <PreviewRow key={`m-${row.fileName}`} fileName={row.fileName} status={matchedStatus(row)} person={<>{row.number} · <PersonName id={row.personId} name={row.name} /></>} />
             ))}
             {preview.duplicates.map((row) => (
-              <PreviewRow key={`d-${row.personId}`} fileName={row.fileNames.join(', ')} status="дубликат" person={`${row.number} · ${row.name}`} />
+              <PreviewRow key={`d-${row.personId}`} fileName={row.fileNames.join(', ')} status="дубликат" person={<>{row.number} · <PersonName id={row.personId} name={row.name} /></>} />
             ))}
             {preview.unmatched.map((row) => (
               <PreviewRow key={`u-${row.fileName}`} fileName={row.fileName} status={row.reason} person="—" />
@@ -536,7 +538,7 @@ function matchedStatus(row: MatchedUpload) {
   return bits.join(' · ')
 }
 
-function PreviewRow({ fileName, status, person }: { fileName: string; status: string; person: string }) {
+function PreviewRow({ fileName, status, person }: { fileName: string; status: string; person: ReactNode }) {
   return (
     <tr className="border-b border-[#e7dce9]">
       <td className="px-2 py-2">{fileName}</td>
@@ -561,7 +563,7 @@ async function readIncoming(list: FileList) {
   return files
 }
 
-type UploadResultRow = { personId: string; fileName: string; person: string; drive: string; brevo: string; ok: boolean }
+type UploadResultRow = { personId: string; fileName: string; number: number; name: string; drive: string; brevo: string; ok: boolean }
 
 function UploadResults({ rows }: { rows: UploadResultRow[] }) {
   return (
@@ -579,7 +581,9 @@ function UploadResults({ rows }: { rows: UploadResultRow[] }) {
           {rows.map((row) => (
             <tr key={row.personId} className={`border-b border-[#e7dce9] ${row.ok ? '' : 'text-[#8f1d1d]'}`}>
               <td className="px-2 py-2">{row.fileName}</td>
-              <td className="px-2 py-2">{row.person}</td>
+              <td className="px-2 py-2">
+                {row.number} · <PersonName id={row.personId} name={row.name} />
+              </td>
               <td className="px-2 py-2">{row.drive}</td>
               <td className="px-2 py-2">{row.brevo}</td>
             </tr>

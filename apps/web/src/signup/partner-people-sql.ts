@@ -147,3 +147,11 @@ export function isSectionHeldAbort(error: unknown) {
 /** Codes a partner person holds (draft or published). Empty before the columns exist. */
 export const PARTNER_HELD_SQL = `SELECT section_draft AS code FROM partner_people WHERE COALESCE(section_draft, '') != ''
 UNION SELECT section_published AS code FROM partner_people WHERE COALESCE(section_published, '') != ''`
+
+/**
+ * The admin profile (/admin/signups/$personId) a name may link to. „И аз“ partner people
+ * are not signups and have no profile, so they never get one.
+ */
+export function adminProfileIdFor(id: string) {
+  return id && !isPartnerPersonId(id) ? id : null
+}

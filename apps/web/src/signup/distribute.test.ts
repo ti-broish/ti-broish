@@ -609,17 +609,41 @@ describe('distributeSections with priority sections', () => {
     expect(both.assignments[0]?.sectionId).toBe('010100002')
   })
 
-  it('never uses a blocked (reserved or held) priority section, nor a machine one', () => {
+  it('never uses a blocked (reserved or held) priority section', () => {
+    const plan = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com' })],
+      sections: town,
+      blocked: ['234615020'],
+      priority: new Map([['234615020', { r: 0.9, level: 'elevated' }]]),
+    })
+    expect(plan.assignments.map((row) => row.sectionId)).toEqual(['234615001'])
+  })
+
+  it('uses a machine section only when it is a priority section', () => {
+    const machines = [
+      section({ id: '234615040', place: 'ул. Д 5', votersCount: 900 }),
+      section({ id: '234615050', place: 'ул. Е 6', votersCount: 700, isMachine: true }),
+    ]
+    const ordinary = distributeSections({ people: [person({ id: 'a', email: 'a@example.com' })], sections: machines })
+    expect(ordinary.assignments).toEqual([])
+    expect(ordinary.skipped.map((row) => row.reason)).toEqual(['no-section'])
+
+    const prioritized = distributeSections({
+      people: [person({ id: 'a', email: 'a@example.com' }), person({ id: 'b', email: 'b@example.com' })],
+      sections: machines,
+      priority: new Map([['234615050', { r: 1.2, level: 'watch' }]]),
+    })
+    expect(prioritized.assignments.map((row) => [row.sectionId, row.desk])).toEqual([['234615050', 'machine']])
+    expect(prioritized.skipped.map((row) => row.reason)).toEqual(['no-section'])
+  })
+
+  it('still prefers a machine priority section over a paper one in the town', () => {
     const plan = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com' })],
       sections: [...town, section({ id: '234615040', place: 'ул. Д 5', votersCount: 900 })],
-      blocked: ['234615020'],
-      priority: new Map([
-        ['234615020', { r: 0.9, level: 'elevated' }],
-        ['234615040', { r: 0.8, level: 'elevated' }],
-      ]),
+      priority: new Map([['234615040', { r: 0.8, level: 'elevated' }]]),
     })
-    expect(plan.assignments.map((row) => row.sectionId)).toEqual(['234615001'])
+    expect(plan.assignments.map((row) => [row.sectionId, row.desk])).toEqual([['234615040', 'machine']])
   })
 
   it('keeps a person with a companion who already has a section at that address over a priority section', () => {

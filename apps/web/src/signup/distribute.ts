@@ -298,7 +298,7 @@ function placeCluster(
     preferred: boolean
   }> = []
   for (const key of keys) {
-    const narrowed = pools.map((pool) => pool.filter((section) => bucketKey(section, level) === key && deskOf(section) !== 'machine'))
+    const narrowed = pools.map((pool) => pool.filter((section) => bucketKey(section, level) === key && draftable(section)))
     if (narrowed.some((pool) => pool.length === 0)) continue
     const union = dedupeSections(narrowed.flat())
     if (union.length < members.length + extra) continue
@@ -354,7 +354,7 @@ function assignDistinct(members: DistributePerson[], pools: DistributeSection[][
   const taken = new Set<string>()
   const assigned: DraftAssignment[] = []
   for (const item of order) {
-    const options = (pools[item.index] ?? []).filter((section) => !taken.has(section.id) && deskOf(section) !== 'machine')
+    const options = (pools[item.index] ?? []).filter((section) => !taken.has(section.id) && draftable(section))
     options.sort((a, b) => compareSections(a, b, item.person.place, [item.person]))
     const section = options[0]
     if (!section) return null
@@ -640,6 +640,11 @@ function radiusRank(radius: string) {
   if (radius === 'region') return 4
   if (radius === 'distant') return 5
   return 9
+}
+
+/** Paper or unknown sections, plus machine sections only when they are on the priority list. */
+function draftable(section: DistributeSection) {
+  return deskOf(section) !== 'machine' || Boolean(section.priority)
 }
 
 function deskOf(section: DistributeSection) {

@@ -48,7 +48,7 @@ export function PrioritySectionsPanel(props: {
       <div className="mt-3 grid gap-3">
         <PriorityCoverageLine summary={summary} />
         <p className="text-sm text-[#333]">
-          Списък с риск R по секция. „Предложи“ показва първо тези секции в града и общината на човека. Нищо тук не прави чернови,
+          Списък с риск R по секция. Нищо тук не прави чернови,
           не публикува и не праща имейли.{updatedAt ? ` Качен: ${new Date(updatedAt).toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' })}.` : ''}
         </p>
         {canEdit ? (

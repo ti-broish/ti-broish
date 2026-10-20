@@ -1,7 +1,7 @@
 /**
  * What „Направи чернови за страната“ writes. Both statements only ever touch rows with no
  * published section and an unlocked (automatic) draft: a published section, a manual draft
- * (set by hand, from „Предложи“, or left by „Махни публикуването“) and a withdrawn person are
+ * (saved with „Запази“ or left by „Махни публикуването“) and a withdrawn person are
  * never written. The caller (admin-distribute.ts) skips codes in taken_sections (reservedMap) before
  * writing, and the reservation triggers are the last word.
  */

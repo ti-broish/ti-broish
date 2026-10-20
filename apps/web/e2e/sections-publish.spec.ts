@@ -31,9 +31,10 @@ test.describe('Секции: three states, publish a row or the picked rows, unp
     const rowA = page.getByTestId('section-person-row').filter({ hasText: A.email })
     const rowB = page.getByTestId('section-person-row').filter({ hasText: B.email })
     await expect(rowA).toBeVisible()
-    // The draft cell has one way to set a draft, no separate „Запази“ step.
-    await expect(rowA.getByRole('button', { name: 'Запази' })).toHaveCount(0)
-    await expect(rowA.getByRole('button', { name: 'Сложи чернова' })).toBeVisible()
+    // The draft cell has one action: „Запази“ saves a draft. No „Предложи“.
+    await expect(rowA.getByRole('button', { name: 'Запази', exact: true })).toHaveCount(1)
+    await expect(rowA.getByRole('button', { name: 'Предложи' })).toHaveCount(0)
+    await expect(rowA.getByRole('button', { name: 'Сложи чернова' })).toHaveCount(0)
 
     await expect(async () => {
       await rowA.getByRole('button', { name: 'Публикувай', exact: true }).click()

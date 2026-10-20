@@ -40,7 +40,7 @@ export interface DistributeSection {
   votersCount?: number | null
   isMachine?: boolean | null
   isMobile?: boolean | null
-  /** A domestic priority (risk-scored) section. Same order as „Предложи“: home town, then municipality, by R desc. */
+  /** A domestic priority (risk-scored) section. Order: home town, then municipality, by R desc. */
   priority?: { r: number | null; level: string } | null
   /** Last election (CIK, April 2026): гласували and избиратели. Missing for sections new since then. */
   turnout?: Turnout | null
@@ -324,7 +324,7 @@ function placeCluster(
       preferred: (level === 'address' && preference.places.has(key)) || (level === 'town' && preference.towns.has(Number(key.slice('town:'.length)))),
     })
   }
-  // Priority sections first, like „Предложи“: in the home town, then the municipality, then by R desc.
+  // Priority sections first: in the home town, then the municipality, then by R desc.
   viable.sort(
     (a, b) =>
       Number(b.preferred) - Number(a.preferred) ||

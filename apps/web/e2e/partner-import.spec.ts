@@ -157,6 +157,9 @@ test.describe('partner import („И аз“) for пълномощни only', ()
       expect(d1(`SELECT COUNT(*) AS n FROM taken_sections WHERE organisation = 'И аз'`)[0]).toMatchObject({ n: 0 })
 
       const todor = panel.getByTestId('partner-section-row').filter({ hasText: 'Тодор Пробов' })
+      // One draft action per row: „Запази“. No „Предложи“.
+      await expect(todor.getByRole('button', { name: 'Запази', exact: true })).toHaveCount(1)
+      await expect(todor.getByRole('button', { name: 'Предложи' })).toHaveCount(0)
       await todor.getByRole('button', { name: 'Публикувай' }).click()
       await expect(page.getByText(/Публикувани 1\..*Без писма и без Brevo/)).toBeVisible()
       const [published] = d1(`SELECT section_published AS code FROM partner_people WHERE email = 'iaz.one-e2e@example.com'`) as Array<{ code: string }>

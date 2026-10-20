@@ -38,8 +38,6 @@ const states = [
   ['published', 'Публикувани', 'published'],
 ] as const
 
-type Suggestion = { id: string; place: string; score: number; reason: string; desk: 'paper' | 'machine' | 'unknown'; priority?: PriorityInfo }
-
 export function SectionsPage() {
   const search = sectionsRoute.useSearch()
   const navigate = sectionsRoute.useNavigate()
@@ -58,8 +56,6 @@ export function SectionsPage() {
   const [clearing, setClearing] = useState(false)
   const [draftValues, setDraftValues] = useState<Record<string, string>>({})
   const [rowWarnings, setRowWarnings] = useState<Record<string, AssignWarning[]>>({})
-  const [suggestions, setSuggestions] = useState<Record<string, Suggestion[]>>({})
-  const [suggestBusy, setSuggestBusy] = useState<string | null>(null)
   const [spots, setSpots] = useState<Record<string, SectionSpot>>({})
   const [mirDraft, setMirDraft] = useState(search.mir)
   const [reservedRows, setReservedRows] = useState<ReservedRowView[]>([])
@@ -221,7 +217,7 @@ export function SectionsPage() {
 
   return (
     <div className="grid gap-5">
-      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. Всеки е в едно от трите състояния: без секция, с чернова (вижда се само тук) или с публикувана секция (вижда я в профила си). На всеки ред: впиши секция или избери от „Предложи“, за да сложиш чернова; „Публикувай“ я показва в профила, без имейл; „Махни публикуването“ я връща в чернова. Можеш да избереш няколко реда и „Публикувай избраните“. „Направи чернови за страната“ пресмята само автоматичните чернови на хора без публикувана секция: първо приоритетна секция (в града, после в общината, по R), после хартиена под 300 избиратели; резервираните от други организации и машинните извън приоритетните се пропускат. Публикуваните секции и ръчните чернови (вписани, от „Предложи“ или върнати от публикуване) не се пипат и не се дават на друг. „Чернови само за хората без секция“ не пипа никоя чернова. „Изчисти черновите“ маха само автоматичните чернови; ръчните и публикуваните остават. Чуждите чернови в чужбина не се пипат от разпределението за страната." />
+      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. Всеки е в едно от трите състояния: без секция, с чернова (вижда се само тук) или с публикувана секция (вижда я в профила си). На всеки ред: впиши секция и натисни „Запази“: това е чернова, без публикуване и без имейл; „Публикувай“ я показва в профила, без имейл; „Махни публикуването“ я връща в чернова. Можеш да избереш няколко реда и „Публикувай избраните“. „Направи чернови за страната“ пресмята само автоматичните чернови на хора без публикувана секция: първо приоритетна секция (в града, после в общината, по R), после хартиена под 300 избиратели; резервираните от други организации и машинните извън приоритетните се пропускат. Публикуваните секции и ръчните чернови (запазени със „Запази“ или върнати от публикуване) не се пипат и не се дават на друг. „Чернови само за хората без секция“ не пипа никоя чернова. „Изчисти черновите“ маха само автоматичните чернови; ръчните и публикуваните остават. Чуждите чернови в чужбина не се пипат от разпределението за страната." />
       <label className="grid max-w-md gap-1 text-sm font-bold text-[#1a1020]" htmlFor="section-search">
         Търсене
         <input id="section-search" className={adminInput} type="search" value={draft} placeholder="Име, имейл, телефон или ЕГН" onChange={(event) => setDraft(event.target.value)} />
@@ -483,10 +479,6 @@ export function SectionsPage() {
                 setDraftValues={setDraftValues}
                 warnings={rowWarnings[person.id] ?? []}
                 setRowWarnings={setRowWarnings}
-                tips={suggestions[person.id] ?? []}
-                setSuggestions={setSuggestions}
-                suggestBusy={suggestBusy}
-                setSuggestBusy={setSuggestBusy}
                 setMessage={setMessage}
                 load={load}
                 canPublish={canPublish}

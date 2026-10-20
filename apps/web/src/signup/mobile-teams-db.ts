@@ -162,7 +162,7 @@ export async function planMobileFromDb(db: Database) {
   return { people, context, plan }
 }
 
-/** „Предложи“ for one mobile person: the best areas within their reach, with targets. */
+/** The best open areas within one mobile person's reach, with targets. */
 export async function suggestMobileAreas(db: Database, signupId: string, limit = 5): Promise<{ person: MobilePerson | null; areas: MobileArea[] }> {
   const [person] = await loadMobilePeople(db, { id: signupId })
   if (!person) return { person: null, areas: [] }

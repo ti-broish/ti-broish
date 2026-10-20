@@ -4,22 +4,8 @@ import { rosterWhere, type RosterView } from './admin-csv'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, chunkIds } from './admin-bulk'
 import { searchClause } from './admin-search'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
-import {
-  brevoOutcomeAuditSuffix,
-  clipWithdrawNote,
-  parseWithdrawReason,
-  restoreAuditAfter,
-  restoreAuditBefore,
-  restoreMessage,
-  restoreSql,
-  unregisterMessage,
-  unregisterSql,
-  withdrawAuditAfter,
-  withdrawAuditBefore,
-  type BrevoListOutcome,
-  type WithdrawReason,
-} from './admin-unregister'
-import { importContactsToList, readBrevoConfig, removeContactsFromList } from './brevo'
+import { clipWithdrawNote, parseWithdrawReason, restoreMessage, unregisterMessage, type WithdrawReason } from './admin-unregister'
+import { cleanupWithdrawnBrevo, releaseWithdrawnSections, restoreSignup, withdrawSignup } from './withdrawal'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
@@ -52,43 +38,6 @@ function bound(db: Database, sql: string, binds: unknown[]) {
   return db.prepare(sql).bind(...binds)
 }
 
-async function writeAudit(db: Database, signupId: string, actor: string, field: 'withdrawn' | 'restored', before: string, after: string, at: string) {
-  await db
-    .prepare(`INSERT INTO signup_audit (id, signup_id, actor, field, before_text, after_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .bind(crypto.randomUUID(), signupId, actor, field, before, after, at)
-    .run()
-}
-
-async function brevoRemoveBestEffort(email: string): Promise<BrevoListOutcome> {
-  try {
-    const config = readBrevoConfig()
-    if ('missing' in config) return { ok: true, action: 'skipped', detail: `липсва ${config.missing}` }
-    if (!config.listId) return { ok: true, action: 'skipped', detail: 'липсва BREVO_LIST_ID' }
-    await removeContactsFromList(config, [email], config.listId)
-    return { ok: true, action: 'removed', detail: `махнат от списък ${config.listId}` }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return { ok: false, action: 'removed', detail: message.slice(0, 200) }
-  }
-}
-
-async function brevoAddBestEffort(email: string, firstName: string, lastName: string): Promise<BrevoListOutcome> {
-  try {
-    const config = readBrevoConfig()
-    if ('missing' in config) return { ok: true, action: 'skipped', detail: `липсва ${config.missing}` }
-    if (!config.listId) return { ok: true, action: 'skipped', detail: 'липсва BREVO_LIST_ID' }
-    await importContactsToList(
-      config,
-      [{ email, attributes: { FIRSTNAME: firstName, LASTNAME: lastName } }],
-      config.listId,
-    )
-    return { ok: true, action: 'added', detail: `добавен в списък ${config.listId}` }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return { ok: false, action: 'added', detail: message.slice(0, 200) }
-  }
-}
-
 type TargetRow = {
   id: string
   email: string
@@ -108,17 +57,7 @@ async function unregisterOne(
   note: string,
   now: string,
 ) {
-  const result = await db
-    .prepare(unregisterSql())
-    .bind(now, actor, reason, note || null, now, row.id)
-    .run()
-  if (!rowChanged(result)) return { updated: false as const, brevo: null as BrevoListOutcome | null }
-  const before = withdrawAuditBefore(row.draft_section, row.published_section)
-  let after = withdrawAuditAfter(reason, note, row.draft_section, row.published_section)
-  const brevo = await brevoRemoveBestEffort(row.email)
-  after += brevoOutcomeAuditSuffix(brevo)
-  await writeAudit(db, row.id, actor, 'withdrawn', before, after, now)
-  return { updated: true as const, brevo }
+  return withdrawSignup(db, row, { actor, by: actor, reason, note, byAdmin: true }, now)
 }
 
 export const adminUnregisterPerson = createServerFn({ method: 'POST' })
@@ -183,21 +122,14 @@ export const adminRestorePerson = createServerFn({ method: 'POST' })
     if (!row) return { ok: false as const, message: 'Няма такъв човек.' }
     if (row.withdrawn !== 1) return { ok: false as const, message: 'Този човек не е отписан.' }
 
-    const freed = await lastFreedSection(access.db, row.id)
     const now = new Date().toISOString()
-    const result = await access.db.prepare(restoreSql()).bind(now, row.id).run()
-    if (!rowChanged(result)) return { ok: false as const, message: 'Този човек не е отписан.' }
-
-    const before = restoreAuditBefore(row.withdrawn_reason, row.withdrawn_note, freed)
-    let after = restoreAuditAfter()
-    const brevo = await brevoAddBestEffort(row.email, row.first_name, row.last_name)
-    after += brevoOutcomeAuditSuffix(brevo)
-    await writeAudit(access.db, row.id, access.email, 'restored', before, after, now)
+    const result = await restoreSignup(access.db, row, access.email, now, { firstName: row.first_name, lastName: row.last_name })
+    if (!result.updated) return { ok: false as const, message: 'Този човек не е отписан.' }
     return {
       ok: true as const,
       message: restoreMessage(),
-      previousSection: freed,
-      brevo,
+      previousSection: result.previousSection,
+      brevo: result.brevo,
     }
   })
 
@@ -302,37 +234,31 @@ export const selfRestoreSignup = createServerFn({ method: 'POST' })
         withdrawn: number
       }>()
     if (!row) return { ok: false as const, message: 'Влез в профила си.' }
-    if (row.withdrawn !== 1) return { ok: false as const, message: 'Записването не е отписано.' }
-    const freed = await lastFreedSection(db, row.id)
+    // The profile autosave may have restored it a moment earlier (saveSignup → restoreSignup): that is a success,
+    // not a reason for /profil to flip back to withdrawn and save a fresh withdrawal.
+    if (row.withdrawn !== 1) return { ok: true as const, message: 'Записването е активно.' }
     const now = new Date().toISOString()
-    const result = await db.prepare(restoreSql()).bind(now, row.id).run()
-    if (!rowChanged(result)) return { ok: false as const, message: 'Записването не е отписано.' }
-    const before = restoreAuditBefore(row.withdrawn_reason, row.withdrawn_note, freed)
-    let after = restoreAuditAfter()
-    const brevo = await brevoAddBestEffort(row.email, row.first_name, row.last_name)
-    after += brevoOutcomeAuditSuffix(brevo)
-    await writeAudit(db, row.id, row.email, 'restored', before, after, now)
+    const result = await restoreSignup(db, row, row.email, now, { firstName: row.first_name, lastName: row.last_name })
+    if (!result.updated) return { ok: true as const, message: 'Записването е активно.' }
     return { ok: true as const, message: 'Върнахме записването.' }
   })
 
-async function lastFreedSection(db: Database, signupId: string) {
-  const row = await db
-    .prepare(
-      `SELECT after_text FROM signup_audit
-       WHERE signup_id = ? AND field = 'withdrawn'
-       ORDER BY created_at DESC, id DESC LIMIT 1`,
-    )
-    .bind(signupId)
-    .first<{ after_text: string }>()
-  if (!row?.after_text) return ''
-  const published = row.after_text.match(/освободена публикувана\s+([A-Z0-9]+)/i)
-  if (published?.[1]) return published[1]
-  const draft = row.after_text.match(/освободена чернова\s+([A-Z0-9]+)/i)
-  return draft?.[1] ?? ''
-}
-
-/** D1 reports meta.changes; when the field is missing, treat the write as applied. */
-function rowChanged(result: unknown) {
-  const changes = (result as { meta?: { changes?: unknown } })?.meta?.changes
-  return typeof changes === 'number' ? changes > 0 : true
-}
+/**
+ * Brevo cleanup for withdrawn people (idempotent): first frees any section a withdrawn person still holds,
+ * then takes up to 25 not-yet-clean contacts out of every Brevo list and blanks their section fields.
+ * No email, no campaign. Click again while „остават“ is above zero.
+ */
+export const adminCleanupWithdrawn = createServerFn({ method: 'POST' }).handler(async () => {
+  const access = await gate('edit')
+  if (!access.ok) return access
+  const now = new Date().toISOString()
+  const { released } = await releaseWithdrawnSections(access.db, now)
+  const result = await cleanupWithdrawnBrevo(access.db, access.email, now)
+  const parts = [
+    released ? `Освободени секции: ${released}.` : '',
+    `Brevo: изчистени ${result.cleaned} от ${result.checked}.`,
+    result.failed ? `Неизчистени ${result.failed} (виж историята на човека).` : '',
+    result.left ? `Остават ${result.left}.` : 'Няма останали.',
+  ]
+  return { ok: true as const, released, ...result, message: parts.filter(Boolean).join(' ') }
+})

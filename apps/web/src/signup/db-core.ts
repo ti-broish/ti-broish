@@ -8,6 +8,7 @@ import { emptyProfile, type Profile } from './model'
 import { parseAdminEmails } from './staff'
 import { PRIORITY_SECTIONS_INDEXES, PRIORITY_SECTIONS_TABLE } from './priority-sections-sql'
 import { SIGNED_WAVE_COLUMNS } from './signed-waves-sql'
+import { releaseWithdrawnSections } from './withdrawal'
 import { PARTNER_PEOPLE_INDEXES, PARTNER_PEOPLE_TABLE, PARTNER_SECTION_COLUMNS, PARTNER_SECTION_GUARDS } from './partner-people-sql'
 import { RESERVED_SECTION_GUARDS } from './reserved-sections-sql'
 import { MOBILE_DRAFTS_GUARDS, MOBILE_DRAFTS_TABLE } from './mobile-teams-sql'
@@ -233,8 +234,16 @@ export async function signupDatabase() {
     await db.prepare(`INSERT INTO staff (email, role, invited_by, created_at) VALUES (?, 'admin', 'env', ?) ON CONFLICT(email) DO NOTHING`).bind(email, now).run()
   }
   await ensureSearchIndex(db)
+  // Once per isolate: withdrawn people who still hold a seat (the old /profil withdraw) get it freed,
+  // with an audit line and the Brevo cleanup. Idempotent; never blocks a request.
+  withdrawnSweep ??= releaseWithdrawnSections(db, now).catch((error) => {
+    console.warn('releaseWithdrawnSections failed', error instanceof Error ? error.message : error)
+  })
+  await withdrawnSweep
   return db
 }
+
+let withdrawnSweep: Promise<unknown> | null = null
 
 export function profileFrom(row: SignupRow): Profile {
   const parsed = JSON.parse(row.payload) as Partial<Profile> & { draftSection?: unknown; demoState?: unknown }

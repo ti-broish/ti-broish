@@ -87,8 +87,9 @@ describe('signup flow', () => {
     expect(registrationSettled({ ...ready, consent: false, submitted: false })).toBe(false)
     // Self-service withdraw on a waiting profile shows the оттеглено incomplete view.
     expect(profileView({ ...ready, withdrawn: true })).toBe('incomplete')
-    // Assigned profiles keep the assigned view even if withdrawn (admin clears the seat).
-    expect(profileView({ ...ready, assignedSection: '234600101', withdrawn: true })).toBe('assigned')
+    // Withdrawing frees the seat right away, so a withdrawn profile never shows the assigned view.
+    expect(profileView({ ...ready, assignedSection: '234600101', withdrawn: true })).toBe('incomplete')
+    expect(profileView({ ...ready, assignedSection: '234600101' })).toBe('assigned')
     expect(nextAssignment(ready, new Date('2026-09-27T12:00:00Z'))?.label).toBe('5 октомври')
     expect(nextAssignment({ rounds: { first: false, runoff: true } }, new Date('2026-09-27T12:00:00Z'))?.label).toBe('26 октомври')
   })

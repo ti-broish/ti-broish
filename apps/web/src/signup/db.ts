@@ -9,6 +9,8 @@ import { deliverMail, isDevMailHost } from './mail'
 import { egnProblem, signupColumns } from './record'
 import { receiptClaimed, signupReceiptMail } from './receipt'
 import { sessionCookieSecure } from './session-cookie'
+import { SELF_WITHDRAW_REASON } from './admin-unregister'
+import { restoreSignup, withdrawalTurn, withdrawSignup } from './withdrawal'
 
 function requestHost() {
   try {
@@ -108,17 +110,33 @@ export const saveSignup = createServerFn({ method: 'POST' })
     const prior = existing
       ? await db
           .prepare(
-            `SELECT payload, COALESCE(staff_called_at, '') AS staff_called_at, COALESCE(staff_called_by, '') AS staff_called_by
+            `SELECT payload, COALESCE(staff_called_at, '') AS staff_called_at, COALESCE(staff_called_by, '') AS staff_called_by,
+                    email, COALESCE(withdrawn, 0) AS withdrawn, COALESCE(draft_section, '') AS draft_section,
+                    COALESCE(published_section, '') AS published_section, COALESCE(withdrawn_reason, '') AS withdrawn_reason,
+                    COALESCE(withdrawn_note, '') AS withdrawn_note
              FROM signups WHERE id = ?`,
           )
           .bind(existing.id)
-          .first<{ payload: string | null; staff_called_at: string; staff_called_by: string }>()
+          .first<{
+            payload: string | null
+            staff_called_at: string
+            staff_called_by: string
+            email: string
+            withdrawn: number
+            draft_section: string
+            published_section: string
+            withdrawn_reason: string
+            withdrawn_note: string
+          }>()
       : null
     const renewedCall = prior ? callRequestRenewed(callRequestFromPayload(prior.payload), data, prior.staff_called_at) : false
     if (prior && renewedCall) {
       data = { ...data, callRequestedAt: renewedRequestAt(data.callRequestedAt, prior.staff_called_at, now) }
       columns = signupColumns(data)
     }
+    // The withdrawn flag only flips through withdrawSignup / restoreSignup below, so the seat, audit and Brevo follow it.
+    const turning = prior ? withdrawalTurn(prior.withdrawn, columns.withdrawn) : null
+    const storedWithdrawn = turning ? prior!.withdrawn : columns.withdrawn
     await db
       .prepare(
         `INSERT INTO signups (
@@ -202,7 +220,7 @@ export const saveSignup = createServerFn({ method: 'POST' })
         columns.emailConfirmed,
         columns.consent,
         columns.submitted,
-        columns.withdrawn,
+        storedWithdrawn,
         columns.notes,
         now,
         now,
@@ -221,6 +239,16 @@ export const saveSignup = createServerFn({ method: 'POST' })
     const synced = await syncCompanions(db, id, data.companions)
     data = { ...data, companions: synced.companions }
     await db.prepare('UPDATE signups SET payload = ? WHERE id = ?').bind(signupColumns(data).payload, id).run()
+    if (prior && turning === 'withdraw') {
+      await withdrawSignup(
+        db,
+        { id, email: prior.email, draft_section: prior.draft_section, published_section: prior.published_section },
+        { actor: prior.email, by: 'self', reason: SELF_WITHDRAW_REASON, note: '', byAdmin: false },
+        now,
+      )
+    } else if (prior && turning === 'return') {
+      await restoreSignup(db, { id, email: prior.email, withdrawn_reason: prior.withdrawn_reason, withdrawn_note: prior.withdrawn_note }, prior.email, now, data)
+    }
     // An earlier save can set submitted without a letter. The claim is what stops a second one.
     if (columns.submitted === 1 && !data.withdrawn && signupGap(data) === null && !isDevMailHost()) {
       await sendSignupReceipt(db, id, data)

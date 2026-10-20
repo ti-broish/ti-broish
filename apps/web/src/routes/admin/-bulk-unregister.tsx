@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { adminGhost, adminChipOn, adminInput } from '../../components/admin-ui'
-import { adminBulkUnregister } from '../../signup/admin-unregister-actions'
+import { adminBulkUnregister, adminCleanupWithdrawn } from '../../signup/admin-unregister-actions'
 import { WITHDRAW_REASONS, WITHDRAW_REASON_LABELS, type WithdrawReason } from '../../signup/admin-unregister'
 
 export function BulkUnregisterBar({
@@ -116,6 +116,30 @@ export function BulkUnregisterBar({
       >
         Отказ
       </button>
+    </div>
+  )
+}
+
+/** „Отписани“: frees any seat a withdrawn person still holds and cleans their Brevo contacts. No email. */
+export function CleanupWithdrawnButton({ onDone }: { onDone: (message: string) => void }) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <button
+        type="button"
+        className={adminGhost}
+        disabled={busy}
+        onClick={() => {
+          setBusy(true)
+          void adminCleanupWithdrawn()
+            .then((result) => onDone(result.message))
+            .catch(() => onDone('Почистването не мина. Опитай пак.'))
+            .finally(() => setBusy(false))
+        }}
+      >
+        {busy ? 'Почистваме…' : 'Почисти отписаните (секции и Brevo)'}
+      </button>
+      <span className="text-[#5f5164]">Маха ги от всички списъци в Brevo и изчиства полетата за секция. Без писма.</span>
     </div>
   )
 }

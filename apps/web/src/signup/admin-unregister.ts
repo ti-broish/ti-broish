@@ -19,8 +19,13 @@ export function clipWithdrawNote(value: unknown) {
   return typeof value === 'string' ? value.trim().slice(0, NOTE_LIMIT) : ''
 }
 
+/** Volunteer withdrew from /profil. Not an admin choice, so it is not in WITHDRAW_REASONS. */
+export const SELF_WITHDRAW_REASON = 'self'
+export const SELF_WITHDRAW_LABEL = 'Оттегли се от профила'
+
 export function withdrawReasonLabel(reason: string | null | undefined) {
   if (!reason) return ''
+  if (reason === SELF_WITHDRAW_REASON) return SELF_WITHDRAW_LABEL
   return WITHDRAW_REASON_LABELS[reason as WithdrawReason] ?? reason
 }
 
@@ -35,7 +40,7 @@ export function withdrawAuditBefore(draftSection: string, publishedSection: stri
 }
 
 /** Human text for the audit "after" side when unregistering. */
-export function withdrawAuditAfter(reason: WithdrawReason, note: string, draftSection: string, publishedSection: string) {
+export function withdrawAuditAfter(reason: string, note: string, draftSection: string, publishedSection: string) {
   const draft = draftSection.trim()
   const published = publishedSection.trim()
   const freed: string[] = []
@@ -43,7 +48,7 @@ export function withdrawAuditAfter(reason: WithdrawReason, note: string, draftSe
   if (draft && draft !== published) freed.push(`освободена чернова ${draft}`)
   if (!freed.length) freed.push('без секция')
   const notePart = note ? ` · ${note}` : ''
-  return `Отписан · ${WITHDRAW_REASON_LABELS[reason]}${notePart} · ${freed.join(' · ')}`
+  return `Отписан · ${withdrawReasonLabel(reason)}${notePart} · ${freed.join(' · ')}`
 }
 
 /** Audit "before" when restoring: what the withdrawal looked like. */
@@ -62,6 +67,9 @@ export type BrevoListOutcome =
   | { ok: true; action: 'removed' | 'added' | 'skipped'; detail: string }
   | { ok: false; action: 'removed' | 'added' | 'skipped'; detail: string }
 
+/** Audit text that marks a finished Brevo cleanup; the admin cleanup skips people who have it. */
+export const BREVO_CLEANED_MARK = 'Brevo: изчистен'
+
 export function brevoOutcomeAuditSuffix(outcome: BrevoListOutcome) {
   if (outcome.action === 'skipped') return ` · Brevo: ${outcome.detail}`
   if (outcome.ok) return ` · Brevo: ${outcome.detail}`
@@ -77,6 +85,16 @@ export function freedSectionFromAuditAfter(after: string) {
   return ''
 }
 
+const RELEASE_SECTIONS = `draft_section = NULL,
+    draft_locked = 0,
+    published_section = NULL,
+    published_at = NULL`
+
+/**
+ * Active → withdrawn, for the admin „Отпиши“ and the volunteer's own „Оттегли записването“.
+ * Binds: withdrawn_at, withdrawn_by, reason, note, byAdmin ('true' | 'false'), updated_at, id.
+ * Frees the section; the пълномощно (designation_*) stays as it is.
+ */
 export function unregisterSql() {
   return `UPDATE signups SET
     withdrawn = 1,
@@ -84,13 +102,34 @@ export function unregisterSql() {
     withdrawn_by = ?,
     withdrawn_reason = ?,
     withdrawn_note = ?,
-    draft_section = NULL,
-    draft_locked = 0,
-    published_section = NULL,
-    published_at = NULL,
-    payload = json_set(COALESCE(payload, '{}'), '$.withdrawn', json('true'), '$.withdrawnByAdmin', json('true'), '$.assignedSection', json('null')),
+    ${RELEASE_SECTIONS},
+    payload = json_set(COALESCE(payload, '{}'), '$.withdrawn', json('true'), '$.withdrawnByAdmin', json(?), '$.assignedSection', json('null')),
     updated_at = ?
   WHERE id = ? AND COALESCE(withdrawn, 0) = 0`
+}
+
+/** Already withdrawn but still holding a section: what /profil used to leave behind. */
+export const WITHDRAWN_HOLDING_SECTION = `COALESCE(withdrawn, 0) = 1 AND (COALESCE(draft_section, '') != '' OR COALESCE(published_section, '') != '')`
+
+/**
+ * Backfill for those rows. Keeps any withdrawn_* already set; otherwise the withdrawal time is the
+ * row's last update (the self-withdraw save) and the actor is the volunteer.
+ * Binds: withdrawn_at fallback, withdrawn_by fallback, reason fallback, updated_at, id.
+ */
+export function releaseWithdrawnSql() {
+  return `UPDATE signups SET
+    withdrawn_at = COALESCE(withdrawn_at, ?),
+    withdrawn_by = COALESCE(withdrawn_by, ?),
+    withdrawn_reason = COALESCE(withdrawn_reason, ?),
+    ${RELEASE_SECTIONS},
+    payload = json_set(COALESCE(payload, '{}'), '$.assignedSection', json('null')),
+    updated_at = ?
+  WHERE id = ? AND ${WITHDRAWN_HOLDING_SECTION}`
+}
+
+/** Audit "before" for the backfill: withdrawn, but the seat was still held. */
+export function releaseAuditBefore(draftSection: string, publishedSection: string) {
+  return withdrawAuditBefore(draftSection, publishedSection).replace(/^Активен/, 'Оттеглен, но държи секция')
 }
 
 export function restoreSql() {

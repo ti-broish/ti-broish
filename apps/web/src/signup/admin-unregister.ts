@@ -139,6 +139,8 @@ export function restoreSql() {
     withdrawn_by = NULL,
     withdrawn_reason = NULL,
     withdrawn_note = NULL,
+    withdrawal_processed_at = NULL,
+    withdrawal_processed_by = NULL,
     payload = json_set(COALESCE(payload, '{}'), '$.withdrawn', json('false'), '$.withdrawnByAdmin', json('false')),
     updated_at = ?
   WHERE id = ? AND COALESCE(withdrawn, 0) = 1`
@@ -153,4 +155,75 @@ export function unregisterMessage(updated: number, capped: boolean) {
 
 export function restoreMessage() {
   return 'Върнахме записването. Секцията не се възстановява автоматично.'
+}
+
+/** „Обработен“: an admin has handled a withdrawn person (called, replaced, closed). URL value of the filter. */
+export const WITHDRAWN_PROCESSED_FILTERS = ['yes', 'no'] as const
+export type WithdrawnProcessedFilter = (typeof WITHDRAWN_PROCESSED_FILTERS)[number]
+
+export const WITHDRAWN_PROCESSED_OPTIONS: ReadonlyArray<readonly [WithdrawnProcessedFilter | '', string]> = [
+  ['', 'Всички отписани'],
+  ['yes', 'Обработени'],
+  ['no', 'Необработени'],
+]
+
+export const PROCESSED_LABEL = 'Обработен'
+export const UNPROCESSED_LABEL = 'Необработен'
+
+export function parseWithdrawnProcessed(value: unknown): WithdrawnProcessedFilter | undefined {
+  return WITHDRAWN_PROCESSED_FILTERS.includes(value as WithdrawnProcessedFilter) ? (value as WithdrawnProcessedFilter) : undefined
+}
+
+export const WITHDRAWAL_PROCESSED_SQL = `COALESCE(withdrawal_processed_at, '') != ''`
+
+/** Extra AND for the roster; only the Отписани view narrows by it. */
+export function withdrawnProcessedClause(view: string, processed: WithdrawnProcessedFilter | undefined) {
+  if (view !== 'withdrawn' || !processed) return ''
+  return processed === 'yes' ? ` AND ${WITHDRAWAL_PROCESSED_SQL}` : ` AND NOT (${WITHDRAWAL_PROCESSED_SQL})`
+}
+
+/** Binds: processed_at, processed_by, updated_at, id. Only a withdrawn, not yet processed row changes. */
+export function markWithdrawalProcessedSql() {
+  return `UPDATE signups SET withdrawal_processed_at = ?, withdrawal_processed_by = ?, updated_at = ?
+  WHERE id = ? AND COALESCE(withdrawn, 0) = 1 AND NOT (${WITHDRAWAL_PROCESSED_SQL})`
+}
+
+/** Binds: updated_at, id. Only a withdrawn, processed row changes. */
+export function unmarkWithdrawalProcessedSql() {
+  return `UPDATE signups SET withdrawal_processed_at = NULL, withdrawal_processed_by = NULL, updated_at = ?
+  WHERE id = ? AND COALESCE(withdrawn, 0) = 1 AND ${WITHDRAWAL_PROCESSED_SQL}`
+}
+
+export const WITHDRAWN_COUNTS_SQL = `SELECT
+  COUNT(*) AS total,
+  COALESCE(SUM(CASE WHEN ${WITHDRAWAL_PROCESSED_SQL} THEN 1 ELSE 0 END), 0) AS processed
+FROM signups WHERE COALESCE(withdrawn, 0) = 1`
+
+export interface WithdrawnCounts {
+  total: number
+  processed: number
+  unprocessed: number
+}
+
+export function withdrawnCountsFrom(row: { total?: unknown; processed?: unknown } | null | undefined): WithdrawnCounts {
+  const total = Number(row?.total ?? 0) || 0
+  const processed = Math.min(total, Number(row?.processed ?? 0) || 0)
+  return { total, processed, unprocessed: total - processed }
+}
+
+export function withdrawnCountsLine(counts: WithdrawnCounts) {
+  return `Отписани: ${counts.total} · обработени ${counts.processed} · необработени ${counts.unprocessed}`
+}
+
+export function processedAuditBefore(processed: boolean) {
+  return processed ? UNPROCESSED_LABEL : PROCESSED_LABEL
+}
+
+export function processedAuditAfter(processed: boolean) {
+  return processed ? PROCESSED_LABEL : UNPROCESSED_LABEL
+}
+
+export function processedMessage(processed: boolean, updated: boolean) {
+  if (!updated) return processed ? 'Вече е обработен или не е отписан.' : 'Не е отбелязан като обработен.'
+  return processed ? 'Отбелязахме го като обработен.' : 'Махнахме „обработен“.'
 }

@@ -23,6 +23,7 @@ export function BulkCallbackBar({
   view,
   mir,
   q,
+  processed,
   ids,
   onApplied,
 }: {
@@ -34,6 +35,8 @@ export function BulkCallbackBar({
   view: string
   mir: string
   q: string
+  /** Отписани filter (обработени / необработени), so „целия изглед“ means what is on screen. */
+  processed?: string
   ids: string[]
   onApplied: (message: string) => void
 }) {
@@ -45,7 +48,7 @@ export function BulkCallbackBar({
     try {
       const result = await adminBulkCallback({
         data: wholeView
-          ? { called, scope: 'filter', view, mir, q }
+          ? { called, scope: 'filter', view, mir, q, processed }
           : { called, scope: 'ids', ids, view, mir, q },
       })
       onApplied(result.ok ? result.message : result.message)

@@ -289,6 +289,9 @@ export interface AdminPerson {
   withdrawnBy: string
   withdrawnReason: string
   withdrawnNote: string
+  /** „Обработен“ by an admin; empty while unprocessed. */
+  withdrawalProcessedAt: string
+  withdrawalProcessedBy: string
   previousSection: string
   imported: boolean
   draftSection: string
@@ -329,6 +332,8 @@ export function buildAdminPerson(
     withdrawnBy?: string
     withdrawnReason?: string
     withdrawnNote?: string
+    withdrawalProcessedAt?: string
+    withdrawalProcessedBy?: string
     previousSection?: string
   },
 ): AdminPerson {
@@ -360,6 +365,8 @@ export function buildAdminPerson(
     withdrawnBy: extra.withdrawnBy ?? '',
     withdrawnReason: extra.withdrawnReason ?? '',
     withdrawnNote: extra.withdrawnNote ?? '',
+    withdrawalProcessedAt: extra.withdrawalProcessedAt ?? '',
+    withdrawalProcessedBy: extra.withdrawalProcessedBy ?? '',
     previousSection: extra.previousSection ?? '',
     imported: extra.imported,
     draftSection: extra.draftSection,

@@ -84,6 +84,8 @@ const ADD_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN withdrawn_by TEXT',
   'ALTER TABLE signups ADD COLUMN withdrawn_reason TEXT',
   'ALTER TABLE signups ADD COLUMN withdrawn_note TEXT',
+  'ALTER TABLE signups ADD COLUMN withdrawal_processed_at TEXT',
+  'ALTER TABLE signups ADD COLUMN withdrawal_processed_by TEXT',
 ]
 
 const COMPANIONS = `

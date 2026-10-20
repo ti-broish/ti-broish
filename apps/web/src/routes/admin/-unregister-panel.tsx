@@ -3,6 +3,7 @@ import { adminGhost, adminInput } from '../../components/admin-ui'
 import { formatStaffWhen, type AdminPerson } from '../../signup/admin-progress'
 import { adminRestorePerson, adminUnregisterPerson } from '../../signup/admin-unregister-actions'
 import { WITHDRAW_REASONS, WITHDRAW_REASON_LABELS, withdrawReasonLabel, type WithdrawReason } from '../../signup/admin-unregister'
+import { ProcessedToggle } from './-withdrawal-processed'
 
 const field = `${adminInput} w-full`
 
@@ -33,6 +34,7 @@ export function UnregisterPanel({
           {person.withdrawnAt ? ` · ${formatStaffWhen(person.withdrawnAt)}` : ''}
         </p>
         {person.withdrawnNote ? <p className="text-sm text-[#333]">{person.withdrawnNote}</p> : null}
+        <ProcessedToggle id={person.id} processedAt={person.withdrawalProcessedAt} processedBy={person.withdrawalProcessedBy} showWho onChanged={onChanged} />
         {person.previousSection ? (
           <p className="text-sm font-bold text-[#1a1020]">
             Предишна секция: {person.previousSection} (не се връща автоматично)

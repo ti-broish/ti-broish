@@ -18,6 +18,9 @@ export interface RosterFields {
   role: string
   submitted: boolean
   withdrawn: boolean
+  /** Withdrawn and marked „Обработен“ by an admin: when, and by whom. */
+  withdrawalProcessedAt?: string
+  withdrawalProcessedBy?: string
   emailConfirmed: boolean
   imported: boolean
   draftSection: string

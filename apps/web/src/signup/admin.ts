@@ -9,6 +9,8 @@ import { abroadLocation, isAbroadSection, loadAbroadPlaces } from './brevo-locat
 import { abroadSectionAddress } from './abroad-section-addresses'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
 import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
+import { parseWithdrawnProcessed, withdrawnProcessedClause, type WithdrawnProcessedFilter } from './admin-unregister'
+import { withdrawnCounts } from './withdrawal'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { travelLabelOf } from './admin-assign'
 import { NOTES_SQL, notesFromRow } from './admin-notes'
@@ -85,6 +87,8 @@ interface RawPerson {
   rounds_runoff: number
   paper_count: number | null
   machine_count: number | null
+  withdrawal_processed_at: string
+  withdrawal_processed_by: string
 }
 
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -183,6 +187,8 @@ function fieldsOf(row: RawPerson): RosterFields {
     role: row.role,
     submitted: row.submitted === 1,
     withdrawn: row.withdrawn === 1,
+    withdrawalProcessedAt: row.withdrawal_processed_at ?? '',
+    withdrawalProcessedBy: row.withdrawal_processed_by ?? '',
     emailConfirmed: row.email_confirmed === 1,
     imported: row.imported === 1,
     draftSection: row.draft_section,
@@ -229,7 +235,9 @@ const PERSON_SQL = `${PERSON_SQL_BASE}${NOTES_SQL},
   CASE WHEN rounds_first = 1 OR json_extract(payload, '$.rounds.first') = 1 THEN 1 ELSE 0 END AS rounds_first,
   CASE WHEN rounds_runoff = 1 OR json_extract(payload, '$.rounds.runoff') = 1 THEN 1 ELSE 0 END AS rounds_runoff,
   paper_count,
-  machine_count`
+  machine_count,
+  COALESCE(withdrawal_processed_at, '') AS withdrawal_processed_at,
+  COALESCE(withdrawal_processed_by, '') AS withdrawal_processed_by`
 
 function bound(db: Database, sql: string, binds: unknown[]) {
   const statement = db.prepare(sql)
@@ -292,6 +300,7 @@ function filtered(
   finishedOnly: boolean,
   publishedOnly = false,
   exportKind?: 'brevo' | 'csv',
+  processed?: WithdrawnProcessedFilter,
 ) {
   const filter = finishedOnly ? distributionWhere(viewOf(view), mir) : rosterWhere(viewOf(view), mir)
   if ('error' in filter) return filter
@@ -300,7 +309,8 @@ function filtered(
     ? ` AND COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0`
     : ''
   const exportGuard = exportKind ? exportWithdrawnGuard(viewOf(view), exportKind) : ''
-  return { clause: `(${filter.clause}) AND (${search.clause})${published}${exportGuard}`, binds: [...filter.binds, ...search.binds] }
+  const processedGuard = withdrawnProcessedClause(viewOf(view), processed)
+  return { clause: `(${filter.clause}) AND (${search.clause})${published}${exportGuard}${processedGuard}`, binds: [...filter.binds, ...search.binds] }
 }
 
 async function queryPeople(
@@ -317,9 +327,10 @@ async function queryPeople(
   publishedOnly = false,
   exportKind?: 'brevo' | 'csv',
   sectionState?: SectionState | '',
+  processed?: WithdrawnProcessedFilter,
 ) {
   const run = async (mode: 'fts' | 'like') => {
-    const base = filtered(view, mir, q, mode, finishedOnly, publishedOnly, exportKind)
+    const base = filtered(view, mir, q, mode, finishedOnly, publishedOnly, exportKind, processed)
     if ('error' in base) return base
     // Секции: counts per state over the same scope and search, then narrow to the picked state.
     const sectionCounts = sectionState === undefined
@@ -399,7 +410,7 @@ export const adminSession = createServerFn({ method: 'POST' })
   })
 
 export const adminRoster = createServerFn({ method: 'POST' })
-  .validator((input: { view?: string; mir?: string; q?: string; page?: number; limit?: number; sort?: string; dir?: string; finished?: boolean; state?: string }) => ({
+  .validator((input: { view?: string; mir?: string; q?: string; page?: number; limit?: number; sort?: string; dir?: string; finished?: boolean; state?: string; processed?: string }) => ({
     state: input.state === undefined ? undefined : isSectionState(input.state) ? input.state : ('' as const),
     view: input.view ?? 'all',
     mir: input.mir ?? '',
@@ -409,12 +420,15 @@ export const adminRoster = createServerFn({ method: 'POST' })
     sort: input.sort ?? 'updated',
     dir: input.dir === 'asc' ? 'asc' : 'desc',
     finished: input.finished === true,
+    processed: parseWithdrawnProcessed(input.processed),
   }))
   .handler(async ({ data }) => {
     const access = await gate('view')
     if (!access.ok) return access
     const db = access.db
-    const queried = await queryPeople(db, data.view, data.mir, data.q, data.limit, (data.page - 1) * data.limit, false, data.sort, data.dir, data.finished, false, undefined, data.state)
+    const queried = await queryPeople(
+      db, data.view, data.mir, data.q, data.limit, (data.page - 1) * data.limit, false, data.sort, data.dir, data.finished, false, undefined, data.state, data.processed,
+    )
     if ('error' in queried) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: queried.error }
     const people = queried.rows.map(fieldsOf)
     const takenMir = viewOf(data.view) === 'mir' ? data.mir.trim().padStart(2, '0') : ''
@@ -432,6 +446,7 @@ export const adminRoster = createServerFn({ method: 'POST' })
       permissions: permissionsFor(access.role),
       staff: await listStaff(db),
       summary: await summaryOf(db),
+      withdrawnCounts: await withdrawnCounts(db),
       total: queried.total,
       sectionCounts: queried.sectionCounts,
       page: data.page,
@@ -443,7 +458,7 @@ export const adminRoster = createServerFn({ method: 'POST' })
 
 
 export const adminBulkCallback = createServerFn({ method: 'POST' })
-  .validator((input: { called?: boolean; scope?: string; ids?: unknown; view?: string; mir?: string; q?: string }) => {
+  .validator((input: { called?: boolean; scope?: string; ids?: unknown; view?: string; mir?: string; q?: string; processed?: string }) => {
     const picked = callbackIds(Array.isArray(input.ids) ? input.ids : [])
     return {
       called: input.called === true,
@@ -453,6 +468,7 @@ export const adminBulkCallback = createServerFn({ method: 'POST' })
       view: typeof input.view === 'string' ? input.view : 'all',
       mir: typeof input.mir === 'string' ? input.mir.slice(0, 8) : '',
       q: typeof input.q === 'string' ? input.q.slice(0, 120) : '',
+      processed: parseWithdrawnProcessed(input.processed),
     }
   })
   .handler(async ({ data }) => {
@@ -466,7 +482,7 @@ export const adminBulkCallback = createServerFn({ method: 'POST' })
         const rows = await bound(access.db, `SELECT id FROM signups WHERE id IN (${marks}) AND ${pending}`, data.ids).all<{ id: string }>()
         return { ids: (rows.results ?? []).map((row) => row.id), capped: false }
       }
-      const filter = filtered(data.view, data.mir, data.q, mode, false)
+      const filter = filtered(data.view, data.mir, data.q, mode, false, false, undefined, data.processed)
       if ('error' in filter) return filter
       const rows = await bound(
         access.db,
@@ -648,11 +664,12 @@ async function designationLinks(db: Database, ids: string[]) {
 }
 
 export const adminExport = createServerFn({ method: 'POST' })
-  .validator((input: { view: string; mir: string; kind: string; q?: string }) => ({
+  .validator((input: { view: string; mir: string; kind: string; q?: string; processed?: string }) => ({
     view: input.view,
     mir: input.mir,
     kind: input.kind === 'brevo-sections' || input.kind === 'campaign' || input.kind === 'internal' ? input.kind : 'campaign',
     q: (input.q ?? '').slice(0, 120),
+    processed: parseWithdrawnProcessed(input.processed),
   }))
   .handler(async ({ data }) => {
     const sections = data.kind === 'brevo-sections'
@@ -686,6 +703,8 @@ export const adminExport = createServerFn({ method: 'POST' })
         false,
         false,
         'csv',
+        undefined,
+        data.processed,
       )
       if ('error' in chunk) return { ok: false as const, message: chunk.error }
       people.push(...chunk.rows.map(fieldsOf))
@@ -992,6 +1011,8 @@ interface StoredPersonRow {
   withdrawn_by: string
   withdrawn_reason: string
   withdrawn_note: string
+  withdrawal_processed_at: string
+  withdrawal_processed_by: string
   email_confirmed: number
   imported: number
   draft_section: string
@@ -1019,6 +1040,8 @@ const PERSON_DETAIL_SQL = `SELECT id, email, payload,
   COALESCE(withdrawn_by, '') AS withdrawn_by,
   COALESCE(withdrawn_reason, '') AS withdrawn_reason,
   COALESCE(withdrawn_note, '') AS withdrawn_note,
+  COALESCE(withdrawal_processed_at, '') AS withdrawal_processed_at,
+  COALESCE(withdrawal_processed_by, '') AS withdrawal_processed_by,
   COALESCE(email_confirmed, 0) AS email_confirmed,
   COALESCE(imported, 0) AS imported,
   COALESCE(draft_section, '') AS draft_section,
@@ -1092,6 +1115,8 @@ function personExtra(
     withdrawnBy: row.withdrawn_by ?? '',
     withdrawnReason: row.withdrawn_reason ?? '',
     withdrawnNote: row.withdrawn_note ?? '',
+    withdrawalProcessedAt: row.withdrawal_processed_at ?? '',
+    withdrawalProcessedBy: row.withdrawal_processed_by ?? '',
     previousSection,
   }
 }

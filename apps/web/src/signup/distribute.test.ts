@@ -174,7 +174,7 @@ describe('distributeSections', () => {
     expect(plan.skipped.map((row) => row.reason)).toEqual(['mobile', 'mobile', 'video', 'abroad', 'no-place'])
   })
 
-  it('keeps a volunteer who accepts other oblasts at home within a tier, and lets the tier win across the reach', () => {
+  it('sends a volunteer who accepts other oblasts to a travel area on a tie, and lets the tier win across the reach', () => {
     const homeFirst = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com', radius: 'distant', distantMirs: ['02'], place: 'ул. А 1' })],
       sections: [
@@ -182,7 +182,8 @@ describe('distributeSections', () => {
         section({ id: '023700001', place: 'Бургас', townId: 42, votersCount: 120 }),
       ],
     })
-    expect(homeFirst.assignments[0]?.sectionId).toBe('234615001')
+    // Same tier (no voter data) and same importance: the travel area wins the tie.
+    expect(homeFirst.assignments[0]?.sectionId).toBe('023700001')
 
     const away = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com', radius: 'distant', distantMirs: ['02'], place: 'ул. А 1' })],
@@ -264,7 +265,7 @@ describe('distributeSections', () => {
     expect(onlyMachinesThere.assignments.map((row) => [row.sectionId, row.desk])).toEqual([['062000011', 'machine']])
   })
 
-  it('limits each distant oblast to its picked municipalities and still tries home first', () => {
+  it('limits each distant oblast to its picked municipalities and prefers them on a tie', () => {
     const volunteer = person({
       id: 'a',
       email: 'a@example.com',
@@ -281,7 +282,8 @@ describe('distributeSections', () => {
         section({ id: '062000011', place: 'Козлодуй', townId: 200, votersCount: 200 }),
       ],
     })
-    expect(homeFirst.assignments[0]?.sectionId).toBe('234615001')
+    // Враца is outside the picked municipality; Козлодуй (named) wins the tie over home.
+    expect(homeFirst.assignments[0]?.sectionId).toBe('062000011')
 
     const away = distributeSections({
       people: [volunteer],
@@ -612,7 +614,7 @@ describe('distributeSections with priority sections', () => {
     expect(byPerson.get('c')).toBe('234615001')
   })
 
-  it('for a municipality radius: priority in the town, then priority in the municipality, then ordinary sections', () => {
+  it('for a municipality radius: a priority section anywhere in reach leads its tier, higher R first', () => {
     const sections = [
       section({ id: '010100001', place: 'ул. Дом 1', townId: 1, votersCount: 100 }),
       section({ id: '010100002', place: 'ул. Дом 2', townId: 1, votersCount: 100 }),
@@ -634,7 +636,8 @@ describe('distributeSections with priority sections', () => {
         ['010100002', { r: 0.1, level: 'watch' }],
       ]),
     })
-    expect(both.assignments[0]?.sectionId).toBe('010100002')
+    // Importance over comfort: the village's R 0.9 beats R 0.1 in the home town.
+    expect(both.assignments[0]?.sectionId).toBe('010100101')
   })
 
   it('never uses a blocked (reserved or held) priority section', () => {
@@ -667,13 +670,13 @@ describe('distributeSections with priority sections', () => {
     expect(prioritized.skipped).toEqual([])
   })
 
-  it('still prefers a machine priority section over a paper one in the town', () => {
+  it('does not let a machine priority section jump ahead of a paper section (tier first)', () => {
     const plan = distributeSections({
       people: [person({ id: 'a', email: 'a@example.com' })],
       sections: [...town, section({ id: '234615040', place: 'ул. Д 5', votersCount: 900 })],
       priority: new Map([['234615040', { r: 0.8, level: 'elevated' }]]),
     })
-    expect(plan.assignments.map((row) => [row.sectionId, row.desk])).toEqual([['234615040', 'machine']])
+    expect(plan.assignments.map((row) => row.desk)).toEqual(['paper'])
   })
 
   it('keeps a person with a companion who already has a section at that address over a priority section', () => {
@@ -753,12 +756,19 @@ describe('distributeSections across the whole accepted reach (home and travel ob
     expect(plan.assignments[0]?.sectionId).toBe('254620045')
   })
 
-  it('within one tier prefers the home town over a travel oblast', () => {
-    const plan = distributeSections({ people: [traveller()], sections: [pernikPaper, sofiaPaper], turnout })
-    expect(plan.assignments[0]?.sectionId).toBe('244605063')
+  it('within one tier ranks by importance (voted), and on an exact tie sends a traveller to the travel area', () => {
+    // Sofia paper has fewer voted (200) than Перник (300): Перник is more important.
+    const byVoted = distributeSections({ people: [traveller()], sections: [pernikPaper, sofiaPaper], turnout })
+    expect(byVoted.assignments[0]?.sectionId).toBe('143200001')
+    const tie = new Map([...turnout, ['244605063', { voted: 300, registered: 575 }]])
+    const onTie = distributeSections({ people: [traveller()], sections: [sofiaPaper, pernikPaper], turnout: tie })
+    expect(onTie.assignments[0]?.sectionId).toBe('143200001')
+    // A home-only volunteer with the same sections stays home on the tie.
+    const homeOnly = distributeSections({ people: [traveller({ distantMirs: [], radius: 'region' })], sections: [sofiaPaper, pernikPaper], turnout: tie })
+    expect(homeOnly.assignments[0]?.sectionId).toBe('244605063')
   })
 
-  it('still puts a priority section in the own town (own район in Sofia) first, even a machine one', () => {
+  it('a priority section in the own район does not beat a more important tier elsewhere in reach', () => {
     const lozenetsMachine = section({ id: '234609001', place: 'Лозенец', votersCount: 850, isMachine: true })
     const plan = distributeSections({
       people: [traveller()],
@@ -766,7 +776,16 @@ describe('distributeSections across the whole accepted reach (home and travel ob
       priority: new Map([['234609001', { r: 1.1, level: 'watch' }]]),
       turnout,
     })
-    expect(plan.assignments[0]?.sectionId).toBe('234609001')
+    expect(plan.assignments[0]?.sectionId).toBe('143200001')
+  })
+
+  it('plans the person with the fewest options first so a traveller does not strand a home-only volunteer', () => {
+    // The Перник local can only use Перник; the Sofia traveller would otherwise take it (more voted than Sofia paper).
+    const local = person({ id: 'z-local', email: 'l@example.com', radius: 'settlement', mir: '14', regionCode: '14', townId: 55871, municipalityCode: '32', cityRegionCode: '', place: 'Перник' })
+    const plan = distributeSections({ people: [traveller({ id: 'a-traveller' }), local], sections: [pernikPaper, sofiaPaper], turnout })
+    const byPerson = Object.fromEntries(plan.assignments.map((row) => [row.personId, row.sectionId]))
+    expect(byPerson['z-local']).toBe('143200001')
+    expect(byPerson['a-traveller']).toBe('244605063')
   })
 
   it('keeps companions together at one travel address and never uses a blocked travel section', () => {

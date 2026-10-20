@@ -104,7 +104,12 @@ export function distributeSections(input: {
 
   const held = new Set<string>()
   const clusters = clusterPeople(candidates)
+  // Fewest options first: someone who can only use a few sections gets them before a volunteer who can
+  // travel takes one. Then the tightest radius, the bigger group, the id.
+  const options = new Map(clusters.map((members) => [members, Math.min(...members.map((person) => allowedSections(person, sections, used).length))]))
   clusters.sort((a, b) => {
+    const fewer = (options.get(a) ?? 0) - (options.get(b) ?? 0)
+    if (fewer !== 0) return fewer
     const radius = tightest(a) - tightest(b)
     if (radius !== 0) return radius
     const size = pendingEmails(b, known, held).length + b.length - (pendingEmails(a, known, held).length + a.length)
@@ -384,9 +389,8 @@ function placeCluster(
       preferred: (level === 'address' && preference.places.has(key)) || (level === 'town' && preference.towns.has(Number(key.slice('town:'.length)))),
     })
   }
-  // Companions first. Then the best seats: priority in the home town, the tier (paper > 50, machine > 50,
-  // paper ≤ 50, machine ≤ 50) across the whole reach, priority in the home municipality, closeness
-  // (home town, municipality, МИР, oblast, travel areas). Then paper over unknown, the home address, size.
+  // Companions first. Then the most important seats across the whole reach (sectionKey: tier, priority R,
+  // voted/registered; travel areas, then closeness, only on exact ties). Then paper over unknown, the home address, size.
   viable.sort(
     (a, b) =>
       Number(b.preferred) - Number(a.preferred) ||
@@ -589,36 +593,31 @@ function groupCloseness(section: DistributeSection, people: readonly DistributeP
   return Math.max(...people.map((person) => closeness(person, section)))
 }
 
-/**
- * 0: priority in a member's own town (own район in a city split into районы): it comes before any tier.
- * 1: priority elsewhere in their town or municipality: first inside its tier.
- * 2: priority further away (another МИР, oblast or travel area): after closer sections of its tier.
- * 3: not a priority section.
- */
-function priorityScope(section: DistributeSection, people: readonly DistributePerson[]) {
-  if (!section.priority) return 3
-  let best = 2
-  for (const person of people) {
-    const near = closeness(person, section)
-    if (near === 0) return 0
-    if (near <= 2) best = 1
-  }
-  return best
+/** A volunteer who accepted places outside their home oblast (ticked МИРs or named municipalities). */
+function travels(person: DistributePerson) {
+  return person.radius === 'distant' && (person.distantMirs.some((code) => padMir(code)) || person.travelStops.length > 0)
 }
 
-/** Smaller is better. Compared lexicographically. */
+/** 0 a travel area for someone who travels, 1 home. On an exact tie in importance, travel areas go first. */
+function travelRank(person: DistributePerson, section: DistributeSection) {
+  if (!travels(person)) return 0
+  return closeness(person, section) === 5 ? 0 : 1
+}
+
+/**
+ * Smaller is better, compared lexicographically. The section's importance decides: the tier (paper > 50 voted,
+ * machine > 50, paper ≤ 50, machine ≤ 50), then a priority-list section (higher R first), then more voted
+ * (tiers 1–2) or registered (tiers 3–4). Where it is only breaks exact ties: travel areas first, then closer.
+ */
 function sectionKey(section: DistributeSection, people: readonly DistributePerson[]) {
-  const scope = priorityScope(section, people)
-  const r = scope < 3 ? -priorityR(section) : 0
+  const tier = tierOf(section)
   return [
-    scope === 0 ? 0 : 1,
-    scope === 0 ? r : 0,
-    tierOf(section).rank,
-    scope === 1 ? 0 : 1,
-    scope === 1 ? r : 0,
+    tier.rank,
+    section.priority ? 0 : 1,
+    section.priority ? -priorityR(section) : 0,
+    -tier.weight,
+    people.length ? Math.max(...people.map((person) => travelRank(person, section))) : 0,
     groupCloseness(section, people),
-    scope === 2 ? 0 : 1,
-    scope === 2 ? r : 0,
   ]
 }
 
@@ -640,7 +639,7 @@ function compareKeyLists(a: readonly (readonly number[])[], b: readonly (readonl
 }
 
 function compareSections(a: DistributeSection, b: DistributeSection, place: string, people: readonly DistributePerson[] = []) {
-  // Priority in the home town, then the tier across the whole reach, then closeness (sectionKey).
+  // Importance first (tier, priority R, voters), then travel and closeness on ties (sectionKey).
   const keys = compareKeys(sectionKey(a, people), sectionKey(b, people))
   if (keys !== 0) return keys
   const tierA = tierOf(a)

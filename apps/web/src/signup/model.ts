@@ -198,8 +198,10 @@ export function assignmentLocked(profile: Pick<Profile, 'assignedSection'>) {
 }
 
 export function profileView(profile: Profile): 'incomplete' | 'waiting' | 'assigned' {
+  // Withdrawn first: a withdrawn volunteer no longer holds the seat, even before the reload clears it.
+  if (profile.withdrawn) return 'incomplete'
   if (profile.assignedSection) return 'assigned'
-  if (profile.withdrawn || signupGap(profile)) return 'incomplete'
+  if (signupGap(profile)) return 'incomplete'
   return 'waiting'
 }
 

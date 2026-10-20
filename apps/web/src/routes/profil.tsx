@@ -308,7 +308,7 @@ function ProfilePage() {
           <button
             type="button"
             className="flex min-h-14 w-full items-center justify-center rounded-[20px] border border-[#333] bg-white px-5 text-xl font-bold"
-            onClick={() => updateProfile({ withdrawn: true, submitted: true, withdrawnByAdmin: false })}
+            onClick={() => updateProfile({ withdrawn: true, submitted: true, withdrawnByAdmin: false, assignedSection: '' })}
           >
             Оттегли записването
           </button>

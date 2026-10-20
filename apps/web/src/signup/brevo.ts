@@ -400,3 +400,56 @@ export async function removeContactsFromList(
   )
   return { removed: cleaned.length }
 }
+
+/** Section attributes blanked for a withdrawn contact, so no later campaign shows them a seat. */
+export const WITHDRAWN_SECTION_ATTRIBUTES = {
+  SECTION_PUBLISHED: false,
+  SECTION_CODE: '',
+  SECTION_ID_TEXT: '',
+  SECTION_ADDRESS: '',
+  SECTION_PLACE: '',
+} as const
+
+export type WithdrawnContactCleanup = {
+  found: boolean
+  /** Lists the contact was taken out of (every list it was on, BREVO_LIST_ID or a direct-sync list). */
+  lists: number[]
+  attributes: 'cleared' | 'skipped' | 'failed'
+  attributeError?: string
+}
+
+/**
+ * Withdrawn volunteer: take the contact out of every list it is on and blank the section attributes.
+ * The direct sync („Brevo: директна синхронизация“) can target any list and does not record which,
+ * so the contact's own listIds are the source of truth. Never sends anything and never deletes the contact.
+ */
+export async function cleanupWithdrawnContact(
+  config: BrevoConfig,
+  email: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<WithdrawnContactCleanup> {
+  const address = email.trim().toLowerCase()
+  if (!address) return { found: false, lists: [], attributes: 'skipped' }
+  const path = `/contacts/${encodeURIComponent(address)}`
+  let contact: { listIds?: unknown }
+  try {
+    contact = ((await brevoFetch(config.apiKey, path, { method: 'GET' }, fetchImpl)) ?? {}) as { listIds?: unknown }
+  } catch (error) {
+    if (error instanceof BrevoApiError && error.status === 404) return { found: false, lists: [], attributes: 'skipped' }
+    throw error
+  }
+  const lists = [...new Set((Array.isArray(contact.listIds) ? contact.listIds : []).map(Number).filter((id) => Number.isInteger(id) && id > 0))].sort(
+    (a, b) => a - b,
+  )
+  if (lists.length > 0) {
+    await brevoFetch(config.apiKey, path, { method: 'PUT', body: JSON.stringify({ unlinkListIds: lists }) }, fetchImpl)
+  }
+  // Separate call: an account without one of these attributes must not keep the contact on a list.
+  try {
+    await brevoFetch(config.apiKey, path, { method: 'PUT', body: JSON.stringify({ attributes: WITHDRAWN_SECTION_ATTRIBUTES }) }, fetchImpl)
+    return { found: true, lists, attributes: 'cleared' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { found: true, lists, attributes: 'failed', attributeError: message.slice(0, 160) }
+  }
+}

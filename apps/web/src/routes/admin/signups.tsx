@@ -19,7 +19,7 @@ import { BREVO_SECTIONS_BUTTON, BREVO_SECTIONS_HINT, brevoSectionsScope } from '
 import { BrevoCampaignPanel } from './-brevo-campaign-panel'
 import { BrevoSyncPanel } from './-brevo-sync-panel'
 import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
-import { BulkUnregisterBar } from './-bulk-unregister'
+import { BulkUnregisterBar, CleanupWithdrawnButton } from './-bulk-unregister'
 import { useDebouncedQuery } from './-debounced-query'
 import { downloadCsv } from './-brevo-sections-export'
 import { ReservedBadge, reservedOrgFor, useReservedIndex } from './-reserved-badge'
@@ -302,6 +302,14 @@ function SignupsPage() {
             />
           ) : null}
         </div>
+      ) : null}
+      {canEdit && search.view === 'withdrawn' ? (
+        <CleanupWithdrawnButton
+          onDone={(next) => {
+            setBulkNote(next)
+            setReloadKey((key) => key + 1)
+          }}
+        />
       ) : null}
       {bulkNote ? (
         <p className="text-sm font-bold text-[#145744]" role="status">

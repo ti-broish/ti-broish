@@ -33,6 +33,7 @@ import { ELECTION_DISTRICTS } from '../../signup/designation-config'
 import { IAZ_LABEL, partnerBadge } from '../../signup/partner-import'
 import { adminPartnerSetMir } from '../../signup/partner-import-admin'
 import { PartnerImportPanel } from './-partner-import-panel'
+import { SignedWavesPanel } from './-signed-waves-panel'
 
 export const Route = createFileRoute('/admin/palnomoshtni')({
   component: PalnomoshtniPage,
@@ -302,6 +303,8 @@ function PalnomoshtniPage() {
         ) : null}
         {uploadRows.length > 0 ? <UploadResults rows={uploadRows} /> : null}
       </section>
+
+      <SignedWavesPanel canExport={canExport} refreshKey={signedCount} />
 
       <section aria-labelledby="palnomoshtni-brevo" className="grid gap-3 rounded-2xl border-2 border-[#2b062f] bg-white p-4">
         <h2 id="palnomoshtni-brevo" className="text-lg font-black text-[#1a1020]">

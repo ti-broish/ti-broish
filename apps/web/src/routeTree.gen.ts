@@ -38,6 +38,7 @@ import { Route as PokanaCodeRouteImport } from './routes/pokana.$code'
 import { Route as PostsIndexRouteImport } from './routes/posts.index'
 import { Route as PostsSlugRouteImport } from './routes/posts.$slug'
 import { Route as RCodeRouteImport } from './routes/r.$code'
+import { Route as AdminPalnomoshtniPodpisaniRouteImport } from './routes/admin/palnomoshtni_.podpisani'
 import { Route as AdminPalnomoshtniUploadRouteImport } from './routes/admin/palnomoshtni_.upload'
 import { Route as AdminPalnomoshtniZipRouteImport } from './routes/admin/palnomoshtni_.zip'
 import { Route as AdminSignupsPersonIdRouteImport } from './routes/admin/signups_.$personId'
@@ -188,6 +189,12 @@ const RCodeRoute = RCodeRouteImport.update({
   path: '/r/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminPalnomoshtniPodpisaniRoute =
+  AdminPalnomoshtniPodpisaniRouteImport.update({
+    id: '/palnomoshtni_/podpisani',
+    path: '/palnomoshtni/podpisani',
+    getParentRoute: () => AdminRouteRoute,
+  } as any)
 const AdminPalnomoshtniUploadRoute = AdminPalnomoshtniUploadRouteImport.update({
   id: '/palnomoshtni_/upload',
   path: '/palnomoshtni/upload',
@@ -240,6 +247,7 @@ export interface FileRoutesByFullPath {
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/posts/': typeof PostsIndexRoute
+  '/admin/palnomoshtni/podpisani': typeof AdminPalnomoshtniPodpisaniRoute
   '/admin/palnomoshtni/upload': typeof AdminPalnomoshtniUploadRoute
   '/admin/palnomoshtni/zip': typeof AdminPalnomoshtniZipRoute
   '/admin/signups/$personId': typeof AdminSignupsPersonIdRoute
@@ -273,6 +281,7 @@ export interface FileRoutesByTo {
   '/r/$code': typeof RCodeRoute
   '/admin': typeof AdminIndexRoute
   '/posts': typeof PostsIndexRoute
+  '/admin/palnomoshtni/podpisani': typeof AdminPalnomoshtniPodpisaniRoute
   '/admin/palnomoshtni/upload': typeof AdminPalnomoshtniUploadRoute
   '/admin/palnomoshtni/zip': typeof AdminPalnomoshtniZipRoute
   '/admin/signups/$personId': typeof AdminSignupsPersonIdRoute
@@ -309,6 +318,7 @@ export interface FileRoutesById {
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/posts/': typeof PostsIndexRoute
+  '/admin/palnomoshtni_/podpisani': typeof AdminPalnomoshtniPodpisaniRoute
   '/admin/palnomoshtni_/upload': typeof AdminPalnomoshtniUploadRoute
   '/admin/palnomoshtni_/zip': typeof AdminPalnomoshtniZipRoute
   '/admin/signups_/$personId': typeof AdminSignupsPersonIdRoute
@@ -346,6 +356,7 @@ export interface FileRouteTypes {
     | '/r/$code'
     | '/admin/'
     | '/posts/'
+    | '/admin/palnomoshtni/podpisani'
     | '/admin/palnomoshtni/upload'
     | '/admin/palnomoshtni/zip'
     | '/admin/signups/$personId'
@@ -379,6 +390,7 @@ export interface FileRouteTypes {
     | '/r/$code'
     | '/admin'
     | '/posts'
+    | '/admin/palnomoshtni/podpisani'
     | '/admin/palnomoshtni/upload'
     | '/admin/palnomoshtni/zip'
     | '/admin/signups/$personId'
@@ -414,6 +426,7 @@ export interface FileRouteTypes {
     | '/r/$code'
     | '/admin/'
     | '/posts/'
+    | '/admin/palnomoshtni_/podpisani'
     | '/admin/palnomoshtni_/upload'
     | '/admin/palnomoshtni_/zip'
     | '/admin/signups_/$personId'
@@ -648,6 +661,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/palnomoshtni_/podpisani': {
+      id: '/admin/palnomoshtni_/podpisani'
+      path: '/palnomoshtni/podpisani'
+      fullPath: '/admin/palnomoshtni/podpisani'
+      preLoaderRoute: typeof AdminPalnomoshtniPodpisaniRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/palnomoshtni_/upload': {
       id: '/admin/palnomoshtni_/upload'
       path: '/palnomoshtni/upload'
@@ -686,6 +706,7 @@ interface AdminRouteRouteChildren {
   AdminSectionsRoute: typeof AdminSectionsRoute
   AdminSignupsRoute: typeof AdminSignupsRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminPalnomoshtniPodpisaniRoute: typeof AdminPalnomoshtniPodpisaniRoute
   AdminPalnomoshtniUploadRoute: typeof AdminPalnomoshtniUploadRoute
   AdminPalnomoshtniZipRoute: typeof AdminPalnomoshtniZipRoute
   AdminSignupsPersonIdRoute: typeof AdminSignupsPersonIdRoute
@@ -699,6 +720,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminSectionsRoute: AdminSectionsRoute,
   AdminSignupsRoute: AdminSignupsRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminPalnomoshtniPodpisaniRoute: AdminPalnomoshtniPodpisaniRoute,
   AdminPalnomoshtniUploadRoute: AdminPalnomoshtniUploadRoute,
   AdminPalnomoshtniZipRoute: AdminPalnomoshtniZipRoute,
   AdminSignupsPersonIdRoute: AdminSignupsPersonIdRoute,

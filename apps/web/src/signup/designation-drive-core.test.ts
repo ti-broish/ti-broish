@@ -92,3 +92,20 @@ describe('Drive replace path', () => {
     expect(calls.some((call) => call.url.includes('/permissions'))).toBe(true)
   })
 })
+
+describe('Drive download', () => {
+  it('reads a signed PDF with alt=media and fails on a missing file', async () => {
+    const urls: string[] = []
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input)
+      urls.push(url)
+      if (url.includes('oauth2.googleapis.com/token')) return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }))
+      if (url.includes('/files/pdf-1?alt=media')) return new Response(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]))
+      return new Response('{}', { status: 404 })
+    }
+    const client = createDriveClient({ kind: 'oauth', clientId: 'id', clientSecret: 'secret', refreshToken: 'refresh' }, fetchImpl)
+    expect([...(await client.downloadFile('pdf-1'))]).toEqual([0x25, 0x50, 0x44, 0x46, 0x2d])
+    await expect(client.downloadFile('gone')).rejects.toThrow('Drive HTTP 404')
+    expect(urls.filter((url) => url.includes('alt=media') && url.includes('supportsAllDrives=true'))).toHaveLength(2)
+  })
+})

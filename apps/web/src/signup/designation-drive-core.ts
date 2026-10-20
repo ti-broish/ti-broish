@@ -22,6 +22,8 @@ export interface DriveClient {
 
 export interface DriveAdminClient extends DriveClient {
   statFile(id: string): Promise<{ id: string; name: string; mimeType: string; driveId: string }>
+  /** Bytes of a file the app can read (the signed PDFs it uploaded). */
+  downloadFile(id: string): Promise<Uint8Array>
 }
 
 export class DriveHttpError extends Error {
@@ -117,6 +119,16 @@ export function createDriveClient(auth: DriveAuth, fetchImpl: typeof fetch = fet
         }
       }
       return createPdf(access, input, fetchImpl)
+    },
+    async downloadFile(id) {
+      const access = await token()
+      const response = await withRetry(() =>
+        fetchImpl(`${FILES_URL}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`, {
+          headers: { Authorization: `Bearer ${access}` },
+        }),
+      )
+      if (!response.ok) throw new DriveHttpError(response.status)
+      return new Uint8Array(await response.arrayBuffer())
     },
     async statFile(id) {
       const access = await token()

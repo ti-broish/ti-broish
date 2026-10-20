@@ -6,7 +6,7 @@ export const Route = createFileRoute('/instructions')({ component: InstructionsP
 
 const files = [
   ['Наръчник на пазителя на вота', '/files/Narachnik-Ti-broish.pdf'],
-  ['Обучителен материал 25.10.2026', '/files/Ти%20Броиш%20Обучителен%20материал%20-%2025.10.2026.pdf'],
+  ['Обучителен материал 25.10.2026', '/files/instruktsii.pdf'],
 ]
 
 const lessons = [

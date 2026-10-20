@@ -374,7 +374,7 @@ test('instructions link the handbook and the signal form', async ({ page }) => {
   expect(handbook.headers()['content-type']).toContain('application/pdf')
   expect((await handbook.body()).subarray(0, 5).toString()).toBe('%PDF-')
   const training = page.getByRole('link', { name: 'Обучителен материал 25.10.2026' })
-  await expect(training).toHaveAttribute('href', '/files/Ти%20Броиш%20Обучителен%20материал%20-%2025.10.2026.pdf')
+  await expect(training).toHaveAttribute('href', '/files/instruktsii.pdf')
   const trainingFile = await page.request.get((await training.getAttribute('href')) ?? '')
   expect(trainingFile.status()).toBe(200)
   expect(trainingFile.headers()['content-type']).toContain('application/pdf')

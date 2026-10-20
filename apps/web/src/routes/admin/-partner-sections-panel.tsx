@@ -27,6 +27,17 @@ type PartnerRow = {
 type Option = { code: string; scope: string; priority: PriorityInfo | null; town: string; place: string }
 type Counts = { total: number; drafted: number; published: number; waiting: number }
 
+async function withRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run()
+    } catch (error) {
+      if (attempt >= attempts) throw error
+      await new Promise((resolve) => setTimeout(resolve, 400 * attempt))
+    }
+  }
+}
+
 const SCOPE: Record<string, string> = { town: 'в града', municipality: 'в общината', mir: 'другаде в МИР' }
 
 /**
@@ -45,7 +56,8 @@ export function PartnerSectionsPanel({ canEdit, canPublish, setMessage }: { canE
 
   useEffect(() => {
     let live = true
-    void adminPartnerSections()
+    // A read: retried on a thrown call (a transient 500), so one hiccup does not leave the list empty.
+    void withRetry(() => adminPartnerSections())
       .then((result) => {
         if (!live || !result.ok) return
         setRows(result.people as PartnerRow[])

@@ -174,7 +174,9 @@ test.describe('partner import („И аз“) for пълномощни only', ()
 
       const again = page.getByTestId('partner-sections-panel')
       await again.locator('summary').click()
-      await again.getByTestId('partner-section-row').filter({ hasText: 'Тодор Пробов' }).getByRole('button', { name: 'Махни публикуването' }).click()
+      const published1 = again.getByTestId('partner-section-row').filter({ hasText: 'Тодор Пробов' })
+      await expect(published1.getByRole('button', { name: 'Махни публикуването' })).toBeVisible({ timeout: 20_000 })
+      await published1.getByRole('button', { name: 'Махни публикуването' }).click()
       await expect(page.getByText(/вече не е публикувана и не е резервирана/)).toBeVisible()
       expect(d1(`SELECT COUNT(*) AS n FROM taken_sections WHERE section_code = '${published!.code}'`)[0]).toMatchObject({ n: 0 })
     } finally {

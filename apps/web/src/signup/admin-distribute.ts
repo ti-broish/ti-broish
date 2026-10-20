@@ -3,6 +3,7 @@ import { getCookie } from '@tanstack/react-start/server'
 import { describeClearedDrafts, describeDistribution } from './distribute'
 import { planCountryDistribution } from './distribute-plan'
 import { reservedMap } from './reserved-sections-db'
+import { RERUN_CLEAR_AUTO_DRAFTS_SQL, RERUN_WRITE_DRAFT_SQL } from './distribute-rerun-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
@@ -26,15 +27,7 @@ export const adminDistribute = createServerFn({ method: 'POST' })
     const now = new Date().toISOString()
     if (!data.onlyEmpty) {
       await db
-        .prepare(
-          `UPDATE signups
-           SET draft_section = NULL, updated_at = ?
-           WHERE COALESCE(published_section, '') = ''
-             AND COALESCE(draft_locked, 0) = 0
-             AND COALESCE(draft_section, '') != ''
-             AND COALESCE(submitted, 0) = 1
-             AND COALESCE(withdrawn, 0) = 0`,
-        )
+        .prepare(RERUN_CLEAR_AUTO_DRAFTS_SQL)
         .bind(now)
         .run()
     }
@@ -45,17 +38,7 @@ export const adminDistribute = createServerFn({ method: 'POST' })
     for (const row of plan.assignments) {
       if (reserved.has(row.sectionId)) continue
       const result = await db
-        .prepare(
-          `UPDATE signups
-           SET draft_section = ?, draft_locked = 0, updated_at = ?
-           WHERE id = ?
-             AND COALESCE(published_section, '') = ''
-             AND COALESCE(draft_locked, 0) = 0
-             AND COALESCE(submitted, 0) = 1
-             AND COALESCE(withdrawn, 0) = 0
-             AND COALESCE(role, '') = 'section'
-             AND (? = 0 OR COALESCE(draft_section, '') = '')`,
-        )
+        .prepare(RERUN_WRITE_DRAFT_SQL)
         .bind(row.sectionId, now, row.personId, data.onlyEmpty ? 1 : 0)
         .run()
         .catch(() => null)

@@ -170,8 +170,8 @@ describe('personPriorityReach / orderByPriority', () => {
 
 describe('parseSectionSearch prio', () => {
   it('keeps „Само приоритетни“ only when on', () => {
-    expect(parseSectionSearch({ view: 'unassigned', prio: true })).toEqual({ q: '', view: 'unassigned', mir: '', prio: true })
+    expect(parseSectionSearch({ view: 'unassigned', prio: true })).toEqual({ q: '', view: 'all', mir: '', state: 'none', prio: true })
     expect(parseSectionSearch({ prio: '1' }).prio).toBe(true)
-    expect(parseSectionSearch({ prio: 'no' })).toEqual({ q: '', view: 'unassigned', mir: '' })
+    expect(parseSectionSearch({ prio: 'no' })).toEqual({ q: '', view: 'all', mir: '' })
   })
 })

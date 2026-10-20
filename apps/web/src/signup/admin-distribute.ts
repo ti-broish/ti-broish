@@ -3,7 +3,7 @@ import { getCookie } from '@tanstack/react-start/server'
 import { describeClearedDrafts, describeDistribution } from './distribute'
 import { planCountryDistribution } from './distribute-plan'
 import { reservedMap } from './reserved-sections-db'
-import { RERUN_CLEAR_AUTO_DRAFTS_SQL, RERUN_WRITE_DRAFT_SQL } from './distribute-rerun-sql'
+import { AUTO_DRAFT_WHERE, CLEAR_AUTO_DRAFTS_SQL, RERUN_CLEAR_AUTO_DRAFTS_SQL, RERUN_WRITE_DRAFT_SQL } from './distribute-rerun-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
@@ -63,26 +63,14 @@ export const adminDistribute = createServerFn({ method: 'POST' })
     }
   })
 
-const pendingDraft = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
-
+/** „Изчисти черновите“: only automatic drafts. Manual drafts and published sections stay. */
 export const adminClearDrafts = createServerFn({ method: 'POST' })
   .handler(async () => {
     const access = await gate('edit')
     if (!access.ok) return access
-    const countRow = await access.db.prepare(`SELECT COUNT(*) AS n FROM signups WHERE ${pendingDraft}`).first<{ n: number }>()
+    const countRow = await access.db.prepare(`SELECT COUNT(*) AS n FROM signups WHERE ${AUTO_DRAFT_WHERE}`).first<{ n: number }>()
     const cleared = Number(countRow?.n ?? 0)
-    if (cleared > 0) {
-      await access.db
-        .prepare(
-          `UPDATE signups
-           SET draft_section = NULLIF(COALESCE(published_section, ''), ''),
-               draft_locked = 0,
-               updated_at = ?
-           WHERE ${pendingDraft}`,
-        )
-        .bind(new Date().toISOString())
-        .run()
-    }
+    if (cleared > 0) await access.db.prepare(CLEAR_AUTO_DRAFTS_SQL).bind(new Date().toISOString()).run()
     return { ok: true as const, cleared, message: describeClearedDrafts(cleared) }
   })
 

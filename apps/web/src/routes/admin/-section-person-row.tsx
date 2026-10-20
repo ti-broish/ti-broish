@@ -34,7 +34,8 @@ export function SectionPersonRow(props: {
   suggestBusy: string | null
   setSuggestBusy: (id: string | null) => void
   setMessage: (message: string) => void
-  load: () => void
+  /** Reloads the list; the notice stays visible after the reload. */
+  load: (notice?: string) => void
   canPublish: boolean
   /** No-email publish of this row's draft. */
   publish: (id: string) => Promise<unknown>
@@ -119,16 +120,17 @@ export function SectionPersonRow(props: {
                               }
                               else {
                                 setRowWarnings((current) => ({ ...current, [person.id]: result.warnings ?? [] }))
-                                setMessage(
+                                const text = (
                                   result.warning
                                     ? result.blockedOnPublish
                                       ? `Черновата е запазена, но няма да се публикува: ${result.warning}`
                                       : result.warning
                                     : section.trim()
                                       ? 'Черновата е сложена (ръчна) и не се вижда от човека, докато не я публикуваш.'
-                                      : 'Черновата е махната. Следващото разпределение може да сложи друга.',
+                                      : 'Черновата е махната. Следващото разпределение може да сложи друга.'
                                 )
-                                load()
+                                setMessage(text)
+                                load(text)
                               }
                             })
                           }}
@@ -164,9 +166,16 @@ export function SectionPersonRow(props: {
                           </button>
                         </form>
                         {warnings.length > 0 ? (
-                          <ul className="grid gap-1 text-xs font-semibold text-[#a33]">
+                          <ul className="grid gap-1 text-xs font-semibold">
                             {warnings.map((warning) => (
-                              <li key={warning.code + warning.message}>{warning.message}</li>
+                              // Only a blocking warning is red; a soft note (МИР outside the person's places) is an amber hint.
+                              <li
+                                key={warning.code + warning.message}
+                                data-level={warning.level}
+                                className={warning.level === 'block' ? 'text-[#a33]' : 'rounded bg-[#fdf3d8] px-1 text-[#5c4300]'}
+                              >
+                                {warning.message}
+                              </li>
                             ))}
                           </ul>
                         ) : null}
@@ -186,8 +195,9 @@ export function SectionPersonRow(props: {
                                       }
                                       else {
                                         setRowWarnings((current) => ({ ...current, [person.id]: result.warnings ?? [] }))
-                                        setMessage(result.warning || `Чернова ${tip.id} от предложение (ръчна). Публикувай я, за да я види човекът.`)
-                                        load()
+                                        const text = result.warning || `Чернова ${tip.id} от предложение (ръчна). Публикувай я, за да я види човекът.`
+                                        setMessage(text)
+                                        load(text)
                                       }
                                     })
                                   }}
@@ -250,7 +260,7 @@ export function SectionPersonRow(props: {
                                 void unpublish(person.id).then((result) => {
                                   setBusy(false)
                                   setMessage(result.message)
-                                  if (result.ok) load()
+                                  if (result.ok) load(result.message)
                                 }).catch(() => setBusy(false))
                               }}
                             >

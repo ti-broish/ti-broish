@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseSectionSearch } from './admin-search'
-import { RERUN_CLEAR_AUTO_DRAFTS_SQL, RERUN_WRITE_DRAFT_SQL } from './distribute-rerun-sql'
+import { CLEAR_AUTO_DRAFTS_SQL, RERUN_CLEAR_AUTO_DRAFTS_SQL, RERUN_WRITE_DRAFT_SQL } from './distribute-rerun-sql'
 import {
   SECTION_STATE_SQL,
   hasPendingDraft,
@@ -22,7 +22,8 @@ async function openDb(): Promise<Raw | null> {
     const mod = (await import(/* @vite-ignore */ 'node:sqlite')) as { DatabaseSync: new (path: string) => Raw }
     const raw = new mod.DatabaseSync(':memory:')
     raw.exec(`CREATE TABLE signups (id TEXT PRIMARY KEY, role TEXT DEFAULT 'section', submitted INTEGER DEFAULT 1, withdrawn INTEGER DEFAULT 0,
-      draft_section TEXT, draft_locked INTEGER DEFAULT 0, published_section TEXT, published_at TEXT, updated_at TEXT)`)
+      draft_section TEXT, draft_locked INTEGER DEFAULT 0, published_section TEXT, published_at TEXT, updated_at TEXT,
+      region_code TEXT DEFAULT '23', mir_code TEXT DEFAULT '23')`)
     return raw
   } catch {
     return null
@@ -123,6 +124,30 @@ describe('auto-allocation rerun', () => {
     const changed = after.filter((row, i) => JSON.stringify(row) !== JSON.stringify(before[i])).map((row) => row.id)
     expect(changed).toEqual(['auto', 'none'])
     for (const id of ['manual', 'published', 'published-change', 'withdrawn']) {
+      expect(after.find((row) => row.id === id)).toEqual(before.find((row) => row.id === id))
+    }
+  })
+
+  it('a country rerun keeps the abroad allocator drafts', async () => {
+    const raw = await openDb()
+    if (!raw) return
+    raw.prepare(`INSERT INTO signups (id, draft_section, region_code, mir_code) VALUES ('abroad', '320100001', '32', '32')`).run()
+    raw.prepare(RERUN_CLEAR_AUTO_DRAFTS_SQL).run('now')
+    expect(snapshot(raw)).toEqual([{ id: 'abroad', draft_section: '320100001', draft_locked: 0, published_section: null }])
+  })
+
+  it('„Изчисти черновите“ removes only automatic drafts, in the country and abroad', async () => {
+    const raw = await openDb()
+    if (!raw) return
+    seed(raw)
+    raw.prepare(`INSERT INTO signups (id, draft_section, region_code, mir_code) VALUES ('abroad', '320100001', '32', '32')`).run()
+    const before = snapshot(raw) as Array<{ id: string }>
+    raw.prepare(CLEAR_AUTO_DRAFTS_SQL).run('now')
+    const after = snapshot(raw) as Array<{ id: string; draft_section: string | null }>
+    const changed = after.filter((row, i) => JSON.stringify(row) !== JSON.stringify(before[i])).map((row) => row.id)
+    // withdrawn has an automatic draft too; withdrawal frees seats, so dropping it is harmless.
+    expect(changed).toEqual(['abroad', 'auto', 'withdrawn'])
+    for (const id of ['manual', 'published', 'published-change', 'none']) {
       expect(after.find((row) => row.id === id)).toEqual(before.find((row) => row.id === id))
     }
   })

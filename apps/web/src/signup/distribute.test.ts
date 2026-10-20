@@ -657,4 +657,25 @@ describe('distributeSections with priority sections', () => {
     })
     expect(plan.assignments.map((row) => row.sectionId)).toEqual(['234615002'])
   })
+
+  it('reaches a named municipality in a MIR that was not ticked (01 → 10)', () => {
+    const volunteer = person({
+      id: 'a',
+      email: 'a@example.com',
+      radius: 'distant',
+      mir: '01',
+      regionCode: '01',
+      townId: 100,
+      municipalityCode: '01',
+      cityRegionCode: '',
+      place: 'Благоевград',
+      distantMirs: [],
+      travelStops: [{ regionCode: '10', code: '27' }],
+    })
+    const result = distributeSections({
+      people: [volunteer],
+      sections: [section({ id: '102700001', place: 'Кочериново', townId: 300, votersCount: 200 })],
+    })
+    expect(result.assignments[0]?.sectionId).toBe('102700001')
+  })
 })

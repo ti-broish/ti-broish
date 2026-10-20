@@ -262,7 +262,7 @@ function placeNear(
   extra: number,
   reach: 'home' | 'chosen',
 ) {
-  if (reach === 'chosen' && !members.some((person) => person.radius === 'distant' && person.distantMirs.length > 0)) return null
+  if (reach === 'chosen' && !members.some((person) => person.radius === 'distant' && (person.distantMirs.length > 0 || person.travelStops.length > 0))) return null
   return (
     placeCluster(members, sections, used, preference, 'address', extra, reach) ??
     (extra > 0 ? placeCluster(members, sections, used, preference, 'address', 0, reach) : null) ??
@@ -435,6 +435,11 @@ function mirsFor(person: DistributePerson, reach: 'home' | 'chosen') {
   if (reach === 'chosen' && person.radius === 'distant') {
     for (const code of person.distantMirs) {
       const mir = padMir(code)
+      if (mir) mirs.add(mir)
+    }
+    // A municipality they named counts as a chosen MIR even if the MIR itself was not ticked.
+    for (const stop of person.travelStops) {
+      const mir = padMir(stop.regionCode)
       if (mir) mirs.add(mir)
     }
   }

@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { normalizeSection } from './admin-csv'
-import { scoreSectionSuggestions } from './admin-assign'
+import { personReachFrom, scoreSectionSuggestions } from './admin-assign'
 import { scoreAbroadSuggestions } from './abroad-distribute'
 import type { AbroadTierLetter } from './abroad-coverage'
 import { isSpecialBulgariaSection } from './stationary-sections'
@@ -28,6 +28,7 @@ export const adminSuggest = createServerFn({ method: 'POST' })
           COALESCE(municipality_name, '') AS municipality,
           COALESCE(section_place, '') AS place,
           COALESCE(radius, '') AS radius,
+          COALESCE(distant_region_codes, '[]') AS distant_region_codes,
           COALESCE(travel_municipalities, '[]') AS travel_municipalities
          FROM signups WHERE id = ?`,
       )
@@ -42,6 +43,7 @@ export const adminSuggest = createServerFn({ method: 'POST' })
         municipality: string
         place: string
         radius: string
+        distant_region_codes: string
         travel_municipalities: string
       }>()
     if (!row) return { ok: false as const, message: 'Няма такова записване.' }
@@ -77,6 +79,7 @@ export const adminSuggest = createServerFn({ method: 'POST' })
     const scored = scoreSectionSuggestions(
       sections,
       {
+        reach: personReachFrom(row),
         mir: row.mir,
         town: row.town,
         municipality: row.municipality,

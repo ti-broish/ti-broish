@@ -40,7 +40,9 @@
 		"BREVO_SENDER_EMAIL": "team@tibroish.bg",
 		"BREVO_SENDER_NAME": "Ти броиш",
 		// Drive folder „ТЕСТ пълномощни staging“. Share it with the service account (Editor).
-		"DESIGNATION_DRIVE_FOLDER_ID": "14Iw8TBaKKLNa357xDy8PDunhFOloulPb"
+		"DESIGNATION_DRIVE_FOLDER_ID": "14Iw8TBaKKLNa357xDy8PDunhFOloulPb",
+		// /photos/<key> proxies the public MinIO photos bucket through this proxied origin host (infra/photos).
+		"PHOTOS_ORIGIN": "https://minio-origin.tibroish.bg"
 	},
 	"env": {
 		// Workers Builds must set CLOUDFLARE_ENV=production before `pnpm build`.
@@ -75,7 +77,8 @@
 			"vars": {
 				"BREVO_LIST_ID": "95",
 				"BREVO_SENDER_EMAIL": "team@tibroish.bg",
-				"BREVO_SENDER_NAME": "Ти броиш"
+				"BREVO_SENDER_NAME": "Ти броиш",
+				"PHOTOS_ORIGIN": "https://minio-origin.tibroish.bg"
 			}
 		}
 	}

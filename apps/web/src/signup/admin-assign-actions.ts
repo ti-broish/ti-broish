@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { distributionWhere, normalizeSection, type RosterView } from './admin-csv'
-import { publishBlocked, validateAssignment, warningSummary, type AssignWarning, type DuplicateOwner } from './admin-assign'
+import { publishBlocked, reachFromColumns, validateAssignment, warningSummary, type AssignWarning, type DuplicateOwner, type PersonReach } from './admin-assign'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 import { reservedCode, reservedMessage } from './reserved-sections'
@@ -46,14 +46,31 @@ export const adminDraft = createServerFn({ method: 'POST' })
     const db = access.db
     const section = normalizeSection(data.section).slice(0, 32)
     const person = await db
-      .prepare(`SELECT id, email, COALESCE(mir_code, '') AS mir FROM signups WHERE id = ?`)
+      .prepare(
+        `SELECT id, email, COALESCE(mir_code, '') AS mir,
+          COALESCE(NULLIF(region_code, ''), json_extract(payload, '$.place.regionCode'), '') AS region_code,
+          CASE
+            WHEN COALESCE(distant_region_codes, '') NOT IN ('', '[]') THEN distant_region_codes
+            ELSE COALESCE(json_extract(payload, '$.distantRegionCodes'), '[]')
+          END AS distant_region_codes,
+          CASE
+            WHEN COALESCE(travel_municipalities, '') NOT IN ('', '[]') THEN travel_municipalities
+            ELSE COALESCE(json_extract(payload, '$.travelMunicipalities'), '[]')
+          END AS travel_municipalities
+         FROM signups WHERE id = ?`,
+      )
       .bind(data.id)
-      .first<{ id: string; email: string; mir: string }>()
+      .first<{ id: string; email: string; mir: string; region_code: string; distant_region_codes: string; travel_municipalities: string }>()
     if (!person) return { ok: false as const, message: 'Няма такова записване.' }
+    const reach = reachFromColumns({
+      regionCode: person.region_code,
+      distantRegionCodes: person.distant_region_codes,
+      travelMunicipalities: person.travel_municipalities,
+    })
     // Reserved by another organisation: refuse, do not save a draft that could never be published.
     const reservedBy = section ? await reservedOrgOf(db, section) : null
     if (reservedBy) return { ok: false as const, reserved: reservedBy, message: reservedMessage(reservedCode(section) || section, reservedBy) }
-    const warnings = section ? await assignmentWarnings(db, section, person.id, person.mir) : []
+    const warnings = section ? await assignmentWarnings(db, section, person.id, person.mir, reach) : []
     try {
       await db
       .prepare(
@@ -117,7 +134,7 @@ export const adminPublish = createServerFn({ method: 'POST' })
     return { ok: true as const, published, blocked }
   })
 
-async function assignmentWarnings(db: Database, section: string, personId: string, personMir: string): Promise<AssignWarning[]> {
+async function assignmentWarnings(db: Database, section: string, personId: string, personMir: string, reach?: PersonReach): Promise<AssignWarning[]> {
   const takenOrg = await reservedOrgOf(db, section)
   const duplicate = await findDuplicateOwner(db, section, personId)
   return validateAssignment({
@@ -126,6 +143,7 @@ async function assignmentWarnings(db: Database, section: string, personId: strin
     personMir,
     takenOrg,
     duplicate,
+    reach,
   })
 }
 

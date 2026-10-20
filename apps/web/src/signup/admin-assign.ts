@@ -5,7 +5,10 @@ export type AssignWarningCode = 'taken' | 'duplicate' | 'mir_mismatch'
 
 export interface AssignWarning {
   code: AssignWarningCode
-  /** `block` stops publish; draft save still keeps the value but surfaces the message. */
+  /**
+   * `block` stops publish; draft save still keeps the value but surfaces the message.
+   * `warn` is a note only. A different МИР is always `warn`: an admin may place someone across МИР.
+   */
   level: 'warn' | 'block'
   message: string
 }
@@ -33,12 +36,20 @@ export interface SuggestPerson {
   travelMunicipalities: string
 }
 
+/** Where the person said they can go. A section inside these needs no МИР note at all. */
+export interface PersonReach {
+  regionCode?: string
+  distantRegionCodes?: string[]
+  travelStops?: Array<{ regionCode: string; code?: string }>
+}
+
 export function validateAssignment(input: {
   section: string
   personId: string
   personMir: string
   takenOrg: string | null
   duplicate: DuplicateOwner | null
+  reach?: PersonReach
 }): AssignWarning[] {
   const section = normalizeSection(input.section)
   if (!section) return []
@@ -64,18 +75,59 @@ export function validateAssignment(input: {
 
   const sectionMir = mirFromSection(section)
   const personMir = padMir(input.personMir)
-  if (sectionMir && personMir && sectionMir !== personMir) {
+  // A different МИР never blocks: people may travel, and the admin's manual pick wins.
+  // No note when the section is in a МИР the person chose (home oblast, other oblasts, travel municipalities).
+  if (sectionMir && personMir && sectionMir !== personMir && !reachMirs(input.reach).has(sectionMir)) {
     warnings.push({
       code: 'mir_mismatch',
-      level: 'block',
-      message: `МИР на секцията е ${sectionMir}, а човекът е в МИР ${personMir}.`,
+      level: 'warn',
+      message: `За сведение: секцията е в МИР ${sectionMir}, а човекът е от МИР ${personMir}. Публикуването не се спира.`,
     })
   }
 
   return warnings
 }
 
-/** Publish is blocked when any warning has level `block` (taken, duplicate, MIR mismatch). */
+/** МИР-ове, които човекът сам е посочил. София (sofia-merged) е 23, 24 и 25. */
+export function reachMirs(reach: PersonReach | undefined) {
+  const mirs = new Set<string>()
+  if (!reach) return mirs
+  if (reach.regionCode === 'sofia-merged') for (const code of ['23', '24', '25']) mirs.add(code)
+  const home = padMir(reach.regionCode ?? '')
+  if (home) mirs.add(home)
+  for (const code of reach.distantRegionCodes ?? []) {
+    const mir = padMir(String(code ?? ''))
+    if (mir) mirs.add(mir)
+  }
+  for (const stop of reach.travelStops ?? []) {
+    const mir = padMir(String(stop?.regionCode ?? ''))
+    if (mir) mirs.add(mir)
+  }
+  return mirs
+}
+
+/** Parses stored JSON for distant oblasts and travel municipalities; bad JSON is just no reach. */
+export function reachFromColumns(columns: { regionCode?: string; distantRegionCodes?: string; travelMunicipalities?: string }): PersonReach {
+  return {
+    regionCode: columns.regionCode ?? '',
+    distantRegionCodes: jsonArray(columns.distantRegionCodes).map((item) => String(item ?? '')),
+    travelStops: jsonArray(columns.travelMunicipalities).flatMap((item) =>
+      item && typeof item === 'object' && 'regionCode' in item ? [{ regionCode: String((item as { regionCode: unknown }).regionCode ?? '') }] : [],
+    ),
+  }
+}
+
+function jsonArray(raw: string | undefined): unknown[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+/** Publish is blocked when any warning has level `block` (taken, duplicate). A different МИР is never a block. */
 export function publishBlocked(warnings: AssignWarning[]) {
   return warnings.some((warning) => warning.level === 'block')
 }

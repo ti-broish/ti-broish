@@ -326,6 +326,38 @@ test.describe('staff admin', () => {
     }
   })
 
+  test('a section in another МИР (01 -> 10) saves as a draft and publishes without being blocked', async ({ page }) => {
+    seedCrossMirVolunteer()
+    await signIn(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    try {
+      await page.goto('/admin/sections?view=mir&mir=01')
+      const people = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Човек' }) })
+      const row = people.getByRole('row', { name: /crossmir\.admin-e2e@example\.com/ })
+      const draft = row.getByLabel('Чернова за crossmir.admin-e2e@example.com')
+
+      // МИР 10 is not among the places they chose: a note only, never „няма да се публикува“.
+      await draft.fill('100100901')
+      await row.getByRole('button', { name: 'Запази' }).click()
+      await expect(row.getByText(/За сведение: секцията е в МИР 10, а човекът е от МИР 01/)).toBeVisible()
+      await expect(page.getByText(/няма да се публикува/)).toHaveCount(0)
+      await expect(page.getByText('МИР на секцията е 10, а човекът е в МИР 01.')).toHaveCount(0)
+
+      // Once МИР 10 is one of their chosen oblasts, there is no note at all.
+      runLocalD1(`UPDATE signups SET radius = 'distant', distant_region_codes = '["10"]' WHERE id = 'e2e-crossmir';`)
+      await draft.fill('100100902')
+      await row.getByRole('button', { name: 'Запази' }).click()
+      await expect(page.getByText('Черновата е запазена и не се вижда от човека. Следващото разпределение я запазва.')).toBeVisible()
+      await expect(row.getByText(/За сведение/)).toHaveCount(0)
+
+      await page.getByRole('button', { name: 'Публикувай черновите в този изглед (без имейл)' }).click()
+      await page.getByRole('button', { name: 'Да, покажи ги в профилите (без имейл)' }).click()
+      await expect(page.getByText('Публикувани са 1 чернови.').first()).toBeVisible({ timeout: 20_000 })
+    } finally {
+      runLocalD1("DELETE FROM signups WHERE id = 'e2e-crossmir';")
+    }
+  })
+
   test('mobile teams: „Предложи“ picks open priority sections in reach, saves a draft, and the button previews', async ({ page }) => {
     seedMobileTeam()
     await signIn(page)
@@ -903,6 +935,39 @@ ON CONFLICT(email) DO UPDATE SET
   withdrawn = 0,
   mir_code = '23',
   draft_section = '234600150',
+  published_section = NULL;
+`
+  runLocalD1(sql)
+}
+
+function seedCrossMirVolunteer() {
+  const sql = `
+INSERT INTO signups (
+  id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, role,
+  mir_code, region_code, town_name, section_place, draft_section, published_section, notes,
+  rounds_first, rounds_runoff, radius, distant_region_codes, travel_municipalities, created_at, updated_at
+) VALUES (
+  'e2e-crossmir',
+  'crossmir.admin-e2e@example.com',
+  'e2e-crossmir-session',
+  'e2excm01',
+  '{"firstName":"Калина","middleName":"","lastName":"Кюстендилска","phone":"0888000444","email":"crossmir.admin-e2e@example.com","role":"section","rounds":{"first":true,"runoff":true},"place":{"regionCode":"01","regionName":"Благоевград","municipalityName":"Благоевград","townName":"гр. Благоевград"}}',
+  1, 0, 1, '', 'section',
+  '01', '01', 'гр. Благоевград', '', NULL, NULL, '',
+  1, 1, 'region', '[]', '[]', datetime('now'), datetime('now')
+)
+ON CONFLICT(email) DO UPDATE SET
+  session_token = excluded.session_token,
+  payload = excluded.payload,
+  email_confirmed = 1,
+  submitted = 1,
+  withdrawn = 0,
+  mir_code = '01',
+  region_code = '01',
+  radius = 'region',
+  distant_region_codes = '[]',
+  travel_municipalities = '[]',
+  draft_section = NULL,
   published_section = NULL;
 `
   runLocalD1(sql)

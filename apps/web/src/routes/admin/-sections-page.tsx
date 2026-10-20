@@ -344,7 +344,7 @@ export function SectionsPage() {
                 const skipped = result.blocked?.length ?? 0
                 const notice =
                   skipped > 0
-                    ? `Публикувани са ${result.published} чернови. Пропуснати заради заетост/дубликат/МИР: ${skipped}.`
+                    ? `Публикувани са ${result.published} чернови. Пропуснати заради заетост/дубликат: ${skipped}.`
                     : `Публикувани са ${result.published} чернови.`
                 setMessage(notice)
                 if (result.blocked?.length) {

@@ -149,9 +149,9 @@ export function SectionPersonRow(props: {
                           </button>
                         </form>
                         {warnings.length > 0 ? (
-                          <ul className="grid gap-1 text-xs font-semibold text-[#a33]">
+                          <ul className="grid gap-1 text-xs font-semibold">
                             {warnings.map((warning) => (
-                              <li key={warning.code + warning.message}>{warning.message}</li>
+                              <li key={warning.code + warning.message} className={warning.level === 'block' ? 'text-[#a33]' : 'text-[#4a314f]'}>{warning.message}</li>
                             ))}
                           </ul>
                         ) : null}

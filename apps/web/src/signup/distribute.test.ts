@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+// These cases are about reach, groups and holds. Tier order has its own tests (section-tiers.test.ts).
+vi.mock('./last-turnout.data', () => ({ LAST_TURNOUT: '', LAST_TURNOUT_SOURCE: 'test' }))
 import {
   describeClearedDrafts,
   describeDistribution,

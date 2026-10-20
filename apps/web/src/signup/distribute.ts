@@ -2,6 +2,7 @@ import { normalizeSection } from './admin-csv'
 import { normalizeAddress, sectionDesk } from './sections'
 import { rKey } from './priority-sections'
 import { isSpecialBulgariaSection } from './stationary-sections'
+import { lastTurnout, sectionTier, type Turnout } from './section-tiers'
 
 export type SkipReason = 'mobile' | 'video' | 'abroad' | 'no-place' | 'no-section'
 export type Together = 'address' | 'town' | 'municipality' | 'region' | 'solo'
@@ -41,6 +42,8 @@ export interface DistributeSection {
   isMobile?: boolean | null
   /** A domestic priority (risk-scored) section. Same order as „Предложи“: home town, then municipality, by R desc. */
   priority?: { r: number | null; level: string } | null
+  /** Last election (CIK, April 2026): гласували and избиратели. Missing for sections new since then. */
+  turnout?: Turnout | null
 }
 
 export interface DistributeAnchor {
@@ -75,8 +78,15 @@ export function distributeSections(input: {
   knownEmails?: readonly string[]
   /** Priority sections by code. They win over ordinary ones in the person's town, then municipality. */
   priority?: ReadonlyMap<string, { r: number | null; level: string }>
+  /** Last election turnout by section code. Defaults to the checked-in CIK data (section-tiers.ts). */
+  turnout?: ReadonlyMap<string, Turnout>
 }): DistributePlan {
-  const sections = dedupeSections(input.sections).map((section) => ({ ...section, priority: input.priority?.get(section.id) ?? section.priority ?? null }))
+  const turnout = input.turnout ?? lastTurnout()
+  const sections = dedupeSections(input.sections).map((section) => ({
+    ...section,
+    priority: input.priority?.get(section.id) ?? section.priority ?? null,
+    turnout: section.turnout ?? turnout.get(section.id) ?? null,
+  }))
   const used = new Set((input.blocked ?? []).map(canon).filter(Boolean))
   const anchors = input.anchors ?? []
   const known = new Set((input.knownEmails ?? input.people.map((person) => person.email)).map(emailKey))
@@ -295,6 +305,7 @@ function placeCluster(
     score: number
     pools: DistributeSection[][]
     priority: { town: number; municipality: number; bestR: number }
+    best: { rank: number; weight: number }
     preferred: boolean
   }> = []
   for (const key of keys) {
@@ -308,6 +319,7 @@ function placeCluster(
       score: bucketScore(key, union, members, preference, level, members.length + extra),
       pools: narrowed,
       priority: bucketPriority(union, members, members.length),
+      best: bestTier(union),
       // Joining companions who already have a section beats a priority section elsewhere.
       preferred: (level === 'address' && preference.places.has(key)) || (level === 'town' && preference.towns.has(Number(key.slice('town:'.length)))),
     })
@@ -320,6 +332,8 @@ function placeCluster(
       b.priority.municipality - a.priority.municipality ||
       b.priority.bestR - a.priority.bestR ||
       b.score - a.score ||
+      a.best.rank - b.best.rank ||
+      b.best.weight - a.best.weight ||
       a.key.localeCompare(b.key, 'bg'),
   )
   const chosen = viable[0]
@@ -507,6 +521,17 @@ function bucketPriority(sections: DistributeSection[], members: DistributePerson
   return { town: Math.min(town, seats), municipality: Math.min(municipality, seats), bestR }
 }
 
+/** The best tier in a bucket: lowest rank, then the most voted (tiers 1–2) or registered (3–4). */
+function bestTier(sections: DistributeSection[]) {
+  let best = { rank: 99, weight: 0 }
+  for (const section of sections) {
+    if (!draftable(section)) continue
+    const tier = tierOf(section)
+    if (tier.rank < best.rank || (tier.rank === best.rank && tier.weight > best.weight)) best = { rank: tier.rank, weight: tier.weight }
+  }
+  return best
+}
+
 function bucketScore(
   key: string,
   sections: DistributeSection[],
@@ -517,10 +542,13 @@ function bucketScore(
 ) {
   const paper = sections.filter((section) => deskOf(section) === 'paper').length
   const unknown = sections.filter((section) => deskOf(section) === 'unknown').length
+  // Tier 1 (paper, > 50 voted last time) seats come first, then any paper seat.
+  const strong = sections.filter((section) => draftable(section) && tierOf(section).tier === 1).length
+  const strongFit = Math.min(strong, seats)
   // One paper seat outranks any number of sections whose voter count we do not know.
   const paperFit = Math.min(paper, seats)
   const unknownFit = Math.min(unknown, Math.max(0, seats - paper))
-  let score = paperFit * 1_000_000 + unknownFit * 1_000 + paper
+  let score = strongFit * 10_000_000 + paperFit * 1_000_000 + unknownFit * 1_000 + paper
   if (level === 'address' && preference.places.has(key)) score += 5_000
   if (level === 'address' && members.some((person) => placeClose(person.place, key))) score += 500
   if (level === 'town') {
@@ -537,13 +565,22 @@ function compareSections(a: DistributeSection, b: DistributeSection, place: stri
     const r = priorityR(b) - priorityR(a)
     if (r !== 0) return r
   }
+  // Tiers: paper > 50 voted, machine > 50, paper ≤ 50 by registered, machine ≤ 50 by registered (section-tiers.ts).
+  const tierA = tierOf(a)
+  const tierB = tierOf(b)
+  if (tierA.rank !== tierB.rank) return tierA.rank - tierB.rank
+  const placeRank = (section: DistributeSection) => (placeClose(place, placeKey(section.place)) ? 0 : 1)
+  if (tierA.tier === 3 || tierA.tier === 4) {
+    if (tierA.weight !== tierB.weight) return tierB.weight - tierA.weight
+    const places = placeRank(a) - placeRank(b)
+    if (places !== 0) return places
+  } else {
+    const places = placeRank(a) - placeRank(b)
+    if (places !== 0) return places
+    if (tierA.weight !== tierB.weight) return tierB.weight - tierA.weight
+  }
   const desk = deskRank(deskOf(a)) - deskRank(deskOf(b))
   if (desk !== 0) return desk
-  const placeRank = (section: DistributeSection) => (placeClose(place, placeKey(section.place)) ? 0 : 1)
-  const places = placeRank(a) - placeRank(b)
-  if (places !== 0) return places
-  const voters = (knownCount(a) ?? 99999) - (knownCount(b) ?? 99999)
-  if (voters !== 0) return voters
   return a.id.localeCompare(b.id)
 }
 
@@ -645,6 +682,10 @@ function radiusRank(radius: string) {
 /** Paper or unknown sections, plus machine sections only when they are on the priority list. */
 function draftable(section: DistributeSection) {
   return deskOf(section) !== 'machine' || Boolean(section.priority)
+}
+
+export function tierOf(section: DistributeSection) {
+  return sectionTier(deskOf(section), section.turnout)
 }
 
 function deskOf(section: DistributeSection) {

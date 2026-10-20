@@ -5,7 +5,7 @@ import { isProtocolDay } from '../signup/election'
 import { readReports } from '../signup/report-memory'
 import { listReports, type ReportSummary } from '../signup/reports'
 
-export const Route = createFileRoute('/izprateni')({ component: SentPage })
+export const Route = createFileRoute('/izprateni/')({ component: SentPage })
 
 const labels = { violation: 'Сигнал', protocol: 'Протокол', call: 'Обаждане' } as const
 
@@ -13,7 +13,25 @@ function SentPage() {
   const [items, setItems] = useState<ReportSummary[] | null>(null)
 
   useEffect(() => {
-    void listReports({ data: { known: readReports() } }).then((result) => setItems(result.items))
+    const known = readReports()
+    // Signals sent to the API are listed from this browser's memory; older reports come from D1.
+    const fromApi: ReportSummary[] = known
+      .filter((item) => item.source === 'api')
+      .map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        createdAt: item.createdAt ?? '',
+        title: item.title || 'Сигнал',
+        photoCount: item.photoCount ?? 0,
+      }))
+    const stored = known.filter((item) => item.source !== 'api')
+    void listReports({ data: { known: stored } })
+      .catch(() => ({ items: [] as ReportSummary[] }))
+      .then((result) =>
+        setItems([...fromApi, ...result.items.filter((item) => !fromApi.some((own) => own.id === item.id))].sort((a, b) =>
+          b.createdAt.localeCompare(a.createdAt),
+        )),
+      )
   }, [])
 
   return (

@@ -2,6 +2,11 @@ export interface RememberedReport {
   id: string
   secret: string
   kind: 'violation' | 'protocol' | 'call'
+  /** 'api' for signals sent to api.tibroish.bg; absent for older reports kept in D1. */
+  source?: 'api'
+  createdAt?: string
+  title?: string
+  photoCount?: number
 }
 
 const KEY = 'ti-broish-reports-v1'
@@ -17,7 +22,11 @@ export function readReports(): RememberedReport[] {
 }
 
 export function rememberReport(item: RememberedReport) {
-  const all = readReports().filter((current) => current.id !== item.id)
-  all.push(item)
-  window.localStorage.setItem(KEY, JSON.stringify(all))
+  try {
+    const all = readReports().filter((current) => current.id !== item.id)
+    all.push(item)
+    window.localStorage.setItem(KEY, JSON.stringify(all))
+  } catch {
+    // Some browsers block storage. The signal is already sent.
+  }
 }

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
 import { placeLabel } from '../signup/model'
 import { getReport, type ReportDetail } from '../signup/reports'
+import { fetchOwnViolation, violationStatusLabel, type ApiViolation } from '../signup/violation-api'
 
 export const Route = createFileRoute('/izprateni/$id')({
   validateSearch: (search: Record<string, unknown>): { secret: string } => ({
@@ -17,12 +18,47 @@ function ReportPage() {
   const { id } = Route.useParams()
   const { secret } = Route.useSearch()
   const [report, setReport] = useState<ReportDetail | null | undefined>(undefined)
+  const [apiReport, setApiReport] = useState<ApiViolation | null>(null)
 
   useEffect(() => {
-    void getReport({ data: { id, secret } }).then(setReport)
+    let cancelled = false
+    void getReport({ data: { id, secret } })
+      .catch(() => null)
+      .then(async (stored) => {
+        // Signals sent to the API (since this change) are read back from the API with their secret.
+        const fromApi = stored ? null : await fetchOwnViolation(id, secret)
+        if (cancelled) return
+        setApiReport(fromApi)
+        setReport(stored)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [id, secret])
 
   if (report === undefined) return <p>Зареждаме…</p>
+  if (!report && apiReport) {
+    return (
+      <div className="grid gap-4">
+        <PageIntro title="Сигнал" lede={apiReport.createdAt ? new Date(apiReport.createdAt).toLocaleString('bg-BG') : ''} />
+        <p className="rounded-2xl bg-[#eee] px-4 py-3">
+          {violationStatusLabel(apiReport.status)}. Номер: <span className="font-mono">{apiReport.id}</span>
+        </p>
+        {apiReport.description ? <p className="leading-7">{apiReport.description}</p> : null}
+        {apiReport.townName ? <p>{[apiReport.townName, apiReport.sectionId && `секция ${apiReport.sectionId}`].filter(Boolean).join(', ')}</p> : null}
+        <ul className="grid gap-3">
+          {apiReport.pictures.map((src) => (
+            <li key={src}>
+              <img src={src} alt="" className="w-full rounded-xl" />
+            </li>
+          ))}
+        </ul>
+        <Link to="/izprateni" className="brand-button">
+          Назад към изпратените
+        </Link>
+      </div>
+    )
+  }
   if (!report) {
     return (
       <div className="grid gap-4">

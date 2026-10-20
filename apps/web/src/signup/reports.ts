@@ -5,11 +5,9 @@ import type { HomePlace } from './model'
 import {
   validateCall,
   validateProtocol,
-  validateViolation,
   type CallInput,
   type ProtocolInput,
   type StoredPhoto,
-  type ViolationInput,
 } from './reports-validate'
 
 const COOKIE = 'tb_session'
@@ -104,15 +102,8 @@ async function insertReport(
   return { ok: true as const, id, secret }
 }
 
-export const submitViolation = createServerFn({ method: 'POST' })
-  .validator((input: ViolationInput) => input)
-  .handler(async ({ data }) => {
-    const db = await database()
-    if (!db) return fail('Записът не е достъпен в момента. Опитай пак.')
-    const parsed = validateViolation(data)
-    if (typeof parsed === 'string') return fail(parsed)
-    return insertReport(db, 'violation', parsed.payload.email, parsed.payload, parsed.photos)
-  })
+// Signals (violations) are no longer written here. /signal sends them to the Ти Броиш API
+// (see violation-api.ts) so the team sees them in upravitel. Older violation rows stay readable below.
 
 export const submitProtocol = createServerFn({ method: 'POST' })
   .validator((input: ProtocolInput) => input)

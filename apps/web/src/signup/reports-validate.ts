@@ -39,9 +39,20 @@ export interface ViolationInput {
   phone: string
   description: string
   place: HomePlace | null
-  wantCall: boolean
   photos: PhotoInput[]
 }
+
+/** What the API needs for POST /violations. The town is the API town id; the section is optional. */
+export interface ViolationPayload {
+  name: string
+  email: string
+  phone: string
+  description: string
+  place: HomePlace & { townId: number }
+}
+
+/** The API accepts 20 to 2000 characters. */
+export const VIOLATION_DESCRIPTION_MAX = 2000
 
 export interface ProtocolInput {
   email: string
@@ -60,28 +71,24 @@ function cleanText(value: string, max: number) {
   return value.trim().slice(0, max)
 }
 
-export function validateViolation(input: ViolationInput) {
+export function validateViolation(input: ViolationInput): { payload: ViolationPayload; photos: StoredPhoto[] } | string {
   const name = cleanText(input.name, 200)
   const email = cleanText(input.email, 200)
   const phone = cleanText(input.phone, 40)
-  const description = cleanText(input.description, 5000)
+  const description = input.description.trim()
   if (name.length < 2) return 'Напиши име.'
   if (!validEmail(email)) return 'Напиши валиден имейл.'
   if (!validPhone(phone)) return 'Напиши телефон.'
   if (description.length < 20) return 'Опиши нарушението с поне 20 знака.'
+  if (description.length > VIOLATION_DESCRIPTION_MAX) return `Описанието е твърде дълго. Най-много ${VIOLATION_DESCRIPTION_MAX} знака.`
   const place = input.place
   if (!place || !placeReady(place)) return 'Избери населено място.'
+  if (!place.townId) return 'Избери населеното място от списъка.'
+  if (place.sectionId && !/^\d{9}$/.test(place.sectionId)) return 'Секцията не е валидна. Избери я пак от списъка.'
   const photos = cleanPhotos(input.photos, 0, 6)
   if (typeof photos === 'string') return photos
   return {
-    payload: {
-      name,
-      email,
-      phone,
-      description,
-      place,
-      wantCall: Boolean(input.wantCall),
-    },
+    payload: { name, email, phone, description, place: { ...place, townId: place.townId } },
     photos,
   }
 }

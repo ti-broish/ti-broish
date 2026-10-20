@@ -156,14 +156,13 @@ describe('section addresses and reports', () => {
 
   it('accepts a signal with a place and rejects a short description or a thin protocol', () => {
     const place = { ...home }
-    expect(validateViolation({ name: 'Иван', email: 'ivan@example.com', phone: '0888123456', description: 'кратко', place, wantCall: false, photos: [] })).toMatch(/20/)
+    expect(validateViolation({ name: 'Иван', email: 'ivan@example.com', phone: '0888123456', description: 'кратко', place, photos: [] })).toMatch(/20/)
     const accepted = validateViolation({
       name: 'Иван Иванов',
       email: 'ivan@example.com',
       phone: '0888123456',
       description: 'Председателят не записа забележката в протокола.',
       place,
-      wantCall: true,
       photos: [],
     })
     expect(typeof accepted).not.toBe('string')

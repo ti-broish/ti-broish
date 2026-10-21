@@ -14,6 +14,7 @@ import { httpStatusForStaffDenial, namesFromPayload, previewDesignationPdf, prev
 import { runSqlBatches } from './designation-sql'
 import { PARTNER_DESIGNATION_COLUMNS, isPartnerPersonId } from './partner-people-sql'
 import { streamZipWriter } from './designation-zip-stream'
+import { parseSignScope, signScopeWhere } from './designation-sign-scope'
 
 registerWorkerDesignationFonts()
 
@@ -48,6 +49,10 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
   const mirDigits = mir.padStart(2, '0')
   // ?partner=1: only „И аз“ partner people, for printing them apart.
   const onlyPartner = url.searchParams.get('partner') === '1'
+  // ?scope=new|unsigned|all (default all). „new“ shrinks as ZIPs mark people, so it always reads from 0.
+  const scope = parseSignScope(url.searchParams.get('scope'))
+  const scopeWhere = signScopeWhere(scope)
+  const from0 = scope === 'new' ? 0 : offset
   // Signups with a published section plus „И аз“ partner people with a МИР, in one numbered list.
   const rows = await access.db
     .prepare(
@@ -62,21 +67,24 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
             AND COALESCE(withdrawn, 0) = 0
             AND (?1 = '' OR substr(published_section, 1, 2) = ?1)
             AND ?4 = 0
+            AND ${scopeWhere}
         UNION ALL
         SELECT ${PARTNER_DESIGNATION_COLUMNS}
           FROM partner_people
           WHERE COALESCE(designation_mir, '') != ''
             AND designation_number IS NOT NULL
             AND (?1 = '' OR designation_mir = ?1)
+            AND ${scopeWhere}
       )
         ORDER BY designation_number, id
         LIMIT ?2 OFFSET ?3`,
     )
-    .bind(mir ? mirDigits : '', limit, offset, onlyPartner ? 1 : 0)
+    .bind(mir ? mirDigits : '', limit, from0, onlyPartner ? 1 : 0)
     .all<ZipRow>()
   const people = rows.results ?? []
   if (people.length === 0) {
-    return new Response('Няма номерирани хора за тази партида.', {
+    const empty = scope === 'new' ? 'Няма нови номерирани за подпис (всички са подписани или вече свалени).' : 'Няма номерирани хора за тази партида.'
+    return new Response(empty, {
       status: 400,
       headers: { 'content-type': 'text/plain; charset=utf-8' },
     })
@@ -127,15 +135,16 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
     const now = new Date().toISOString()
     const statements = ids.map((id) =>
       access.db
-        .prepare(`UPDATE ${isPartnerPersonId(id) ? 'partner_people' : 'signups'} SET designation_generated_at = ?, updated_at = ? WHERE id = ?`)
-        .bind(now, now, id),
+        .prepare(`UPDATE ${isPartnerPersonId(id) ? 'partner_people' : 'signups'} SET designation_generated_at = ?, designation_signing_generated_at = ?, updated_at = ? WHERE id = ?`)
+        .bind(now, now, now, id),
     )
     await runSqlBatches(access.db, statements)
   })
 
-  const from = offset + 1
-  const to = offset + people.length
-  const mirPart = `${onlyPartner ? '-i-az' : ''}${mir ? `-mir${mirDigits}` : ''}`
+  const from = from0 + 1
+  const to = from0 + people.length
+  const scopePart = scope === 'new' ? '-novi' : scope === 'unsigned' ? '-bez-podpis' : ''
+  const mirPart = `${onlyPartner ? '-i-az' : ''}${mir ? `-mir${mirDigits}` : ''}${scopePart}`
   const filename = `palnomoshtni${mirPart}-${String(from).padStart(4, '0')}-${String(to).padStart(4, '0')}.zip`
   return new Response(stream, {
     status: 200,

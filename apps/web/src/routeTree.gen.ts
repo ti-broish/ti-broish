@@ -30,6 +30,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminAccessRouteImport } from './routes/admin/access'
 import { Route as AdminCallsRouteImport } from './routes/admin/calls'
 import { Route as AdminPalnomoshtniRouteImport } from './routes/admin/palnomoshtni'
+import { Route as AdminRikRouteImport } from './routes/admin/rik'
 import { Route as AdminSectionsRouteImport } from './routes/admin/sections'
 import { Route as AdminSignupsRouteImport } from './routes/admin/signups'
 import { Route as IzprateniIndexRouteImport } from './routes/izprateni.index'
@@ -150,6 +151,11 @@ const AdminPalnomoshtniRoute = AdminPalnomoshtniRouteImport.update({
   path: '/palnomoshtni',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminRikRoute = AdminRikRouteImport.update({
+  id: '/rik',
+  path: '/rik',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminSectionsRoute = AdminSectionsRouteImport.update({
   id: '/sections',
   path: '/sections',
@@ -244,6 +250,7 @@ export interface FileRoutesByFullPath {
   '/admin/access': typeof AdminAccessRoute
   '/admin/calls': typeof AdminCallsRoute
   '/admin/palnomoshtni': typeof AdminPalnomoshtniRoute
+  '/admin/rik': typeof AdminRikRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
@@ -279,6 +286,7 @@ export interface FileRoutesByTo {
   '/admin/access': typeof AdminAccessRoute
   '/admin/calls': typeof AdminCallsRoute
   '/admin/palnomoshtni': typeof AdminPalnomoshtniRoute
+  '/admin/rik': typeof AdminRikRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
@@ -317,6 +325,7 @@ export interface FileRoutesById {
   '/admin/access': typeof AdminAccessRoute
   '/admin/calls': typeof AdminCallsRoute
   '/admin/palnomoshtni': typeof AdminPalnomoshtniRoute
+  '/admin/rik': typeof AdminRikRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
@@ -356,6 +365,7 @@ export interface FileRouteTypes {
     | '/admin/access'
     | '/admin/calls'
     | '/admin/palnomoshtni'
+    | '/admin/rik'
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
@@ -391,6 +401,7 @@ export interface FileRouteTypes {
     | '/admin/access'
     | '/admin/calls'
     | '/admin/palnomoshtni'
+    | '/admin/rik'
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
@@ -428,6 +439,7 @@ export interface FileRouteTypes {
     | '/admin/access'
     | '/admin/calls'
     | '/admin/palnomoshtni'
+    | '/admin/rik'
     | '/admin/sections'
     | '/admin/signups'
     | '/izprateni/$id'
@@ -619,6 +631,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPalnomoshtniRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/rik': {
+      id: '/admin/rik'
+      path: '/rik'
+      fullPath: '/admin/rik'
+      preLoaderRoute: typeof AdminRikRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/sections': {
       id: '/admin/sections'
       path: '/sections'
@@ -724,6 +743,7 @@ interface AdminRouteRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
   AdminCallsRoute: typeof AdminCallsRoute
   AdminPalnomoshtniRoute: typeof AdminPalnomoshtniRoute
+  AdminRikRoute: typeof AdminRikRoute
   AdminSectionsRoute: typeof AdminSectionsRoute
   AdminSignupsRoute: typeof AdminSignupsRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -738,6 +758,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
   AdminCallsRoute: AdminCallsRoute,
   AdminPalnomoshtniRoute: AdminPalnomoshtniRoute,
+  AdminRikRoute: AdminRikRoute,
   AdminSectionsRoute: AdminSectionsRoute,
   AdminSignupsRoute: AdminSignupsRoute,
   AdminIndexRoute: AdminIndexRoute,

@@ -7,7 +7,7 @@ import { chromium, type FullConfig } from '@playwright/test'
  * module is still being split. Open every admin page once, signed in as a throwaway admin, before
  * the specs, so those modules are compiled and a spec's first click never lands in that window.
  */
-const PAGES = ['/admin', '/admin/signups', '/admin/sections', '/admin/palnomoshtni', '/admin/calls', '/admin/access']
+const PAGES = ['/admin', '/admin/signups', '/admin/sections', '/admin/palnomoshtni', '/admin/rik', '/admin/calls', '/admin/access']
 const EMAIL = 'warmup.admin-e2e@example.com'
 const SESSION = 'e2e-warmup-admin-session'
 const WEB_DIR = new URL('.', import.meta.url).pathname.replace(/e2e\/$/, '')

@@ -47,6 +47,7 @@ const links = [
   { to: '/admin/calls', label: 'Обаждания', exact: false },
   { to: '/admin/sections', label: 'Секции', exact: false },
   { to: '/admin/palnomoshtni', label: 'Пълномощни', exact: false },
+  { to: '/admin/rik', label: 'РИК', exact: false },
   { to: '/admin/access', label: 'Достъп', exact: false },
 ] as const
 

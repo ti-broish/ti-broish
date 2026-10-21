@@ -35,6 +35,29 @@ describe('designation PDF', () => {
     expect(text).toContain('Да бъде ПРЕДСТАВИТЕЛ')
   })
 
+  it('names МИР 32 „Извън страната“, not „32 изборен район“', async () => {
+    const input = {
+      number: 2,
+      issuedOn: '21.10.2026',
+      grantor: { name: '', egn: '', capacity: 'пълномощник' as const, authorisation: '', principalName: '', principalEgn: '' },
+      person: {
+        firstName: 'Иван',
+        middleName: 'Петров',
+        lastName: 'Иванов',
+        egn: '0000000000',
+        sectionCode: '320000001',
+        sectionPlace: 'Лондон, Обединено кралство',
+      },
+    }
+    const bytes = await renderDesignationPdf(input, DEFAULT_DESIGNATION_CONFIG)
+    const doc = await PDFDocument.load(bytes)
+    expect(doc.getPageCount()).toBe(1)
+    const text = designationPlainText(buildDesignationBlocks(input, DEFAULT_DESIGNATION_CONFIG))
+    expect(text).toContain('Извън страната')
+    expect(text).not.toContain('изборен район')
+    expect(text).not.toContain('Чужбина')
+  })
+
   it('renders TODO placeholders with an empty grantor and principal', async () => {
     const input = {
       number: 1,

@@ -62,6 +62,9 @@ export const DEFAULT_DESIGNATION_CONFIG: DesignationConfig = {
   brevoAttribute: DEFAULT_BREVO_DESIGNATION_ATTRIBUTE,
 }
 
+/** МИР 32: the пълномощно names it exactly like this, with no „32 изборен район“. */
+export const ABROAD_DISTRICT = 'Извън страната'
+
 /** МИР / изборен район from the first two digits of a 9-digit section code. */
 export const ELECTION_DISTRICTS: Record<string, string> = {
   '01': 'Благоевград',
@@ -95,7 +98,7 @@ export const ELECTION_DISTRICTS: Record<string, string> = {
   '29': 'Хасково',
   '30': 'Шумен',
   '31': 'Ямбол',
-  '32': 'Чужбина',
+  '32': ABROAD_DISTRICT,
 }
 
 /**
@@ -172,6 +175,7 @@ export function districtLineOf(sectionCode: string, districts: Record<string, st
   const digits = sectionCode.replace(/\D/g, '')
   if (digits.length < 2) return TODO_DISTRICT
   const nn = digits.slice(0, 2)
+  if (nn === '32') return ABROAD_DISTRICT
   const name = districts[nn]
   return name ? `${nn} изборен район – ${name}` : `${nn} изборен район`
 }

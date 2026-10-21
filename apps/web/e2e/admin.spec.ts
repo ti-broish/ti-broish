@@ -592,6 +592,40 @@ test.describe('staff admin', () => {
     expect(brevoCalls).toEqual([])
   })
 
+  test('Пълномощни: one PDF uploads; already uploaded people are skipped unless replaced; a failed row has „Опитай пак“', async ({ page }) => {
+    const uploads: string[] = []
+    await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads, uploadFailures: 1 })
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/palnomoshtni')
+    const upload = page.getByRole('region', { name: 'Качване на подписани' })
+    const pdf = Buffer.from('%PDF-1.4 test')
+    // Мария already has a signed file: a re-upload skips her by default.
+    await page.getByLabel('Подписани PDF или ZIP').setInputFiles([
+      { name: '0001_234600101_Petrova_signed.pdf', mimeType: 'application/pdf', buffer: pdf },
+      { name: '0002_234600102_Ivanov_signed.pdf', mimeType: 'application/pdf', buffer: pdf },
+    ])
+    await expect(upload.getByTestId('already-uploaded')).toContainText('Вече качени 1')
+    await expect(upload.getByText('вече качен: пропуска се')).toBeVisible()
+    await upload.getByRole('button', { name: 'Качи 1 подписани' }).click()
+    const results = page.getByRole('table', { name: 'Резултат от качването' })
+    await expect(results.getByText(/грешка: Google Drive върна HTTP 403/)).toBeVisible()
+    await expect(upload.getByRole('status')).toContainText('Вече качени 1 (пропуснати).')
+    await results.getByRole('button', { name: 'Опитай пак' }).click()
+    await expect(results.getByRole('cell', { name: 'качен', exact: true })).toBeVisible()
+    await expect(results.getByRole('button', { name: 'Опитай пак' })).toHaveCount(0)
+    expect(uploads).toEqual(['e2e-ivanov', 'e2e-ivanov'])
+
+    // A single PDF on its own, for the person who already has one, needs the explicit replace.
+    await page.getByLabel('Подписани PDF или ZIP').setInputFiles({ name: '0001_234600101_Petrova_signed.pdf', mimeType: 'application/pdf', buffer: pdf })
+    await expect(upload.getByRole('button', { name: 'Качи 0 подписани' })).toBeDisabled()
+    await expect(upload.getByTestId('upload-block-reason')).toContainText('вече имат качен подписан файл')
+    await upload.getByLabel(/Замени и вече качените/).check()
+    await upload.getByRole('button', { name: 'Качи 1 подписани' }).click()
+    await expect(results.getByRole('cell', { name: 'заменен', exact: true })).toBeVisible()
+    expect(uploads).toEqual(['e2e-ivanov', 'e2e-ivanov', 'e2e-maria (replace)'])
+  })
+
   test('Пълномощни reads a Finder ZIP of a folder, a dropped folder and a folder pick, and says why the button is off', async ({ page }) => {
     const uploads: string[] = []
     await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads })
@@ -757,13 +791,27 @@ async function mockPalnomoshtniServerFns(
     brevoThrows?: boolean
     brevoCalls?: string[]
     signed?: boolean
+    /** First N uploads answer a permanent Drive error (to exercise „Опитай пак“). */
+    uploadFailures?: number
   },
 ) {
+  let failuresLeft = opts.uploadFailures ?? 0
   const missingMessage =
     'Липсват GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN. Липсва DESIGNATION_DRIVE_FOLDER_ID (или DRIVE_FOLDER_ID). Качването към Drive е изключено.'
   await page.route('**/admin/palnomoshtni/upload**', async (route) => {
     const url = new URL(route.request().url())
-    opts.uploads.push(url.searchParams.get('personId') ?? '')
+    const id = url.searchParams.get('personId') ?? ''
+    // With uploadFailures set, a replace (no ifMissing=1) is marked so the test can tell them apart.
+    opts.uploads.push(opts.uploadFailures !== undefined && !url.searchParams.get('ifMissing') ? `${id} (replace)` : id)
+    if (failuresLeft > 0) {
+      failuresLeft -= 1
+      await route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, retryable: false, message: 'Google Drive върна HTTP 403 (Drive отказа достъп (права или квота), insufficientFilePermissions).' }),
+      })
+      return
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

@@ -183,9 +183,31 @@ export interface SignupD1 {
   batch<T = unknown>(statements: Statement[]): Promise<T[]>
 }
 
+/**
+ * Schema bootstrap runs once per isolate per D1 binding, not on every request: it is ~80 sequential
+ * D1 round trips, and three parallel signed uploads each repeating them made D1 drop connections
+ * („Network connection lost“ → a bare „HTTPError“ on /admin/palnomoshtni). A failed run is
+ * forgotten so the next request tries again.
+ */
+const schemaReady = new WeakMap<object, Promise<void>>()
+
 export async function signupDatabase() {
   const db = (env as unknown as { DB?: SignupD1 }).DB
   if (!db) return null
+  let ready = schemaReady.get(db)
+  if (!ready) {
+    const pending = ensureSignupSchema(db)
+    ready = pending
+    schemaReady.set(db, pending)
+    pending.catch(() => {
+      if (schemaReady.get(db) === pending) schemaReady.delete(db)
+    })
+  }
+  await ready
+  return db
+}
+
+async function ensureSignupSchema(db: SignupD1) {
   await db.prepare(SIGNUPS).run()
   for (const sql of BASE_INDEXES) await db.prepare(sql).run()
   let addedReceiptColumn = false
@@ -242,7 +264,6 @@ export async function signupDatabase() {
     console.warn('releaseWithdrawnSections failed', error instanceof Error ? error.message : error)
   })
   await withdrawnSweep
-  return db
 }
 
 let withdrawnSweep: Promise<unknown> | null = null

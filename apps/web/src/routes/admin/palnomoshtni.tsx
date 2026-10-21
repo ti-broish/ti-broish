@@ -13,6 +13,7 @@ import {
   expandUploadFilesDetailed,
   matchSignedFiles,
   signedUploadBlockReason,
+  signedUploadPlan,
   toFilePerson,
   zipBatchPlan,
   type DesignationCounts,
@@ -32,6 +33,7 @@ import {
   type UploadBrevo,
 } from '../../signup/designation-brevo-ui'
 import { ELECTION_DISTRICTS } from '../../signup/designation-config'
+import { postSignedPdf } from '../../signup/designation-upload-errors'
 import { IAZ_LABEL, partnerBadge } from '../../signup/partner-import'
 import { adminPartnerSetMir } from '../../signup/partner-import-admin'
 import { PartnerImportPanel } from './-partner-import-panel'
@@ -67,6 +69,8 @@ function PalnomoshtniPage() {
   const [brevoStatus, setBrevoStatus] = useState<BrevoStatus | null>(null)
   const [uploadRows, setUploadRows] = useState<UploadResultRow[]>([])
   const [resyncFailures, setResyncFailures] = useState<string[]>([])
+  const [replaceExisting, setReplaceExisting] = useState(false)
+  const [retrying, setRetrying] = useState<string[]>([])
 
   const reload = useCallback(() => {
     void adminDesignationStatus({ data: { mir, q } }).then((result) => {
@@ -104,7 +108,20 @@ function PalnomoshtniPage() {
   )
   const signedCount = counts?.signed ?? 0
   const batches = zipBatchPlan(zipEligible, DESIGNATION_ZIP_BATCH_LIMIT)
-  const uploadBlockReason = signedUploadBlockReason({ canExport, canUploadDrive, busy, reading, preview })
+  const uploadBlockReason = signedUploadBlockReason({ canExport, canUploadDrive, busy, reading, preview, replaceExisting })
+  const plan = preview ? signedUploadPlan(preview, replaceExisting) : null
+
+  const retryRow = (row: UploadResultRow) => {
+    const source = row.source
+    if (!source) return
+    setRetrying((list) => [...list, row.personId])
+    void uploadOne(source, replaceExisting || source.willReplace)
+      .then((result) => {
+        setUploadRows((rows) => rows.map((item) => (item.personId === row.personId ? resultRow(source, result) : item)))
+        if (result.status === 'uploaded') reload()
+      })
+      .finally(() => setRetrying((list) => list.filter((id) => id !== row.personId)))
+  }
 
   const takeIncoming = (incoming: Promise<ReadIncoming>) => {
     setReading(true)
@@ -284,7 +301,10 @@ function PalnomoshtniPage() {
                   setPreview(null)
                   return
                 }
-                takeIncoming(readIncoming([...list]))
+                const picked = [...list]
+                // Clear the input so choosing the same file (or one PDF after a ZIP) always fires onChange.
+                event.target.value = ''
+                takeIncoming(readIncoming(picked))
               }}
             />
           </label>
@@ -303,17 +323,26 @@ function PalnomoshtniPage() {
                   setPreview(null)
                   return
                 }
-                takeIncoming(readIncoming([...list]))
+                const picked = [...list]
+                // Clear the input so choosing the same file (or one PDF after a ZIP) always fires onChange.
+                event.target.value = ''
+                takeIncoming(readIncoming(picked))
               }}
             />
           </label>
         </div>
-        {preview ? <UploadPreview preview={preview} /> : null}
+        {preview ? <UploadPreview preview={preview} replaceExisting={replaceExisting} /> : null}
+        {preview && preview.matched.some((row) => row.willReplace) ? (
+          <label className="flex items-center gap-2 text-sm font-bold text-[#1a1020]">
+            <input type="checkbox" checked={replaceExisting} disabled={busy} onChange={(event) => setReplaceExisting(event.target.checked)} />
+            Замени и вече качените ({preview.matched.filter((row) => row.willReplace).length})
+          </label>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             className={adminGhost}
-            disabled={Boolean(uploadBlockReason) || busy || !preview || preview.matched.length === 0}
+            disabled={Boolean(uploadBlockReason) || busy || !plan || plan.toUpload.length === 0}
             title={uploadBlockReason || undefined}
             aria-describedby={uploadBlockReason ? 'palnomoshtni-upload-block' : undefined}
             onClick={() => {
@@ -324,30 +353,26 @@ function PalnomoshtniPage() {
               setResyncFailures([])
               setUploadRows([])
               setUploadTone('busy')
-              const matched = preview.matched
+              const { toUpload, already } = signedUploadPlan(preview, replaceExisting)
               // Each upload also puts the new Drive link on the Brevo contact (DOCUMENT_URL) on the server.
-              void uploadMatched(matched, (line) => setUploadProgress(line))
-                .then(({ uploaded, failed }) => {
-                  const rows: UploadResultRow[] = matched.map((row) => {
-                    const failure = failed.find((item) => item.row.personId === row.personId)
-                    const done = uploaded.find((item) => item.row.personId === row.personId)
-                    return {
-                      personId: row.personId,
-                      fileName: row.fileName,
-                      number: row.number,
-                      name: row.name,
-                      drive: failure ? `грешка: ${failure.error}` : 'качен',
-                      brevo: done ? uploadBrevoCell(done.brevo) : '—',
-                      ok: Boolean(done && done.brevo.ok),
-                    }
-                  })
+              void uploadMatched(toUpload, replaceExisting, (line) => setUploadProgress(line))
+                .then((results) => {
+                  const rows = toUpload.map((row, index) => resultRow(row, results[index]!))
                   setUploadRows(rows)
+                  const uploaded = results.filter((item) => item.status === 'uploaded')
+                  const skipped = already.length + results.filter((item) => item.status === 'skipped').length
+                  const failed = results.filter((item) => item.status === 'failed').length
                   const summary = uploadSummary(
-                    matched.length,
-                    uploaded.map((item) => item.brevo),
+                    toUpload.length - (skipped - already.length),
+                    uploaded.map((item) => (item.status === 'uploaded' ? item.brevo : null)).filter((item): item is UploadBrevo => item !== null),
                   )
-                  setUploadTone(summary.tone)
-                  setUploadProgress(summary.text)
+                  const extra = [
+                    skipped ? `Вече качени ${skipped} (пропуснати).` : '',
+                    failed ? `Неуспешни ${failed}: натисни „Опитай пак“ на реда.` : '',
+                  ].filter(Boolean)
+                  const allSkipped = uploaded.length === 0 && failed === 0 && skipped > 0
+                  setUploadTone(failed ? 'error' : allSkipped ? 'ok' : summary.tone)
+                  setUploadProgress([summary.text, ...extra].join(' '))
                   reload()
                 })
                 .catch((error) => {
@@ -357,7 +382,7 @@ function PalnomoshtniPage() {
                 .finally(() => setBusy(false))
             }}
           >
-            {preview ? `Качи ${preview.matched.length} подписани` : 'Качи подписани'}
+            {plan ? `Качи ${plan.toUpload.length} подписани` : 'Качи подписани'}
           </button>
           {uploadBlockReason ? (
             <p id="palnomoshtni-upload-block" data-testid="upload-block-reason" className="text-sm font-bold text-[#8f1d1d]">
@@ -370,7 +395,7 @@ function PalnomoshtniPage() {
             {uploadProgress}
           </p>
         ) : null}
-        {uploadRows.length > 0 ? <UploadResults rows={uploadRows} /> : null}
+        {uploadRows.length > 0 ? <UploadResults rows={uploadRows} retrying={retrying} onRetry={retryRow} disabled={busy} /> : null}
       </section>
 
       <SignedWavesPanel canExport={canExport} refreshKey={signedCount} />
@@ -562,7 +587,8 @@ function Stat({ label, value }: { label: string; value: number }) {
   )
 }
 
-function UploadPreview({ preview }: { preview: SignedUploadMatch }) {
+function UploadPreview({ preview, replaceExisting }: { preview: SignedUploadMatch; replaceExisting: boolean }) {
+  const already = replaceExisting ? 0 : preview.matched.filter((row) => row.willReplace).length
   return (
     <div className="grid gap-2">
       <p className="text-sm font-bold text-[#1a1020]">
@@ -570,6 +596,11 @@ function UploadPreview({ preview }: { preview: SignedUploadMatch }) {
         {preview.notPdf.length}
         {preview.ignored ? `, пропуснати системни файлове ${preview.ignored}` : ''}
       </p>
+      {already ? (
+        <p className="text-sm font-bold text-[#1d5f2f]" data-testid="already-uploaded">
+          Вече качени {already}: пропускат се (качването на целия ZIP наново не дублира файлове).
+        </p>
+      ) : null}
       <div className="overflow-auto">
         <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
           <thead>
@@ -581,7 +612,7 @@ function UploadPreview({ preview }: { preview: SignedUploadMatch }) {
           </thead>
           <tbody>
             {preview.matched.map((row) => (
-              <PreviewRow key={`m-${row.fileName}`} fileName={row.fileName} status={matchedStatus(row)} person={<>{row.number} · <PersonName id={row.personId} name={row.name} /></>} />
+              <PreviewRow key={`m-${row.fileName}`} fileName={row.fileName} status={matchedStatus(row, replaceExisting)} person={<>{row.number} · <PersonName id={row.personId} name={row.name} /></>} />
             ))}
             {preview.duplicates.map((row) => (
               <PreviewRow key={`d-${row.personId}`} fileName={row.fileNames.join(', ')} status="дубликат" person={<>{row.number} · <PersonName id={row.personId} name={row.name} /></>} />
@@ -599,10 +630,10 @@ function UploadPreview({ preview }: { preview: SignedUploadMatch }) {
   )
 }
 
-function matchedStatus(row: MatchedUpload) {
+function matchedStatus(row: MatchedUpload, replaceExisting: boolean) {
   const bits = ['съвпадение']
   if (row.missingSigned) bits.push('без _signed')
-  if (row.willReplace) bits.push('ще замени линка')
+  if (row.willReplace) bits.push(replaceExisting ? 'ще замени файла' : 'вече качен: пропуска се')
   return bits.join(' · ')
 }
 
@@ -680,9 +711,43 @@ async function readDropped(transfer: DataTransfer): Promise<ReadIncoming> {
   return out
 }
 
-type UploadResultRow = { personId: string; fileName: string; number: number; name: string; drive: string; brevo: string; ok: boolean }
+type UploadResultRow = {
+  personId: string
+  fileName: string
+  number: number
+  name: string
+  drive: string
+  brevo: string
+  ok: boolean
+  /** Kept only for failed rows: the bytes for „Опитай пак“ without picking the file again. */
+  source?: MatchedUpload
+}
 
-function UploadResults({ rows }: { rows: UploadResultRow[] }) {
+type UploadOutcome =
+  | { status: 'uploaded'; brevo: UploadBrevo }
+  | { status: 'skipped' }
+  | { status: 'failed'; error: string; retryable: boolean }
+
+function resultRow(row: MatchedUpload, result: UploadOutcome): UploadResultRow {
+  const base = { personId: row.personId, fileName: row.fileName, number: row.number, name: row.name }
+  if (result.status === 'uploaded') {
+    return { ...base, drive: row.willReplace ? 'заменен' : 'качен', brevo: uploadBrevoCell(result.brevo), ok: result.brevo.ok }
+  }
+  if (result.status === 'skipped') return { ...base, drive: 'вече качен: пропуснат', brevo: '—', ok: true }
+  return { ...base, drive: `грешка: ${result.error}`, brevo: '—', ok: false, source: row }
+}
+
+function UploadResults({
+  rows,
+  retrying,
+  onRetry,
+  disabled,
+}: {
+  rows: UploadResultRow[]
+  retrying: string[]
+  onRetry: (row: UploadResultRow) => void
+  disabled: boolean
+}) {
   return (
     <div className="overflow-auto">
       <table aria-label="Резултат от качването" className="w-full min-w-[32rem] border-collapse text-left text-sm">
@@ -701,7 +766,19 @@ function UploadResults({ rows }: { rows: UploadResultRow[] }) {
               <td className="px-2 py-2">
                 {row.number} · <PersonName id={row.personId} name={row.name} />
               </td>
-              <td className="px-2 py-2">{row.drive}</td>
+              <td className="px-2 py-2">
+                {row.drive}
+                {row.source ? (
+                  <button
+                    type="button"
+                    className={`${adminGhost} ml-2`}
+                    disabled={disabled || retrying.includes(row.personId)}
+                    onClick={() => onRetry(row)}
+                  >
+                    {retrying.includes(row.personId) ? 'Опитваме…' : 'Опитай пак'}
+                  </button>
+                ) : null}
+              </td>
               <td className="px-2 py-2">{row.brevo}</td>
             </tr>
           ))}
@@ -746,9 +823,16 @@ async function resyncAllSigned(onProgress: (line: string) => void) {
   return { ok: failures.length === 0, summary, failures }
 }
 
-async function uploadMatched(rows: MatchedUpload[], onProgress: (line: string) => void) {
-  const uploaded: Array<{ row: MatchedUpload; brevo: UploadBrevo }> = []
-  const failed: Array<{ row: MatchedUpload; error: string }> = []
+/** One PDF with backoff on transient failures (Drive 429/5xx, dropped D1 connection, no response). */
+async function uploadOne(row: MatchedUpload, replace: boolean): Promise<UploadOutcome> {
+  const result = await postSignedPdf({ personId: row.personId, bytes: row.bytes, replace })
+  if (!result.ok) return { status: 'failed', error: result.message, retryable: result.retryable }
+  if (result.body.skipped === true) return { status: 'skipped' }
+  return { status: 'uploaded', brevo: uploadBrevoOf(result.body) }
+}
+
+async function uploadMatched(rows: MatchedUpload[], replace: boolean, onProgress: (line: string) => void) {
+  const results: UploadOutcome[] = new Array(rows.length)
   let index = 0
   const workers = Array.from({ length: Math.min(3, rows.length) }, async () => {
     while (index < rows.length) {
@@ -756,21 +840,9 @@ async function uploadMatched(rows: MatchedUpload[], onProgress: (line: string) =
       index += 1
       const row = rows[current]!
       onProgress(`Качване ${current + 1} от ${rows.length}: ${row.name}`)
-      try {
-        const response = await fetch(`/admin/palnomoshtni/upload?personId=${encodeURIComponent(row.personId)}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/pdf' },
-          body: row.bytes as unknown as BodyInit,
-          credentials: 'same-origin',
-        })
-        const json = (await response.json().catch(() => ({}))) as { ok?: boolean; message?: string }
-        if (!response.ok || !json.ok) throw new Error(json.message || `Качването на ${row.fileName} се провали.`)
-        uploaded.push({ row, brevo: uploadBrevoOf(json) })
-      } catch (error) {
-        failed.push({ row, error: error instanceof Error ? error.message : 'неизвестна грешка' })
-      }
+      results[current] = await uploadOne(row, replace)
     }
   })
   await Promise.all(workers)
-  return { uploaded, failed }
+  return results
 }

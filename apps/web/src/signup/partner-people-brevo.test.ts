@@ -77,7 +77,17 @@ function fakeDb(rows: Record<string, unknown>) {
 }
 
 let db = fakeDb({})
-vi.mock('./db-core', () => ({ SESSION_COOKIE: 'tb_session', signupDatabase: async () => db }))
+const dbFailures = vi.hoisted(() => ({ left: 0, message: '' }))
+vi.mock('./db-core', () => ({
+  SESSION_COOKIE: 'tb_session',
+  signupDatabase: async () => {
+    if (dbFailures.left > 0) {
+      dbFailures.left -= 1
+      throw new Error(dbFailures.message)
+    }
+    return db
+  },
+}))
 
 const pdf = new TextEncoder().encode('%PDF-1.4 signed')
 const partnerRow = {
@@ -96,6 +106,7 @@ beforeEach(() => {
   calls.syncLinks.length = 0
   calls.pushLink.length = 0
   calls.attributes = 0
+  dbFailures.left = 0
   db = fakeDb({ partner: partnerRow, signup: signupRow })
 })
 
@@ -130,6 +141,45 @@ describe('signed upload to Drive', () => {
     expect(((await response.json()) as { ok: boolean }).ok).toBe(true)
     expect(calls.pushLink).toHaveLength(1)
     expect(calls.sql.find((entry) => entry.sql.includes('SET designation_pdf_url'))?.sql).toContain('UPDATE signups')
+  })
+})
+
+describe('signed upload: idempotent and never a bare HTTPError', () => {
+  const uploadUrl = (id: string, extra = '') => `https://x.test/admin/palnomoshtni/upload?personId=${id}${extra}`
+
+  it('skips a person who already has a signed file when the page asks ifMissing=1', async () => {
+    db = fakeDb({ partner: { ...partnerRow, designation_drive_file_id: 'old', designation_pdf_url: 'https://drive.example/old' } })
+    const { serveDesignationUpload } = await import('./designation-upload')
+    const response = await serveDesignationUpload(new Request(uploadUrl(partnerRow.id, '&ifMissing=1'), { method: 'POST', body: pdf }))
+    const body = (await response.json()) as { ok: boolean; skipped?: boolean; url?: string }
+    expect(body).toMatchObject({ ok: true, skipped: true, url: 'https://drive.example/old' })
+    expect(calls.sql.some((entry) => entry.sql.includes('SET designation_pdf_url'))).toBe(false)
+  })
+
+  it('still replaces when the page asks to (no ifMissing)', async () => {
+    db = fakeDb({ partner: { ...partnerRow, designation_drive_file_id: 'old', designation_pdf_url: 'https://drive.example/old' } })
+    const { serveDesignationUpload } = await import('./designation-upload')
+    const response = await serveDesignationUpload(new Request(uploadUrl(partnerRow.id), { method: 'POST', body: pdf }))
+    expect(((await response.json()) as { ok: boolean; replaced: boolean }).replaced).toBe(true)
+  })
+
+  it('rides out one dropped D1 connection in the staff check', async () => {
+    dbFailures.left = 1
+    dbFailures.message = 'D1_ERROR: Network connection lost.'
+    const { serveDesignationUpload } = await import('./designation-upload')
+    const response = await serveDesignationUpload(new Request(uploadUrl(partnerRow.id), { method: 'POST', body: pdf }))
+    expect(((await response.json()) as { ok: boolean }).ok).toBe(true)
+  })
+
+  it('answers JSON with a Bulgarian reason instead of throwing', async () => {
+    dbFailures.left = 1
+    dbFailures.message = 'D1_ERROR: no such table: staff'
+    const { serveDesignationUpload } = await import('./designation-upload')
+    const response = await serveDesignationUpload(new Request(uploadUrl(partnerRow.id), { method: 'POST', body: pdf }))
+    expect(response.status).toBe(500)
+    const body = (await response.json()) as { ok: boolean; message: string; retryable: boolean }
+    expect(body).toMatchObject({ ok: false, retryable: false })
+    expect(body.message).toContain('Грешка в базата (D1)')
   })
 })
 

@@ -384,7 +384,7 @@ function PeopleView({ search, setSearch, reloadKey }: { search: RikSearch; setSe
         <label className="grid gap-1 text-sm font-bold" htmlFor="rik-status">
           Статус
           <select id="rik-status" className={adminInput} value={search.status} onChange={(event) => setSearch({ status: event.target.value })}>
-            <option value="">Всички</option>
+            <option value="">Всички (без отписани и дубликати)</option>
             <option value="problems">Само проблеми</option>
             {(Object.keys(STATUS_LABELS) as RikStatus[]).map((status) => (
               <option key={status} value={status}>

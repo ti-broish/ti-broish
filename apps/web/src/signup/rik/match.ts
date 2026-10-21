@@ -82,9 +82,27 @@ export interface RikEntryRow {
 
 export interface RikSourceHealth {
   mir: string
-  health: 'ok' | 'empty' | 'not_published' | 'error' | 'never' | 'unrecognised'
+  /**
+   * „warning“: the last run failed once; the last good read (lastGoodHealth) still counts.
+   * „blocked“: the site answered with a challenge/403/429; its people are not re-derived at all.
+   */
+  health: 'ok' | 'empty' | 'not_published' | 'warning' | 'blocked' | 'error' | 'never' | 'unrecognised'
   failures: number
   lastError: string
+  /** Health of the last successful read; '' when it never succeeded. */
+  lastGoodHealth?: string
+}
+
+const GOOD_HEALTH = new Set(['ok', 'empty', 'not_published'])
+
+/**
+ * The health to classify people by. A РИК in „warning“ (one failed run) keeps its last good
+ * state, so one bad hour at CIK does not turn its people into „РИК не се чете“.
+ */
+export function effectiveHealth(source: RikSourceHealth | undefined): RikSourceHealth | undefined {
+  if (!source || (source.health !== 'warning' && source.health !== 'blocked')) return source
+  const good = source.lastGoodHealth ?? ''
+  return { ...source, health: GOOD_HEALTH.has(good) ? (good as RikSourceHealth['health']) : 'error' }
 }
 
 export interface PersonResult {
@@ -191,7 +209,7 @@ export function classifyPerson(
     return { result: result('registered', { entryId: registered.id, detail: dateNote }), tasks }
   }
 
-  const health = sources.get(person.mir)
+  const health = effectiveHealth(sources.get(person.mir))
   if (!health || health.health === 'error' || health.health === 'unrecognised') {
     return { result: result('rik_unavailable', { detail: health?.lastError ?? '' }), tasks }
   }

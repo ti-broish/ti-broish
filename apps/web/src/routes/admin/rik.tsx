@@ -23,9 +23,29 @@ const HEALTH_LABELS: Record<string, string> = {
   ok: 'Чете се',
   empty: 'Още празен',
   not_published: 'Няма регистър',
+  warning: 'Предупреждение',
+  blocked: 'Блокиран от сайта',
   error: 'Грешка',
   unrecognised: 'Непознат вид',
   never: 'Не е четен',
+}
+
+/** Warning: one failed run, the last good read still counts. Error: failed ERROR_AFTER_FAILURES runs in a row. */
+const HEALTH_TONE: Record<string, string | undefined> = {
+  ok: 'bg-[#145744] text-white',
+  warning: 'bg-[#fff4d6] text-[#6b4a00] border border-[#b07d00]',
+  blocked: 'bg-[#3d3d3d] text-white',
+  error: undefined,
+  unrecognised: undefined,
+}
+const NEUTRAL_TONE = 'bg-[#f6f1f7] text-[#2b062f] border border-[#2b062f]'
+
+const RUN_STATUS_LABELS: Record<string, string> = {
+  running: 'тече',
+  ok: 'успешно',
+  partial: 'с пропуски',
+  failed: 'неуспешно',
+  missed: 'пропуснато',
 }
 
 const STATUS_TONE: Partial<Record<RikStatus, string>> = {
@@ -125,8 +145,30 @@ function RikPage() {
             ))}
           </div>
           <p className="text-sm text-[#333]">
-            Последно пускане: {overview.lastRun ? `${when(overview.lastRun.startedAt)} (${overview.lastRun.trigger === 'cron' ? 'автоматично' : 'ръчно'}, ${overview.lastRun.fetched} страници)` : 'още няма'}
+            Последно пускане: {overview.lastRun ? `${when(overview.lastRun.startedAt)} (${overview.lastRun.trigger === 'cron' ? 'автоматично' : 'ръчно'}, ${overview.lastRun.fetched} страници${overview.lastRun.errors ? `, ${overview.lastRun.errors} РИК с грешка` : ''}${RUN_STATUS_LABELS[overview.lastRun.status] ? `, ${RUN_STATUS_LABELS[overview.lastRun.status]}` : ''})` : 'още няма'}
+            {overview.lastRun?.status === 'failed' || overview.lastRun?.status === 'missed' ? <span className="block font-bold text-[#8f1d1d]">{overview.lastRun.note}</span> : null}
           </p>
+          {(() => {
+            const warnings = overview.sources.filter((source) => source.health === 'warning')
+            const errors = overview.sources.filter((source) => source.health === 'error' || source.health === 'unrecognised')
+            const blocked = overview.sources.filter((source) => source.health === 'blocked')
+            if (!warnings.length && !errors.length && !blocked.length) return null
+            return (
+              <div className="flex flex-wrap gap-2 text-sm" data-testid="rik-source-health">
+                {errors.length ? (
+                  <Badge>
+                    Грешка (РИК не се чете 2+ пъти подред): {errors.map((source) => source.mir).join(', ')}
+                  </Badge>
+                ) : null}
+                {blocked.length ? (
+                  <Badge tone={HEALTH_TONE.blocked}>Блокиран от сайта (данните и задачите стоят както бяха): {blocked.map((source) => source.mir).join(', ')}</Badge>
+                ) : null}
+                {warnings.length ? (
+                  <Badge tone={HEALTH_TONE.warning}>Предупреждение (1 неуспешно четене, важат последните данни): {warnings.map((source) => source.mir).join(', ')}</Badge>
+                ) : null}
+              </div>
+            )
+          })()}
           {overview.canEdit ? (
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" className={adminGhost} disabled={syncing !== ''} onClick={() => sync('')}>
@@ -250,14 +292,23 @@ function SummaryTable({
       header: 'Регистър',
       cell: ({ row }) => (
         <div className="grid gap-1">
-          <Badge tone={row.original.health === 'ok' ? 'bg-[#145744] text-white' : row.original.health === 'error' || row.original.health === 'unrecognised' ? undefined : 'bg-[#f6f1f7] text-[#2b062f] border border-[#2b062f]'}>
+          <Badge tone={row.original.health in HEALTH_TONE ? HEALTH_TONE[row.original.health] : NEUTRAL_TONE}>
             {HEALTH_LABELS[row.original.health] ?? row.original.health}
+            {row.original.failures > 0 && (row.original.health === 'warning' || row.original.health === 'error') ? ` · ${row.original.failures}× подред` : ''}
           </Badge>
           <span className="text-xs">
             Наши редове: {row.original.ourEntries} · страници: {row.original.pages}
             {row.original.otherMatches ? ` · при други: ${row.original.otherMatches}` : ''}
           </span>
-          {row.original.lastError ? <span className="text-xs text-[#8f1d1d]">{row.original.lastError}</span> : null}
+          {row.original.lastError ? (
+            <span className={`text-xs ${row.original.health === 'warning' ? 'text-[#6b4a00]' : 'text-[#8f1d1d]'}`}>
+              {row.original.health === 'warning' ? 'Последният опит не мина, важат данните от последното успешно четене: ' : ''}
+              {row.original.lastError}
+            </span>
+          ) : null}
+          {row.original.blockedUntil && Date.parse(row.original.blockedUntil) > Date.now() ? (
+            <span className="text-xs text-[#3d3d3d]">Не го четем до {when(row.original.blockedUntil)}; важат последните данни.</span>
+          ) : null}
           {row.original.registerUrl ? (
             <a className="text-xs underline" href={row.original.registerUrl} target="_blank" rel="noreferrer">
               Отвори регистъра

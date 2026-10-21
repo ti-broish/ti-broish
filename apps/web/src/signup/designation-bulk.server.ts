@@ -294,6 +294,9 @@ async function brevoAttributeNote(bag: Record<string, string | undefined>, attri
   }
 }
 
+/** Who „Синхронизирай с Brevo“ sends: every active signup with a published section. */
+export const DESIGNATION_BREVO_SCOPE_SQL = `COALESCE(published_section, '') <> '' AND COALESCE(withdrawn, 0) = 0`
+
 /** People per Brevo resync call; each costs one or two Brevo subrequests. */
 export const DESIGNATION_BREVO_PAGE = 100
 
@@ -318,13 +321,14 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   let rows: Array<{ id: string; email: string; url: string }>
   let total = 0
   if (data.allSigned) {
-    const count = await access.db
-      .prepare(`SELECT COUNT(*) AS n FROM signups WHERE COALESCE(designation_pdf_url, '') <> ''`)
-      .first<{ n: number }>()
+    // Everyone with a published section, signed or not: the signed get DOCUMENT_URL with their
+    // section, the rest get the section (DOCUMENT_URL untouched). Withdrawn people are left out:
+    // their contact was cleaned on withdrawal and must not be put back on the list.
+    const count = await access.db.prepare(`SELECT COUNT(*) AS n FROM signups WHERE ${DESIGNATION_BREVO_SCOPE_SQL}`).first<{ n: number }>()
     total = Number(count?.n ?? 0)
     const page = await access.db
       .prepare(
-        `SELECT id, email, designation_pdf_url AS url FROM signups WHERE COALESCE(designation_pdf_url, '') <> '' ORDER BY id LIMIT ? OFFSET ?`,
+        `SELECT id, email, COALESCE(designation_pdf_url, '') AS url FROM signups WHERE ${DESIGNATION_BREVO_SCOPE_SQL} ORDER BY id LIMIT ? OFFSET ?`,
       )
       .bind(DESIGNATION_BREVO_PAGE, data.offset)
       .all<{ id: string; email: string; url: string }>()
@@ -332,7 +336,7 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   } else {
     const marks = data.personIds.map(() => '?').join(', ')
     const found = await access.db
-      .prepare(`SELECT id, email, COALESCE(designation_pdf_url, '') AS url FROM signups WHERE id IN (${marks})`)
+      .prepare(`SELECT id, email, COALESCE(designation_pdf_url, '') AS url FROM signups WHERE id IN (${marks}) AND COALESCE(withdrawn, 0) = 0`)
       .bind(...data.personIds)
       .all<{ id: string; email: string; url: string }>()
     rows = found.results ?? []
@@ -344,7 +348,6 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
     const email = (row.email ?? '').trim()
     const url = (row.url ?? '').trim()
     if (!email) results.push({ personId: row.id, ok: false, error: 'няма имейл' })
-    else if (!url) results.push({ personId: row.id, ok: false, error: 'няма линк към Drive' })
     else contacts.push({ personId: row.id, email, url })
   }
   const nextOffset = data.allSigned && data.offset + rows.length < total ? data.offset + rows.length : null
@@ -368,9 +371,10 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   const updated = results.length - failed.length
   const warned = results.filter((row) => row.ok && row.warning)
   const withSection = contacts.filter((contact) => contact.section && Object.keys(contact.section).length > 0).length
+  const withLink = contacts.filter((contact) => contact.url).length
   // Counts only, no emails: shows in Workers Logs whether a sync ran and what Brevo answered.
   const log = failed.length > 0 ? console.warn : console.info
-  log('designation brevo sync', JSON.stringify({ attribute, updated, failed: failed.length, withSection, sectionWarnings: warned.length, total, offset: data.offset, firstError: failed[0]?.error ?? null, firstWarning: warned[0]?.warning ?? null }))
+  log('designation brevo sync', JSON.stringify({ attribute, updated, failed: failed.length, withLink, withSection, sectionWarnings: warned.length, total, offset: data.offset, firstError: failed[0]?.error ?? null, firstWarning: warned[0]?.warning ?? null }))
   return {
     ok: failed.length === 0,
     attribute,
@@ -380,8 +384,9 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
     results,
     nextOffset,
     withSection,
+    withLink,
     sectionWarnings: warned.length,
-    message: `${designationBrevoMessage(attribute, updated, failed)}${sectionNote(withSection, warned.map((row) => row.warning ?? ''))}`,
+    message: `${designationBrevoMessage(attribute, updated, failed)} С подписан линк: ${withLink}, само секция (още неподписани): ${contacts.length - withLink}.${sectionNote(withSection, warned.map((row) => row.warning ?? ''))}`,
   }
 }
 

@@ -192,15 +192,35 @@ export interface SignupD1 {
  */
 const schemaReady = new WeakMap<object, Promise<void>>()
 
+/**
+ * The bootstrap promise is cached per isolate, so a D1 call inside it that never settles (seen on
+ * 21.10.2026 after a table export locked D1: every later request in that isolate awaited the same
+ * dead promise, cpu 0 ms, until the client gave up; /admin/sections and loadSignup never answered)
+ * must not hang the isolate forever. Past this deadline the run counts as failed, is forgotten, and
+ * the next request starts a fresh one.
+ */
+export const SCHEMA_DEADLINE_MS = 10_000
+/** The withdrawn-seat backfill is best effort; a request never waits on it longer than this. */
+export const WITHDRAWN_SWEEP_DEADLINE_MS = 5_000
+
+export function withDeadline<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not finish in ${ms} ms`)), ms)
+  })
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer))
+}
+
 export async function signupDatabase() {
   const db = (env as unknown as { DB?: SignupD1 }).DB
   if (!db) return null
   let ready = schemaReady.get(db)
   if (!ready) {
-    const pending = ensureSignupSchema(db)
+    const pending = withDeadline(ensureSignupSchema(db), SCHEMA_DEADLINE_MS, 'signup schema bootstrap')
     ready = pending
     schemaReady.set(db, pending)
-    pending.catch(() => {
+    pending.catch((error) => {
+      console.warn('signup schema bootstrap failed', error instanceof Error ? error.message : error)
       if (schemaReady.get(db) === pending) schemaReady.delete(db)
     })
   }
@@ -261,10 +281,12 @@ async function ensureSignupSchema(db: SignupD1) {
   await ensureSearchIndex(db)
   // Once per isolate: withdrawn people who still hold a seat (the old /profil withdraw) get it freed,
   // with an audit line and the Brevo cleanup. Idempotent; never blocks a request.
-  withdrawnSweep ??= releaseWithdrawnSections(db, now).catch((error) => {
+  const sweep = (withdrawnSweep ??= withDeadline(releaseWithdrawnSections(db, now), WITHDRAWN_SWEEP_DEADLINE_MS, 'releaseWithdrawnSections').catch((error) => {
     console.warn('releaseWithdrawnSections failed', error instanceof Error ? error.message : error)
-  })
-  await withdrawnSweep
+    // A failed or stuck sweep is retried by a later bootstrap instead of being cached forever.
+    if (withdrawnSweep === sweep) withdrawnSweep = null
+  }))
+  await sweep
 }
 
 let withdrawnSweep: Promise<unknown> | null = null

@@ -4,7 +4,8 @@ import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminChipOn, adminGhost, adminInput } from '../../components/admin-ui'
 import { adminRoster } from '../../signup/admin'
 import { adminSectionPlaces } from '../../signup/admin-section-places'
-import { adminPublish } from '../../signup/admin-assign-actions'
+import { adminPublish, adminPublishPreview } from '../../signup/admin-assign-actions'
+import { publishConfirmLabel } from '../../signup/publish-preview'
 import { adminUnpublish } from '../../signup/section-state-actions'
 import { hasPendingDraft, type SectionCounts } from '../../signup/section-state'
 import { adminClearDrafts, adminDistribute } from '../../signup/admin-distribute'
@@ -66,6 +67,7 @@ export function SectionsPage() {
   const [prioritySections, setPrioritySections] = useState<PrioritySectionView[]>([])
   const [prioritySummary, setPrioritySummary] = useState<PriorityCoverage | null>(null)
   const [priorityUpdatedAt, setPriorityUpdatedAt] = useState('')
+  const [publishPreview, setPublishPreview] = useState<{ volunteers: number; partners: number; message: string } | null>(null)
   const canEdit = access.permissions.edit
   const canPublish = access.permissions.publish
   const canExport = access.permissions.exportCampaign
@@ -186,11 +188,17 @@ export function SectionsPage() {
         setMessage(result.message)
         return
       }
+      setPublishPreview(null)
       const skipped = result.blocked?.length ?? 0
+      const partnersPublished = 'partnersPublished' in result ? (result.partnersPublished ?? 0) : 0
+      const partnersSkipped = 'partnersBlocked' in result ? (result.partnersBlocked?.length ?? 0) : 0
+      const partnerNotice = ids
+        ? ''
+        : ` „И аз“: публикувани ${partnersPublished}${partnersSkipped ? `, спрени ${partnersSkipped} (заета секция или извън МИР на пълномощното)` : ''}.`
       const notice =
-        skipped > 0
-          ? `Публикувани са ${result.published} чернови (без имейл). Пропуснати заради заета секция или дубликат: ${skipped}.`
-          : `Публикувани са ${result.published} чернови (без имейл).`
+        (skipped > 0
+          ? `Публикувани са ${result.published} чернови (без имейл). Пропуснати заради заета секция, дубликат или МИР извън пълномощното: ${skipped}.`
+          : `Публикувани са ${result.published} чернови (без имейл).`) + partnerNotice
       load(notice)
       if (result.blocked?.length) {
         setRowWarnings((current) => {
@@ -416,16 +424,26 @@ export function SectionsPage() {
       {canPublish ? (
         <button
           type="button"
+          data-testid="publish-view"
           className={armed ? 'brand-button w-auto px-6' : adminGhost}
           onClick={() => {
             if (!armed) {
-              setArmed(true)
+              // Count first, so the confirmation says how many volunteers and how many „И аз“ go out.
+              void adminPublishPreview({ data: { view: search.view, mir: search.mir } }).then((result) => {
+                if (!result.ok) {
+                  setMessage(result.message)
+                  return
+                }
+                setPublishPreview({ volunteers: result.volunteers, partners: result.partners, message: result.message })
+                setMessage(result.message)
+                setArmed(true)
+              }).catch(() => setMessage('Не можах да преброя черновите. Опитай пак.'))
               return
             }
             void runPublish()
           }}
         >
-          {armed ? 'Да, покажи ги в профилите (без имейл)' : 'Публикувай черновите в този изглед (без имейл)'}
+          {armed && publishPreview ? publishConfirmLabel(publishPreview) : 'Публикувай черновите в този изглед (без имейл)'}
         </button>
       ) : null}
       {phase === 'loading' && people.length === 0 ? <p role="status">Зареждаме секциите…</p> : null}

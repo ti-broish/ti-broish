@@ -11,7 +11,7 @@ import { sectionDesk } from './sections'
  * Sections for „И аз“ partner people, shared by the admin tab and the one-off script, so a dry run
  * and a write always agree. „Чернови за „И аз““ uses planPartnerDistribution: the country ranking
  * (tier, priority-list R, voters; every machine section counts) across the person's whole reach
- * (partnerReachMirs). A draft outside the пълномощно's МИР needs a new пълномощно before publishing.
+ * (partnerReachMirs). A numbered person is drafted only inside the пълномощно's МИР (designationLock).
  * rankForPerson / planPartnerSections are the older МИР-only planner, kept for reference.
  * A held section (signup, partner, mobile target, reservation) is never offered. Nothing here writes,
  * mails or syncs.
@@ -25,6 +25,8 @@ export interface PartnerSectionPerson {
   note: string
   draft: string
   published: string
+  /** Has a numbered пълномощно: drafts only inside `mir` (a пълномощно is valid only in its МИР). */
+  numbered?: boolean
 }
 
 export interface PartnerCandidate {
@@ -47,7 +49,7 @@ export interface PartnerSectionDraft {
   priority: { r: number | null; level: string } | null
 }
 
-export type PartnerSkipReason = 'no-mir' | 'no-section' | 'has-section' | 'also-volunteer'
+export type PartnerSkipReason = 'no-mir' | 'no-section' | 'has-section' | 'also-volunteer' | 'abroad' | 'outside-mir'
 
 export interface PartnerSectionPlan {
   drafts: PartnerSectionDraft[]
@@ -76,8 +78,8 @@ UNION ALL SELECT section_code, 'taken' FROM taken_sections
 UNION ALL SELECT json_extract(j.value, '$.code'), 'mobile' FROM mobile_drafts m, json_each(m.targets) j`
 
 export const PARTNER_SECTION_PEOPLE_SQL = `SELECT id, COALESCE(designation_mir, '') AS mir, region_code, municipality_name, place_note,
-  COALESCE(section_draft, '') AS section_draft, COALESCE(section_published, '') AS section_published
-FROM partner_people ORDER BY designation_mir, designation_number, id`
+  COALESCE(section_draft, '') AS section_draft, COALESCE(section_published, '') AS section_published, designation_number
+FROM partner_people WHERE withdrawn_at IS NULL ORDER BY designation_mir, designation_number, id`
 
 export const PARTNER_PRIORITY_SQL = 'SELECT section_code, town, municipality, r, level FROM priority_sections'
 
@@ -89,6 +91,7 @@ export function partnerPersonFrom(row: {
   place_note: string
   section_draft: string
   section_published: string
+  designation_number?: number | string | null
 }): PartnerSectionPerson {
   return {
     id: row.id,
@@ -98,7 +101,16 @@ export function partnerPersonFrom(row: {
     note: row.place_note ?? '',
     draft: code9(row.section_draft ?? ''),
     published: code9(row.section_published ?? ''),
+    numbered: row.designation_number !== null && row.designation_number !== undefined && String(row.designation_number) !== '',
   }
+}
+
+/**
+ * The person wrote they can travel (mobile, by car, „където кажем“, any town near …). Only then is a
+ * numbered person drafted in a МИР that is not where they live or wrote.
+ */
+export function partnerCanTravel(note: string) {
+  return /мобил|пътува|с кола|автомобил|където (?:ни|й|му|им|ми )?(?:кажем|кажете|трябва|има нужда)|всяко населено място|предвиж/iu.test(note)
 }
 
 /** Held codes, minus what `ownId` holds itself (so a re-suggest can keep its own draft). */
@@ -298,6 +310,8 @@ export function describePartnerPlan(plan: PartnerSectionPlan) {
   if (count('has-section')) parts.push(`вече със секция ${count('has-section')}`)
   if (count('no-section')) parts.push(`без свободна секция в МИР ${count('no-section')}`)
   if (count('no-mir')) parts.push(`без МИР ${count('no-mir')}`)
+  if (count('abroad')) parts.push(`с пълномощно за чужбина ${count('abroad')}`)
+  if (count('outside-mir')) parts.push(`с пълномощно за МИР, в който не живеят и не могат да пътуват ${count('outside-mir')}`)
   if (count('also-volunteer')) parts.push(`и наш доброволец със секция ${count('also-volunteer')}`)
   return `${parts.join(' · ')}. Без публикуване, без писма и без Brevo.`
 }
@@ -357,6 +371,8 @@ export function partnerDistributePerson(person: PartnerSectionPerson): Distribut
     place: '',
     companions: [],
     preferTravel: false,
+    // A numbered пълномощно: only its МИР (32 is abroad, left to the abroad allocation).
+    ...(person.numbered && /^\d{2}$/.test(person.mir) ? { designationMir: person.mir, designationAnywhere: partnerCanTravel(person.note) } : {}),
   }
 }
 
@@ -378,6 +394,10 @@ export async function planPartnerDistribution(input: {
   for (const person of input.people) {
     if (person.draft || person.published) {
       plan.skipped.push({ personId: person.id, mir: person.mir, reason: 'has-section' })
+      continue
+    }
+    if (person.numbered && person.mir === '32') {
+      plan.skipped.push({ personId: person.id, mir: person.mir, reason: 'abroad' })
       continue
     }
     if (input.alsoVolunteer?.has(person.id)) {
@@ -416,7 +436,10 @@ export async function planPartnerDistribution(input: {
       priority: input.priority.get(row.sectionId) ?? null,
     })
   }
-  for (const row of result.skipped) plan.skipped.push({ personId: row.personId, mir: byId.get(row.personId)?.mir ?? '', reason: 'no-section' })
+  for (const row of result.skipped) {
+    const reason: PartnerSkipReason = row.reason === 'outside-mir' ? 'outside-mir' : row.reason === 'abroad' ? 'abroad' : 'no-section'
+    plan.skipped.push({ personId: row.personId, mir: byId.get(row.personId)?.mir ?? '', reason })
+  }
   return { ok: true as const, plan, sections, sectionById }
 }
 

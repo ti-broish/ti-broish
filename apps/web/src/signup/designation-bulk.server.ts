@@ -51,6 +51,8 @@ type Database = SignupD1
 export type DesignationDenial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
 
 interface ListedPerson {
+  designationMir?: string
+  assignedSection?: string
   id: string
   firstName: string
   middleName: string
@@ -107,6 +109,8 @@ const LIST_SQL = `SELECT id,
   COALESCE(json_extract(payload, '$.lastName'), '') AS last_name,
   COALESCE(email, '') AS email,
   COALESCE(published_section, '') AS section,
+  COALESCE(designation_mir, '') AS designation_mir,
+  COALESCE(NULLIF(draft_section, ''), published_section, '') AS assigned_section,
   designation_number,
   designation_issued_at,
   designation_generated_at,
@@ -125,6 +129,8 @@ const LIST_SQL = `SELECT id,
  */
 const PARTNER_LIST_SQL = `SELECT id, first_name, middle_name, last_name, email,
   COALESCE(designation_mir, '') AS section,
+  COALESCE(designation_mir, '') AS designation_mir,
+  COALESCE(NULLIF(section_draft, ''), section_published, '') AS assigned_section,
   designation_number, designation_issued_at, designation_generated_at, designation_signing_generated_at, designation_signed_at,
   designation_pdf_url, designation_drive_file_id,
   imported_at AS created_at, partner,
@@ -139,6 +145,8 @@ interface RawListed {
   last_name: string
   email: string
   section: string
+  designation_mir?: string | null
+  assigned_section?: string | null
   designation_number: number | string | null
   designation_issued_at: string | null
   designation_generated_at: string | null
@@ -178,6 +186,8 @@ function fromRaw(row: RawListed): ListedPerson {
     withdrawnAt: (row.withdrawn_at ?? '').trim() || null,
     withdrawnReason: (row.withdrawn_reason ?? '').trim() || null,
     covered: Number(row.covered ?? 0) === 1,
+    designationMir: String(row.designation_mir ?? '').trim(),
+    assignedSection: String(row.assigned_section ?? '').trim(),
   }
 }
 
@@ -204,6 +214,8 @@ function toView(person: ListedPerson, duplicate: DuplicateMark | null = null): D
     ...(duplicate ? { duplicateOf: { number: duplicate.number, mir: duplicate.mir } } : {}),
     ...(person.withdrawnAt ? { withdrawnAt: person.withdrawnAt, withdrawnReason: person.withdrawnReason ?? '' } : {}),
     ...(person.covered ? { covered: true } : {}),
+    ...(person.designationMir ? { designationMir: person.designationMir } : {}),
+    ...(person.assignedSection ? { assignedSection: person.assignedSection } : {}),
   }
 }
 

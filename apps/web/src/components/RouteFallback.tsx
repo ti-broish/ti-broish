@@ -1,4 +1,6 @@
 import { Link } from '@tanstack/react-router'
+import { useEffect } from 'react'
+import { reloadIfChunkError } from './chunk-reload'
 import { PageIntro } from './SiteChrome'
 
 export function NotFoundPage() {
@@ -12,7 +14,11 @@ export function NotFoundPage() {
   )
 }
 
-export function RouteErrorPage({ reset }: { error: unknown; reset?: () => void }) {
+export function RouteErrorPage({ error, reset }: { error: unknown; reset?: () => void }) {
+  // A route chunk from an older build is gone after a deploy: reload once for the new build.
+  useEffect(() => {
+    reloadIfChunkError(error)
+  }, [error])
   return (
     <div className="grid gap-4">
       <PageIntro title="Нещо се обърка" lede="Опитай отново. Ако пак спре, започни от началото." />

@@ -10,6 +10,7 @@ import type { PriorityInfo } from '../../signup/priority-sections'
 import { PriorityBadge } from './-priority-badge'
 import { ReservedBadge, reservedOrgFor } from './-reserved-badge'
 import { MobileBadge, type MobileDraftView } from './-mobile-teams'
+import { DesignationMirBadge } from './-designation-mir-badge'
 
 export function DeskBadge({ desk }: { desk: 'paper' | 'machine' | 'unknown' }) {
   const tone =
@@ -110,6 +111,9 @@ export function SectionPersonRow(props: {
                     {person.draftSection && person.draftLocked ? (
                       <p className="mb-1 text-xs font-bold text-[#1a1020]">Ръчна чернова: разпределението не я сменя.</p>
                     ) : null}
+                    {person.draftSection ? (
+                      <p className="mb-1"><DesignationMirBadge designationMir={person.designationMir} designationNumber={person.designationNumber} section={person.draftSection} /></p>
+                    ) : null}
                     {priorityOf(draftCode, priority) ? (
                       <p className="mb-1"><PriorityBadge info={priorityOf(draftCode, priority)} /></p>
                     ) : null}
@@ -186,6 +190,9 @@ export function SectionPersonRow(props: {
                   </td>
                   <td className="whitespace-nowrap py-3 pr-3">
                     <p>{person.publishedSection || '—'}</p>
+                    {person.publishedSection ? (
+                      <p className="mt-1"><DesignationMirBadge designationMir={person.designationMir} designationNumber={person.designationNumber} section={person.publishedSection} /></p>
+                    ) : null}
                     {priorityOf(person.publishedSection, priority) ? (
                       <p className="mt-1"><PriorityBadge info={priorityOf(person.publishedSection, priority)} /></p>
                     ) : null}

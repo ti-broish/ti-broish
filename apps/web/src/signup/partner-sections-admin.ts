@@ -3,7 +3,9 @@ import { egnDigits } from './egn-reveal'
 import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { fetchApiJson } from './distribute-plan'
-import { PARTNER_RESERVATION_ORG, isSectionHeldAbort } from './partner-people-sql'
+import { isSectionHeldAbort } from './partner-people-sql'
+import { describePartnerPublish, partnerHolderOf, publishPartnerDrafts } from './partner-publish'
+import { designationMirMessage, designationMirMismatch } from './designation-mir-guard'
 import {
   PARTNER_ALSO_VOLUNTEER_SQL,
   PARTNER_BLOCKED_SQL,
@@ -15,7 +17,6 @@ import {
   describePartnerPlan,
   partnerPersonFrom,
   planPartnerDistribution,
-  publishStatements,
   unpublishStatements,
   type PriorityRow,
 } from './partner-sections'
@@ -104,6 +105,7 @@ export const adminPartnerSections = createServerFn({ method: 'POST' }).handler(a
     publishedPriority: info(row.published_r, row.published_level),
     // Only whether there is one; „Покажи ЕГН“ asks for the number (admins, audited).
     hasEgn: Boolean(egnDigits(row.egn)),
+    mirMismatch: mismatchText(row),
   }))
   return {
     ok: true as const,
@@ -116,6 +118,14 @@ export const adminPartnerSections = createServerFn({ method: 'POST' }).handler(a
     },
   }
 })
+
+/** „Секция извън МИР на пълномощното“ for the row's draft or published section, or ''. */
+function mismatchText(row: { mir: string; number: number | null; draft: string; published: string }) {
+  const found =
+    designationMirMismatch({ designationMir: row.mir, designationNumber: row.number, section: row.draft }) ??
+    designationMirMismatch({ designationMir: row.mir, designationNumber: row.number, section: row.published })
+  return found ? designationMirMessage(found) : ''
+}
 
 /** „Чернови за „И аз““: drafts only for people with no section yet. dryRun writes nothing. */
 export const adminPartnerDistribute = createServerFn({ method: 'POST' })
@@ -205,39 +215,12 @@ export const adminPartnerPublish = createServerFn({ method: 'POST' })
     const access = await gate('publish')
     if (!access.ok) return access
     const db = access.db
-    const pending =
-      (
-        await db
-          .prepare(
-            `SELECT id, COALESCE(designation_mir, '') AS mir, section_draft AS draft, COALESCE(section_published, '') AS published FROM partner_people
-             WHERE COALESCE(section_draft, '') != '' AND section_draft IS NOT section_published`,
-          )
-          .all<{ id: string; mir: string; draft: string; published: string }>()
-      ).results ?? []
-    const wanted = data.ids.length ? new Set(data.ids) : null
-    const now = new Date().toISOString()
-    let published = 0
-    const blocked: Array<{ id: string; section: string; reason: string }> = []
-    for (const row of pending) {
-      if (wanted && !wanted.has(row.id)) continue
-      const holder = await holderOf(db, row.draft, row.id)
-      if (holder) {
-        blocked.push({ id: row.id, section: row.draft, reason: holder })
-        continue
-      }
-      try {
-        await db.batch(publishStatements(db, row, now))
-        published += 1
-      } catch (error) {
-        if (!isSectionHeldAbort(error)) throw error
-        blocked.push({ id: row.id, section: row.draft, reason: 'заета' })
-      }
-    }
+    const result = await publishPartnerDrafts(db, { ids: data.ids })
     return {
       ok: true as const,
-      published,
-      blocked,
-      message: `Публикувани ${published}${blocked.length ? `, спрени ${blocked.length} (заета секция)` : ''}. Секциите са резервирани като „${PARTNER_RESERVATION_ORG}“. Без писма и без Brevo.`,
+      published: result.published,
+      blocked: result.blocked,
+      message: describePartnerPublish(result),
     }
   })
 
@@ -257,25 +240,7 @@ export const adminPartnerUnpublish = createServerFn({ method: 'POST' })
     return { ok: true as const, message: `Секция ${row.published} вече не е публикувана и не е резервирана. Черновата остава.` }
   })
 
-/** Who else holds this code, in words, or ''. */
-async function holderOf(db: Database, code: string, personId: string) {
-  const rows = (await db.prepare(PARTNER_BLOCKED_SQL).all<{ code: string; src: string }>()).results ?? []
-  const own = `partner:${personId}`
-  for (const row of rows) {
-    if (code9(row.code ?? '') !== code || row.src === own) continue
-    if (row.src === 'taken') {
-      const taken = await db.prepare('SELECT organisation FROM taken_sections WHERE section_code = ?').bind(code).first<{ organisation: string }>()
-      // The person's own „И аз“ reservation (published here) is theirs.
-      const mine = await db.prepare('SELECT 1 AS x FROM partner_people WHERE id = ? AND section_published = ?').bind(personId, code).first<{ x: number }>()
-      if (mine) continue
-      return `резервирана от ${taken?.organisation ?? 'друга организация'}`
-    }
-    if (row.src === 'signup') return 'наш записан човек'
-    if (row.src === 'mobile') return 'цел на мобилен екип'
-    return 'друг човек от „И аз“'
-  }
-  return ''
-}
+const holderOf = partnerHolderOf
 
 async function gate(action: StaffAction): Promise<{ ok: true; db: Database; email: string; role: StaffRole } | Denial> {
   const db = await signupDatabase()

@@ -192,6 +192,8 @@ interface SignupRow {
   published_section: string
   payload: string
   note_text: string
+  designation_mir: string
+  designation_number: number | null
 }
 
 async function loadPeople(db: Database, keepDrafts: boolean) {
@@ -211,7 +213,9 @@ async function loadPeople(db: Database, keepDrafts: boolean) {
         COALESCE(draft_locked, 0) AS draft_locked,
         COALESCE(published_section, '') AS published_section,
         payload,
-        COALESCE(staff_note, '') || ' ' || COALESCE(notes, '') AS note_text
+        COALESCE(staff_note, '') || ' ' || COALESCE(notes, '') AS note_text,
+        COALESCE(designation_mir, '') AS designation_mir,
+        designation_number
       FROM signups
       WHERE COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0`,
     )
@@ -284,6 +288,8 @@ async function loadPeople(db: Database, keepDrafts: boolean) {
       travelStops: stopList(row.travel_municipalities),
       place: row.place,
       companions: group,
+      // A numbered пълномощно is valid only in its МИР: drafts stay there (distribute.ts designationLock).
+      ...(row.designation_number != null && row.designation_mir ? { designationMir: row.designation_mir, designationAnywhere: (row.radius || profile.radius) === 'distant' } : {}),
     })
   }
   return { candidates, anchors, knownEmails, kept, wholeMir }

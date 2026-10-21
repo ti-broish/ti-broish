@@ -5,6 +5,8 @@ import {
   bulkDesignationFilename,
   bulkDesignationSignedFilename,
   bulkManifestRow,
+  designationCountsPart,
+  designationMissingSteps,
   expandUploadFiles,
   legacyBulkDesignationFilename,
   matchSignedFiles,
@@ -244,5 +246,58 @@ describe('bulk manifest CSV', () => {
       { offset: 100, limit: 100, from: 101, to: 200 },
       { offset: 200, limit: 50, from: 201, to: 250 },
     ])
+  })
+})
+
+describe('designationMissingSteps', () => {
+  const person = (number: number | null, signingGeneratedAt: string | null, signedAt: string | null) => ({ number, signingGeneratedAt, signedAt })
+
+  it('splits people without a signed пълномощно into three steps that add up to the total', () => {
+    const people = [
+      person(null, null, null),
+      person(null, null, null),
+      person(1, null, null),
+      person(2, '2026-10-21T10:00:00.000Z', null),
+      person(3, '2026-10-21T10:00:00.000Z', null),
+      person(4, null, null),
+      person(5, '2026-10-21T10:00:00.000Z', '2026-10-21T12:00:00.000Z'),
+      person(6, null, '2026-10-21T12:00:00.000Z'),
+    ]
+    const steps = designationMissingSteps(people)
+    expect(steps).toEqual({ noNumber: 2, notDownloaded: 2, awaitingSignature: 2 })
+    const missing = people.filter((row) => !row.signedAt).length
+    expect(steps.noNumber + steps.notDownloaded + steps.awaitingSignature).toBe(missing)
+  })
+
+  it('is all zero when everyone is signed or nobody is listed', () => {
+    expect(designationMissingSteps([])).toEqual({ noNumber: 0, notDownloaded: 0, awaitingSignature: 0 })
+    expect(designationMissingSteps([person(1, '2026-10-21T10:00:00.000Z', '2026-10-21T12:00:00.000Z')])).toEqual({
+      noNumber: 0,
+      notDownloaded: 0,
+      awaitingSignature: 0,
+    })
+  })
+})
+
+describe('designationCountsPart', () => {
+  it('counts everyone it is given and the missing steps add up to missing', () => {
+    const at = '2026-10-21T10:00:00.000Z'
+    const part = designationCountsPart([
+      { number: null, generatedAt: null, signingGeneratedAt: null, signedAt: null },
+      { number: 1, generatedAt: at, signingGeneratedAt: null, signedAt: null },
+      { number: 2, generatedAt: at, signingGeneratedAt: at, signedAt: null },
+      { number: 3, generatedAt: at, signingGeneratedAt: at, signedAt: at },
+    ])
+    expect(part).toEqual({
+      published: 4,
+      numbered: 3,
+      generated: 3,
+      signed: 1,
+      missing: 3,
+      missingSteps: { noNumber: 1, notDownloaded: 1, awaitingSignature: 1 },
+    })
+    const steps = part.missingSteps!
+    expect(steps.noNumber + steps.notDownloaded + steps.awaitingSignature).toBe(part.missing)
+    expect(part.signed + part.missing).toBe(part.published)
   })
 })

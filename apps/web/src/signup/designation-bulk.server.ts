@@ -20,6 +20,7 @@ import {
 } from './designation-drive-core'
 import {
   DESIGNATION_ZIP_BATCH_LIMIT,
+  designationCountsPart,
   mirFromSection,
   mirLabel,
   type DesignationCounts,
@@ -247,15 +248,15 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
   }
   const dupOf = (row: ListedPerson) => dup.get(row.id) ?? null
   const activePartners = partners.filter((row) => !row.withdrawnAt)
+  // Everyone who can get one: volunteers plus active „И аз“, without withdrawn rows and ЕГН
+  // duplicates, so the totals line up with the signing ZIP scopes.
+  const countable = [...all, ...partners].filter((row) => signable(row, dupOf(row)))
   const counts: DesignationCounts = {
-    published: all.length,
-    numbered: all.filter((row) => row.number != null).length,
-    generated: all.filter((row) => row.generatedAt).length,
-    signed: all.filter((row) => row.signedAt).length,
-    missing: all.filter((row) => !row.signedAt).length,
+    ...designationCountsPart(countable),
+    partner: designationCountsPart(countable.filter((row) => row.partner)),
     duplicates: dup.size,
   }
-  // Partner people are counted apart: they are not signups and never part of the signup counts.
+  // „И аз“ detail line (withdrawn, covered, no МИР); its totals are already in counts.partner.
   const partnerCounts: DesignationPartnerCounts = {
     total: activePartners.length,
     numbered: activePartners.filter((row) => row.number != null).length,
@@ -280,6 +281,8 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
   // Per scope for the signing ZIP: МИР filter only (the ZIP ignores the search box).
   const inMir = everyone.filter((row) => matchesFilter(row, data.mir, '') && signable(row, dupOf(row)))
   const scopeCounts = inMir.reduce(addToSignScopeCounts, emptySignScopeCounts())
+  // The volunteer share of scopeCounts; the rest are „И аз“ partner people.
+  const volunteerScopeCounts = inMir.filter((row) => !row.partner).reduce(addToSignScopeCounts, emptySignScopeCounts())
   const partnerScopeCounts = partners.filter((row) => signable(row, dupOf(row))).reduce(addToSignScopeCounts, emptySignScopeCounts())
   return {
     ok: true as const,
@@ -289,6 +292,7 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
     mirs,
     zipEligible,
     scopeCounts,
+    volunteerScopeCounts,
     partnerScopeCounts,
     zipBatchLimit: DESIGNATION_ZIP_BATCH_LIMIT,
   }

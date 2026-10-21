@@ -3,7 +3,7 @@
  * Personal grantor fields stay out of this file — they come from env/CLI.
  *
  * Sources:
- * - Election date 25.10.2026 and runoff 01.11.2026 (Constitution art. 93(4)):
+ * - Election date 25.10.2026 and runoff 01.11.2026 (Constitution art. 93(4)); the dates live in ./election.ts:
  *   https://www.parliament.bg/bg/laws/ID/167493
  *   https://www.parliament.bg/bg/news/ID/6600
  * - Committee registration, Решение № 199-ПВР от 11 септември 2026 г.:
@@ -14,6 +14,8 @@
  * - Representatives (пълномощно contents, rights, runoff validity), Решение № 339-ПВР от 12 октомври 2026 г.
  * - Distinctive sign, Решение № 61-ПВР от 28 август 2026 г.
  */
+
+import { bgDate, ELECTION_DAY, RUNOFF_DAY } from './election'
 
 export type GrantorCapacity = 'пълномощник' | 'представляващ'
 
@@ -48,8 +50,8 @@ export const DEFAULT_DESIGNATION_CONFIG: DesignationConfig = {
   committeeFoundedOn: '10.09.2026',
   committeeDecision: 'Решение № 199-ПВР от 11 септември 2026 г. на ЦИК',
   electionName: 'изборите за президент и вицепрезидент на републиката',
-  electionDate: '25.10.2026',
-  runoffDate: '01.11.2026',
+  electionDate: bgDate(ELECTION_DAY),
+  runoffDate: bgDate(RUNOFF_DAY),
   runoffLegalRef: 'т. 24 от Решение № 339-ПВР от 12 октомври 2026 г. на ЦИК',
   distinctiveSignDecision: 'Решение № 61-ПВР от 28 август 2026 г. на ЦИК',
   representativesDecision: 'Решение № 339-ПВР от 12 октомври 2026 г. на ЦИК',

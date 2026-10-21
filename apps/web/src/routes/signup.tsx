@@ -35,7 +35,7 @@ import {
   type Role,
   type StepId,
 } from '../signup/model'
-import { campaignFromSearch, locationEditable, mirOf, needsWiderTravel, placeChangeAllowed, validEgn } from '../signup/rules'
+import { adultOnElectionDay, campaignFromSearch, locationEditable, mirOf, needsWiderTravel, placeChangeAllowed, UNDERAGE_MESSAGE, validEgn } from '../signup/rules'
 import { placeSummaries } from '../signup/sections'
 import { useOutlines } from '../signup/use-outlines'
 import { updateProfile, useProfile } from '../signup/store'
@@ -430,6 +430,10 @@ function EgnStep({ error, onError, onNext }: { error: string; onError: (value: s
         event.preventDefault()
         if (!validEgn(profile.egn)) {
           onError('ЕГН е 10 цифри и трябва да е валидно.')
+          return
+        }
+        if (!adultOnElectionDay(profile.egn)) {
+          onError(UNDERAGE_MESSAGE)
           return
         }
         onNext()

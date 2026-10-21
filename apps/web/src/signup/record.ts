@@ -1,5 +1,5 @@
 import { scopeForRadius, type Companion, type Profile } from './model'
-import { isPersonalReferral, mirOf, validEgn } from './rules'
+import { adultOnElectionDay, isPersonalReferral, mirOf, UNDERAGE_MESSAGE, validEgn } from './rules'
 
 export interface SignupColumns {
   email: string
@@ -116,6 +116,16 @@ export function companionRows(companions: Companion[]): CompanionRow[] {
 export function egnProblem(egn: string) {
   if (!egn) return null
   return validEgn(egn) ? null : 'ЕГН не е валидно.'
+}
+
+/**
+ * A new or changed ЕГН must be 18 by election day. The ЕГН already saved on the record is let through,
+ * so an existing record still saves its other fields. An empty ЕГН keeps the saved one (see saveSignup).
+ */
+export function egnAgeProblem(egn: string, storedEgn: string | null | undefined) {
+  if (!egn || adultOnElectionDay(egn)) return null
+  if ((storedEgn ?? '').replace(/\D/g, '') === egn) return null
+  return UNDERAGE_MESSAGE
 }
 
 function bit(value: boolean | null | undefined) {

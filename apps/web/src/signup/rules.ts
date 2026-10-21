@@ -1,3 +1,4 @@
+import { bgDate, ELECTION_DAY } from './election'
 import type { HomePlace, Radius } from './model'
 
 const PERSONAL_CODE = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{6}$/
@@ -35,11 +36,14 @@ export function campaignFromSearch(params: URLSearchParams): { source: string | 
   return { source: null, referredBy: ref }
 }
 
-export function validEgn(value: string) {
-  if (!/^\d{10}$/.test(value)) return false
-  const digits = [...value].map(Number)
-  let month = Number(value.slice(2, 4))
+/**
+ * Birth date in an ЕГН as 'YYYY-MM-DD', or null when it is not a real date.
+ * Month + 20 is the 1800s, month + 40 the 2000s, otherwise the 1900s. The checksum is not checked here.
+ */
+export function egnBirthDate(value: string): string | null {
+  if (!/^\d{10}$/.test(value)) return null
   const yearPart = Number(value.slice(0, 2))
+  let month = Number(value.slice(2, 4))
   const day = Number(value.slice(4, 6))
   let year = 1900 + yearPart
   if (month > 40) {
@@ -50,12 +54,45 @@ export function validEgn(value: string) {
     year = 1800 + yearPart
   }
   const date = new Date(Date.UTC(year, month - 1, day))
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return false
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null
+  return isoDay(year, month, day)
+}
+
+export function validEgn(value: string) {
+  if (!egnBirthDate(value)) return false
+  const digits = [...value].map(Number)
   const weights = [2, 4, 8, 5, 10, 9, 7, 3, 6]
   const sum = weights.reduce((total, weight, index) => total + weight * (digits[index] ?? 0), 0)
   const check = sum % 11 === 10 ? 0 : sum % 11
   return check === digits[9]
 }
+
+function isoDay(year: number, month: number, day: number) {
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/**
+ * The day someone born on `birthDate` turns `years`. A 29 February birthday falls on 28 February
+ * in a common year (ЗЗД чл. 60, ал. 2: a term in years ends on the last day of the month when the date is missing).
+ */
+export function birthdayAt(birthDate: string, years: number) {
+  const [year, month, day] = birthDate.split('-').map(Number) as [number, number, number]
+  const target = year + years
+  const lastDay = new Date(Date.UTC(target, month, 0)).getUTCDate()
+  return isoDay(target, month, Math.min(day, lastDay))
+}
+
+/** 18 on or before election day: birthDate + 18 years <= electionDay. False for an ЕГН without a real date. */
+export function adultOnElectionDay(egn: string, electionDay: string = ELECTION_DAY) {
+  const born = egnBirthDate(egn)
+  if (!born) return false
+  return birthdayAt(born, 18) <= electionDay
+}
+
+/** For the person signing up. */
+export const UNDERAGE_MESSAGE = `Трябва да навършиш 18 години до деня на изборите (${bgDate(ELECTION_DAY)} г.).`
+/** For the team: an import row or an edit made for someone else. */
+export const UNDERAGE_REASON = `не навършва 18 години до деня на изборите (${bgDate(ELECTION_DAY)} г.)`
 
 const SOFIA_MIR: Record<string, '23' | '24' | '25'> = {
   витоша: '23',

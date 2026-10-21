@@ -6,7 +6,7 @@
 import type { HomePlace, TravelStop } from './model'
 import { PARTNER_ID_PREFIX } from './partner-people-sql'
 import { IMPORT_REGIONS, type ImportRegion } from './partner-import-regions.data'
-import { districtKey, mirOf, sofiaMir, validEgn } from './rules'
+import { adultOnElectionDay, districtKey, mirOf, sofiaMir, UNDERAGE_REASON, validEgn } from './rules'
 
 export const IAZ_PARTNER = 'iaz.bg'
 export const IAZ_LABEL = 'И аз'
@@ -33,7 +33,7 @@ export const PARTNER_COLUMNS = {
 
 export const PARTNER_MAPPING: ReadonlyArray<{ column: string; field: string }> = [
   { column: 'Име', field: 'Име, презиме, фамилия (първа дума, втора, останалите) — за пълномощното' },
-  { column: 'ЕГН', field: 'ЕГН — за пълномощното и ключ срещу повторен внос (проверка на датата и контролната цифра; изпуснати водещи нули се връщат)' },
+  { column: 'ЕГН', field: 'ЕГН — за пълномощното и ключ срещу повторен внос (проверка на датата, контролната цифра и 18 години до деня на изборите; изпуснати водещи нули се връщат)' },
   { column: 'Област', field: 'МИР на пълномощното (София град → 23/24/25 само по район в „Общини“; Пловдив → 16 или 17 по общината)' },
   { column: 'Общини', field: 'Община и бележка; за София — районът определя МИР' },
   { column: 'Имейл', field: 'Само за справка (без писма); невалиден имейл не спира реда' },
@@ -442,6 +442,7 @@ export function mapPartnerRow(raw: PartnerRawRow, regions: ReadonlyArray<ImportR
   }
   const egn = normalizeEgn(raw.egn)
   if (egn.problem) reasons.push(egn.problem)
+  else if (!adultOnElectionDay(egn.egn)) reasons.push(UNDERAGE_REASON)
   else if (egn.padded) warnings.push('ЕГН с върнати водещи нули')
   const phone = normalizePhone(raw.phone)
   if (phone.problem) warnings.push('телефонът не е валиден (не се пази)')

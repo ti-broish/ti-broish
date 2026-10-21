@@ -9,6 +9,7 @@ import { EMPTY_SECTION_DIRECTORY, sectionSpot, signupSpot, type SectionSpot } fr
 import type { PriorityInfo } from '../../signup/priority-sections'
 import { PriorityBadge } from './-priority-badge'
 import { ReservedBadge, reservedOrgFor } from './-reserved-badge'
+import { MobileBadge, type MobileDraftView } from './-mobile-teams'
 
 export function DeskBadge({ desk }: { desk: 'paper' | 'machine' | 'unknown' }) {
   const tone =
@@ -44,11 +45,13 @@ export function SectionPersonRow(props: {
   reach?: (PriorityInfo & { scope: 'town' | 'municipality' }) | null
   /** Reserved section code → organisation. */
   reserved?: Record<string, string>
+  /** This person's mobile-team area draft, if any. */
+  mobile?: MobileDraftView | null
 }) {
   const {
     person, canEdit, draftValues, setDraftValues, warnings, setRowWarnings,
     setMessage, load,
-    canPublish, publish, unpublish, picked, onPick, notifyAgain, spots, priority = {}, reach = null, reserved = {},
+    canPublish, publish, unpublish, picked, onPick, notifyAgain, spots, priority = {}, reach = null, reserved = {}, mobile = null,
   } = props
   const pendingDraft = Boolean(person.draftSection && person.draftSection !== person.publishedSection)
   const signed = signupSpot(person)
@@ -71,6 +74,18 @@ export function SectionPersonRow(props: {
                       </Link>
                     </p>
                     <p>{person.email}</p>
+                    {person.role === 'mobile' ? (
+                      <p className="mt-1" data-testid="mobile-row">
+                        {mobile ? (
+                          <MobileBadge draft={mobile} />
+                        ) : (
+                          <span className="inline-flex min-h-6 items-center rounded-full border border-[#1f4d7a] px-2 text-xs font-black text-[#1f4d7a]">🚐 Мобилен екип · без район</span>
+                        )}{' '}
+                        <Link to="/admin/signups/$personId" params={{ personId: person.id }} className="text-xs font-bold underline">
+                          Район
+                        </Link>
+                      </p>
+                    ) : null}
                     {addressDeskLine(person.paperCount, person.machineCount) ? (
                       <p className="text-xs font-bold text-[#1a1020]">{addressDeskLine(person.paperCount, person.machineCount)}</p>
                     ) : null}

@@ -3,6 +3,7 @@ import { getCookie } from '@tanstack/react-start/server'
 import { describeClearedDrafts, describeDistribution } from './distribute'
 import { planCountryDistribution } from './distribute-plan'
 import { reservedMap } from './reserved-sections-db'
+import { describeMobileRun, planMobileAreasForRun, writeMobileAreas } from './mobile-auto'
 import { AUTO_DRAFT_WHERE, CLEAR_AUTO_DRAFTS_SQL, RERUN_CLEAR_AUTO_DRAFTS_SQL, RERUN_WRITE_DRAFT_SQL } from './distribute-rerun-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
@@ -13,6 +14,8 @@ type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | '
 /**
  * „Направи чернови за страната“. Drafts only: never published_section, never mail or Brevo.
  * With onlyEmpty, every existing draft stays and only people with no section get one.
+ * Mobile-team volunteers: a section draft after every section volunteer (same order, from what is
+ * left), then an area with target priority sections (mobile_drafts, mobile-auto.ts).
  */
 export const adminDistribute = createServerFn({ method: 'POST' })
   .inputValidator((input: { onlyEmpty?: boolean } | undefined) => ({ onlyEmpty: input?.onlyEmpty === true }))
@@ -22,7 +25,7 @@ export const adminDistribute = createServerFn({ method: 'POST' })
     const db = access.db
     const planned = await planCountryDistribution(db, { keepDrafts: data.onlyEmpty })
     if (!planned.ok) return planned
-    const { plan, loaded } = planned
+    const { plan, mobilePlan, loaded } = planned
 
     const now = new Date().toISOString()
     if (!data.onlyEmpty) {
@@ -46,20 +49,40 @@ export const adminDistribute = createServerFn({ method: 'POST' })
       drafted += 1
       if (row.desk === 'paper') paper += 1
     }
+    let mobileDrafted = 0
+    for (const row of mobilePlan.assignments) {
+      if (reserved.has(row.sectionId)) continue
+      const result = await db
+        .prepare(RERUN_WRITE_DRAFT_SQL)
+        .bind(row.sectionId, now, row.personId, data.onlyEmpty ? 1 : 0)
+        .run()
+        .catch(() => null)
+      if (result && changed(result)) mobileDrafted += 1
+    }
+    // Areas after the section drafts are written, so a target never has a section person.
+    const mobileAreas = await planMobileAreasForRun(db, { keepAll: data.onlyEmpty })
+    const written = await writeMobileAreas(db, mobileAreas, access.email, now)
     const skipped = (reason: string) => plan.skipped.filter((row) => row.reason === reason).length
+    const mobileText = describeMobileRun({
+      sectionDrafts: mobileDrafted,
+      noSection: mobilePlan.skipped.filter((row) => row.reason === 'no-section' || row.reason === 'no-place').length,
+      planned: mobileAreas,
+      written,
+    })
     return {
       ok: true as const,
-      message: describeDistribution({
+      mobile: { sectionDrafts: mobileDrafted, areas: written.drafted, kept: mobileAreas.kept.length, removed: written.removed, noArea: mobileAreas.plan.skipped.length },
+      message: `${describeDistribution({
         drafted,
         paper,
         kept: loaded.kept,
-        mobile: skipped('mobile'),
+        mobile: 0,
         video: skipped('video'),
         abroad: skipped('abroad'),
         noPlace: skipped('no-place'),
         noSection: skipped('no-section'),
         keptAtAddress: plan.keptAtAddress,
-      }),
+      })} ${mobileText}`,
     }
   })
 

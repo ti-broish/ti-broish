@@ -17,6 +17,7 @@ import {
 import type { SignupD1 } from './db-core'
 import { partnerHeldCodes } from './reserved-sections-db'
 import { IMPORT_REGIONS } from './partner-import-regions.data'
+import { mentionsWholeMir } from './mobile-teams'
 
 const SOFIA_MIRS = new Set(['23', '24', '25'])
 
@@ -48,7 +49,10 @@ export async function planCountryDistribution(db: Database, options: Distributio
   const loaded = await loadPeople(db, keepDrafts)
   const blocked = await blockedSections(db, keepDrafts)
   const priority = await loadPriorityMap(db)
-  const reach = await loadReachSections(loaded.candidates, getJson)
+  // Mobile people get a section too (their пълномощно and РИК registration are per section/МИР), after
+  // every section volunteer: same importance order, from what is left. Then mobile-auto.ts gives them an area.
+  const mobilePeople = loaded.candidates.filter(isMobileVolunteer).map((person) => mobileSectionPerson(person, loaded.wholeMir.has(person.id)))
+  const reach = await loadReachSections([...loaded.candidates, ...mobilePeople], getJson)
   if (!reach.ok) return reach
   const counted = reach.sections
   const anchors = anchorsWithPlaces(loaded.anchors, counted)
@@ -60,8 +64,32 @@ export async function planCountryDistribution(db: Database, options: Distributio
     knownEmails: loaded.knownEmails,
     priority,
   })
+  const mobilePlan = distributeSections({
+    people: mobilePeople,
+    sections: counted,
+    blocked: [...blocked, ...plan.assignments.map((row) => row.sectionId)],
+    anchors,
+    knownEmails: loaded.knownEmails,
+    priority,
+  })
 
-  return { ok: true as const, plan, loaded, sections: counted, priority, blocked }
+  return { ok: true as const, plan, mobilePlan, loaded, sections: counted, priority, blocked }
+}
+
+/** A mobile-team volunteer (role or the signup's mobileTeam tick). */
+export function isMobileVolunteer(person: Pick<DistributePerson, 'role' | 'mobileTeam'>) {
+  return person.role === 'mobile' || person.mobileTeam === true
+}
+
+/**
+ * A mobile volunteer as a section candidate for the second pass: alone (a mobile team is not kept
+ * at one address), and with a whole-РИК note their reach is every section of their МИР.
+ */
+export function mobileSectionPerson(person: DistributePerson, wholeMir: boolean): DistributePerson {
+  const base: DistributePerson = { ...person, role: 'section', mobileTeam: false, companions: [] }
+  const mir = person.mir.trim().padStart(2, '0')
+  if (!wholeMir || !/^\d{2}$/.test(mir) || mir === '32') return base
+  return { ...base, radius: 'region', regionCode: mir, distantMirs: [], travelStops: [] }
 }
 
 /** A fetch that asks each path once (the same results file serves the section list and the voter counts). */
@@ -163,6 +191,7 @@ interface SignupRow {
   draft_locked: number
   published_section: string
   payload: string
+  note_text: string
 }
 
 async function loadPeople(db: Database, keepDrafts: boolean) {
@@ -181,7 +210,8 @@ async function loadPeople(db: Database, keepDrafts: boolean) {
         COALESCE(draft_section, '') AS draft_section,
         COALESCE(draft_locked, 0) AS draft_locked,
         COALESCE(published_section, '') AS published_section,
-        payload
+        payload,
+        COALESCE(staff_note, '') || ' ' || COALESCE(notes, '') AS note_text
       FROM signups
       WHERE COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0`,
     )
@@ -210,9 +240,11 @@ async function loadPeople(db: Database, keepDrafts: boolean) {
   const candidates: DistributePerson[] = []
   const anchors: Array<DistributeAnchor & { sectionId: string }> = []
   const knownEmails: string[] = []
+  const wholeMir = new Set<string>()
   let kept = 0
   for (const row of signups.results ?? []) {
     const profile = readPayload(row.payload)
+    if (mentionsWholeMir(`${row.note_text} ${profile.notes}`)) wholeMir.add(row.id)
     const email = row.email.trim().toLowerCase()
     knownEmails.push(email)
     const group = (bySignup.get(row.id) ?? []).map((companion) => ({
@@ -254,7 +286,7 @@ async function loadPeople(db: Database, keepDrafts: boolean) {
       companions: group,
     })
   }
-  return { candidates, anchors, knownEmails, kept }
+  return { candidates, anchors, knownEmails, kept, wholeMir }
 }
 
 async function blockedSections(db: Database, keepDrafts: boolean) {
@@ -310,6 +342,7 @@ function readPayload(payload: string) {
     cityRegionCode: '',
     extraCityRegionCodes: [] as string[],
     companionMobile: new Map<string, boolean>(),
+    notes: '',
   }
   try {
     const parsed = JSON.parse(payload) as {
@@ -318,6 +351,7 @@ function readPayload(payload: string) {
       extraCityRegions?: Array<{ code?: string }>
       place?: { townId?: number; municipalityCode?: string; cityRegionCode?: string }
       companions?: Array<{ email?: string; mobileTeam?: boolean }>
+      notes?: string
     }
     const companionMobile = new Map<string, boolean>()
     for (const companion of parsed.companions ?? []) {
@@ -332,6 +366,7 @@ function readPayload(payload: string) {
       cityRegionCode: parsed.place?.cityRegionCode ?? '',
       extraCityRegionCodes: (parsed.extraCityRegions ?? []).map((item) => item.code ?? '').filter(Boolean),
       companionMobile,
+      notes: typeof parsed.notes === 'string' ? parsed.notes : '',
     }
   } catch {
     return empty

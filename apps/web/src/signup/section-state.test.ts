@@ -113,6 +113,18 @@ describe('unpublish', () => {
 })
 
 describe('auto-allocation rerun', () => {
+  it('writes an automatic draft for a mobile-team volunteer too, never for video or an unpicked role', async () => {
+    const raw = await openDb()
+    if (!raw) return
+    seed(raw)
+    for (const [id, role] of [['mob', 'mobile'], ['vid', 'video'], ['blank', '']]) {
+      raw.prepare("INSERT INTO signups (id, role, submitted, withdrawn, draft_locked) VALUES (?, ?, 1, 0, 0)").run(id, role)
+      raw.prepare(RERUN_WRITE_DRAFT_SQL).run('020200007', 'now', id, 0)
+    }
+    const rows = raw.prepare("SELECT id, draft_section FROM signups WHERE id IN ('mob', 'vid', 'blank') ORDER BY id").all()
+    expect(rows).toEqual([{ id: 'blank', draft_section: null }, { id: 'mob', draft_section: '020200007' }, { id: 'vid', draft_section: null }])
+  })
+
   it('only touches automatic drafts of people with no published section', async () => {
     const raw = await openDb()
     if (!raw) return

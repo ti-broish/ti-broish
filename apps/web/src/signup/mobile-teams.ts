@@ -25,6 +25,13 @@ export interface MobilePerson {
   roundsFirst: boolean
   roundsRunoff: boolean
   companions: Array<{ email: string; inGroup: boolean; samePlace: boolean }>
+  /**
+   * The МИР of the person's section (published or draft). A пълномощно is per МИР, so a mobile
+   * person with a section can only work in that МИР: the area stays there.
+   */
+  pinnedMir?: string
+  /** „мобилна за целия РИК“: a staff note (or the person) says the whole МИР; the area is the whole МИР. */
+  wholeMir?: boolean
 }
 
 export interface MobilePrioritySection {
@@ -47,7 +54,7 @@ export interface MobileArea {
   mir: string
   municipality: string
   label: string
-  scope: 'town' | 'district' | 'municipality'
+  scope: 'town' | 'district' | 'municipality' | 'mir'
   targets: MobileTarget[]
   score: number
 }
@@ -66,13 +73,28 @@ export interface MobilePlan {
 }
 
 /** Targets per team: a car can cover a short route, on foot a few sections in one town. */
-export function targetsPerTeam(members: Pick<MobilePerson, 'hasCar'>[]) {
-  return members.some((person) => person.hasCar === true) ? 5 : 3
+export function targetsPerTeam(members: Pick<MobilePerson, 'hasCar' | 'wholeMir'>[]) {
+  return members.some((person) => person.hasCar === true || person.wholeMir === true) ? 5 : 3
+}
+
+/** A note that says the person covers the whole РИК / МИР (e.g. „мобилна за целия РИК“). */
+export function mentionsWholeMir(text: string | null | undefined) {
+  const folded = (text ?? '').toLocaleLowerCase('bg').replace(/\s+/g, ' ')
+  return /(цели[яи]т?|цял|целия) (рик|мир|изборен район|район)/.test(folded) || /whole (rik|mir)/.test(folded)
+}
+
+/** The МИР a mobile person works in: their section's МИР when they have one, else their home МИР. */
+export function mobileMir(person: Pick<MobilePerson, 'pinnedMir' | 'mir'>) {
+  return padMir(person.pinnedMir ?? '') || padMir(person.mir)
 }
 
 export function mobileSkipReason(person: MobilePerson): MobileSkipReason | null {
-  if (padMir(person.mir) === '32' || person.regionCode === '32') return 'abroad'
+  const pinned = padMir(person.pinnedMir ?? '')
+  if (pinned === '32' || (!pinned && (padMir(person.mir) === '32' || person.regionCode === '32'))) return 'abroad'
   if (!person.roundsFirst && !person.roundsRunoff) return 'no-days'
+  if (person.wholeMir) return mobileMir(person) ? null : 'no-place'
+  // Placed in a МИР outside what they told us (by hand): the whole МИР of their section.
+  if (pinned && !declaredMirs(person).has(pinned)) return null
   if (homeMirs(person).size === 0) return 'no-place'
   if (localOnly(person) && !foldPlace(person.townName)) return 'no-place'
   if (person.radius === 'municipality' && !pad2(person.municipalityCode)) return 'no-place'
@@ -89,6 +111,10 @@ export function mobileReaches(person: MobilePerson, section: Pick<MobilePriority
   const code = section.sectionCode
   if (!/^\d{9}$/.test(code) || code.startsWith('32')) return false
   const mir = code.slice(0, 2)
+  const pinned = padMir(person.pinnedMir ?? '')
+  if (pinned && mir !== pinned) return false
+  if (person.wholeMir) return mir === mobileMir(person)
+  if (pinned && !declaredMirs(person).has(pinned)) return true
   const municipality = code.slice(2, 4)
   const district = code.slice(4, 6)
   const home = padMir(person.mir)
@@ -127,7 +153,9 @@ export function mobileTeams(people: MobilePerson[]) {
     for (const companion of person.companions) {
       if (!companion.inGroup || !companion.samePlace) continue
       const other = byEmail.get(companion.email.trim().toLowerCase())
-      if (other && other.id !== person.id) {
+      // A team works in one МИР: people whose sections are in different МИРs stay apart.
+      const apart = padMir(person.pinnedMir ?? '') && padMir(other?.pinnedMir ?? '') && padMir(person.pinnedMir ?? '') !== padMir(other?.pinnedMir ?? '')
+      if (other && other.id !== person.id && !apart) {
         const a = find(person.id)
         const b = find(other.id)
         if (a !== b) parent.set(b, a)
@@ -150,10 +178,11 @@ export function mobileAreas(
 ) {
   const k = targetsPerTeam(members)
   const local = members.every(localOnly)
+  const whole = members.every((person) => person.wholeMir === true)
   const buckets = new Map<string, MobilePrioritySection[]>()
   for (const section of open) {
     if (!members.every((person) => mobileReaches(person, section))) continue
-    const key = areaKey(section, local)
+    const key = whole ? section.sectionCode.slice(0, 2) : areaKey(section, local)
     buckets.set(key, [...(buckets.get(key) ?? []), section])
   }
   const areas: MobileArea[] = []
@@ -165,7 +194,7 @@ export function mobileAreas(
     const municipality = first.sectionCode.slice(2, 4)
     const sum = picked.reduce((total, section) => total + weight(section), 0)
     const score = sum / (1 + 0.5 * (teamsPerMir.get(mir) ?? 0))
-    const scope: MobileArea['scope'] = isBigCity(mir, municipality) ? 'district' : local ? 'town' : 'municipality'
+    const scope: MobileArea['scope'] = whole ? 'mir' : isBigCity(mir, municipality) ? 'district' : local ? 'town' : 'municipality'
     areas.push({
       key,
       mir,
@@ -246,6 +275,13 @@ function localOnly(person: Pick<MobilePerson, 'radius'>) {
   return person.radius === 'settlement' || person.radius === 'cityRegion' || person.radius === 'nearby'
 }
 
+/** Every МИР the person said they can reach: home, the oblast for region/distant, picked МИРs and municipalities. */
+function declaredMirs(person: MobilePerson) {
+  const mirs = homeMirs(person)
+  if (person.radius === 'distant') for (const code of person.distantMirs) if (padMir(code)) mirs.add(padMir(code))
+  return mirs
+}
+
 function homeMirs(person: Pick<MobilePerson, 'mir' | 'regionCode' | 'radius'>) {
   const mirs = new Set<string>()
   if (person.radius === 'region' || person.radius === 'distant') {
@@ -276,6 +312,7 @@ function isBigCity(mir: string, municipality: string) {
 function areaLabel(section: MobilePrioritySection, scope: MobileArea['scope'], key: string) {
   const mir = section.sectionCode.slice(0, 2)
   const parts = key.split(':')
+  if (scope === 'mir') return `МИР ${mir} · целия РИК`
   if (scope === 'district') return `МИР ${mir} · ${section.town || section.municipality}, район ${parts[2]}`
   if (scope === 'town') return `МИР ${mir} · ${section.town}`
   return `МИР ${mir} · община ${section.municipality}`

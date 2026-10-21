@@ -1,8 +1,9 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
-import { describeMobilePlan, mobileRoundsLabel, type MobileArea } from './mobile-teams'
-import { loadMobileDrafts, loadMobilePeople, planMobileFromDb, suggestMobileAreas } from './mobile-teams-db'
+import { mobileRoundsLabel, type MobileArea } from './mobile-teams'
+import { loadMobileDrafts, loadMobilePeople, suggestMobileAreas } from './mobile-teams-db'
+import { describeMobileRun, planMobileAreasForRun, writeMobileAreas } from './mobile-auto'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
 /**
@@ -26,7 +27,9 @@ export const adminMobileDrafts = createServerFn({ method: 'POST' }).handler(asyn
     )
     .all<{ id: string; name: string; rounds_first: number | null; rounds_runoff: number | null; has_car: number | null; has_drone: number | null }>()
   const byId = new Map((people.results ?? []).map((row) => [row.id, row]))
-  const waiting = (await loadMobilePeople(db, { missing: true })).length
+  // Active mobile people with no area yet (with or without a section).
+  const withArea = new Set(drafts.map((draft) => draft.signupId))
+  const waiting = (await loadMobilePeople(db)).filter((person) => !withArea.has(person.id)).length
   return {
     ok: true as const,
     waiting,
@@ -45,22 +48,25 @@ export const adminMobileDrafts = createServerFn({ method: 'POST' }).handler(asyn
   }
 })
 
-/** „Чернови за мобилни екипи“: plan for mobile people with nothing yet; dryRun only reports. */
+/**
+ * „Чернови за мобилни екипи“: an area for every mobile person who has none yet (every existing
+ * mobile draft stays); dryRun only reports. „Направи чернови за страната“ does this too, after sections.
+ */
 export const adminMobileDistribute = createServerFn({ method: 'POST' })
   .inputValidator((input: { dryRun?: boolean } | undefined) => ({ dryRun: input?.dryRun === true }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
     if (!access.ok) return access
     const db = access.db
-    const { plan } = await planMobileFromDb(db)
-    if (data.dryRun) return { ok: true as const, drafted: 0, plan, message: `Преглед (нищо не е записано): ${describeMobilePlan(plan)}` }
-    const now = new Date().toISOString()
-    let drafted = 0
-    for (const draft of plan.drafts) {
-      const ok = await saveDraft(db, draft.personId, draft.teamKey, draft.area, 'auto', access.email, now, true)
-      if (ok) drafted += 1
+    const planned = await planMobileAreasForRun(db, { keepAll: true })
+    const plan = planned.plan
+    if (data.dryRun) {
+      const text = describeMobileRun({ planned, written: { drafted: 0, removed: 0 }, dryRun: true })
+      return { ok: true as const, drafted: 0, plan, message: `Преглед (нищо не е записано): ${text}` }
     }
-    return { ok: true as const, drafted, plan, message: `${describeMobilePlan(plan)} Записани чернови: ${drafted}. Нищо не е публикувано.` }
+    const written = await writeMobileAreas(db, planned, access.email, new Date().toISOString())
+    const text = describeMobileRun({ planned, written })
+    return { ok: true as const, drafted: written.drafted, plan, message: `${text} Нищо не е публикувано.` }
   })
 
 /** The open areas within one mobile person's reach, for the person page's area picker. */

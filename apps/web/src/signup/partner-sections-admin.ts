@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { egnLast4 } from './egn-reveal'
+import { egnDigits } from './egn-reveal'
 import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { fetchApiJson } from './distribute-plan'
@@ -102,8 +102,8 @@ export const adminPartnerSections = createServerFn({ method: 'POST' }).handler(a
     source: row.source,
     draftPriority: info(row.draft_r, row.draft_level),
     publishedPriority: info(row.published_r, row.published_level),
-    // Only the last four digits leave the server; „Покажи ЕГН“ asks for the rest.
-    egnLast4: egnLast4(row.egn),
+    // Only whether there is one; „Покажи ЕГН“ asks for the number (admins, audited).
+    hasEgn: Boolean(egnDigits(row.egn)),
   }))
   return {
     ok: true as const,

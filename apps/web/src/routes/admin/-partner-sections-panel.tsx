@@ -23,7 +23,7 @@ type PartnerRow = {
   source: string
   draftPriority: PriorityInfo | null
   publishedPriority: PriorityInfo | null
-  egnLast4: string
+  hasEgn: boolean
 }
 type Counts = { total: number; drafted: number; published: number; waiting: number }
 
@@ -173,7 +173,7 @@ export function PartnerSectionsPanel({
                     </td>
                     <td className="grid gap-1 px-2 py-2">
                       <span>{row.name}</span>
-                      {canRevealEgn ? <EgnReveal personId={row.id} hasEgn={Boolean(row.egnLast4)} last4={row.egnLast4} canReveal compact /> : null}
+                      {canRevealEgn ? <EgnReveal personId={row.id} hasEgn={row.hasEgn} canReveal compact /> : null}
                     </td>
                     <td className="px-2 py-2">{row.municipality || '—'}</td>
                     <td className="grid gap-1 px-2 py-2">

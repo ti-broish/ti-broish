@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { auditLines, describeAudit } from './admin-audit'
-import { EGN_REVEAL_FIELD, canRevealEgn, egnLast4, egnRevealPath, maskEgn, sameOriginReveal } from './egn-reveal'
+import { EGN_REVEAL_FIELD, canRevealEgn, egnDigits, egnRevealPath, sameOriginReveal } from './egn-reveal'
 import { permissionsFor } from './staff'
 
 const cookie = { value: '' as string | undefined }
@@ -73,13 +73,10 @@ describe('„Покажи ЕГН“ permission (pure)', () => {
     expect(permissionsFor('editor').revealEgn).toBe(false)
   })
 
-  it('masks to the last four digits', () => {
-    expect(egnLast4(` ${TEST_EGN} `)).toBe('5115')
-    expect(egnLast4('')).toBe('')
-    expect(egnLast4(null)).toBe('')
-    expect(maskEgn('5115')).toBe('••••••5115')
-    expect(maskEgn('')).toBe('')
-    expect(maskEgn(TEST_EGN)).toBe('')
+  it('reads only the digits', () => {
+    expect(egnDigits(` ${TEST_EGN} `)).toBe(TEST_EGN)
+    expect(egnDigits('')).toBe('')
+    expect(egnDigits(null)).toBe('')
   })
 
   it('accepts only same-origin requests', () => {

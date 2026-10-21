@@ -1,8 +1,8 @@
 import { roleAllows, type StaffRole } from './staff'
 
 /**
- * „Покажи ЕГН“ on admin profiles. The full ЕГН never ships with the profile: the page gets only
- * the last four digits, and an admin asks for the rest with one POST that is audited and not cached.
+ * „Покажи ЕГН“ on admin profiles. The ЕГН never ships with the profile (only „ЕГН е въведено“);
+ * an admin asks for it with one POST that is audited and not cached.
  */
 
 /** signup_audit.field for one reveal. The audit row never holds the number itself. */
@@ -24,17 +24,6 @@ export function canRevealEgn(role: StaffRole | null) {
 
 export function egnDigits(value: string | null | undefined) {
   return (value ?? '').replace(/\D/g, '')
-}
-
-/** Last four digits only, for the masked line; empty when there is no ЕГН. */
-export function egnLast4(value: string | null | undefined) {
-  const digits = egnDigits(value)
-  return digits.length >= 4 ? digits.slice(-4) : ''
-}
-
-/** ••••••1234, or empty when the last four are unknown. */
-export function maskEgn(last4: string) {
-  return /^\d{4}$/.test(last4) ? `••••••${last4}` : ''
 }
 
 /** URL of the reveal endpoint for one person (signup id or „И аз“ partner id). */

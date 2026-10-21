@@ -329,7 +329,7 @@ function PersonFacts({
       <div className="grid gap-1">
         <dt className="font-bold">ЕГН</dt>
         <dd>
-          <EgnReveal personId={person.id} hasEgn={person.hasEgn} last4={person.egnLast4} canReveal={canRevealEgn} onRevealed={onEgnRevealed} />
+          <EgnReveal personId={person.id} hasEgn={person.hasEgn} canReveal={canRevealEgn} onRevealed={onEgnRevealed} />
         </dd>
       </div>
       <Fact label="Желано място (от записването)" value={where || 'Няма избрано място'} />

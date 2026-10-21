@@ -294,8 +294,8 @@ async function brevoAttributeNote(bag: Record<string, string | undefined>, attri
   }
 }
 
-/** Who „Синхронизирай с Brevo“ sends: every active signup with a published section. */
-export const DESIGNATION_BREVO_SCOPE_SQL = `COALESCE(published_section, '') <> '' AND COALESCE(withdrawn, 0) = 0`
+/** Who „Синхронизирай с Brevo“ sends: active (not withdrawn) signups with a signed пълномощно on Drive. */
+export const DESIGNATION_BREVO_SCOPE_SQL = `COALESCE(designation_pdf_url, '') <> '' AND COALESCE(withdrawn, 0) = 0`
 
 /** People per Brevo resync call; each costs one or two Brevo subrequests. */
 export const DESIGNATION_BREVO_PAGE = 100
@@ -321,9 +321,8 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   let rows: Array<{ id: string; email: string; url: string }>
   let total = 0
   if (data.allSigned) {
-    // Everyone with a published section, signed or not: the signed get DOCUMENT_URL with their
-    // section, the rest get the section (DOCUMENT_URL untouched). Withdrawn people are left out:
-    // their contact was cleaned on withdrawal and must not be put back on the list.
+    // Only signed, active people go to Brevo. Unsigned people are never sent; withdrawn people
+    // are left out because their contact was cleaned on withdrawal and must not be put back.
     const count = await access.db.prepare(`SELECT COUNT(*) AS n FROM signups WHERE ${DESIGNATION_BREVO_SCOPE_SQL}`).first<{ n: number }>()
     total = Number(count?.n ?? 0)
     const page = await access.db
@@ -348,6 +347,7 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
     const email = (row.email ?? '').trim()
     const url = (row.url ?? '').trim()
     if (!email) results.push({ personId: row.id, ok: false, error: 'няма имейл' })
+    else if (!url) results.push({ personId: row.id, ok: false, error: 'няма подписано пълномощно (линк към Drive)' })
     else contacts.push({ personId: row.id, email, url })
   }
   const nextOffset = data.allSigned && data.offset + rows.length < total ? data.offset + rows.length : null
@@ -371,10 +371,9 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   const updated = results.length - failed.length
   const warned = results.filter((row) => row.ok && row.warning)
   const withSection = contacts.filter((contact) => contact.section && Object.keys(contact.section).length > 0).length
-  const withLink = contacts.filter((contact) => contact.url).length
   // Counts only, no emails: shows in Workers Logs whether a sync ran and what Brevo answered.
   const log = failed.length > 0 ? console.warn : console.info
-  log('designation brevo sync', JSON.stringify({ attribute, updated, failed: failed.length, withLink, withSection, sectionWarnings: warned.length, total, offset: data.offset, firstError: failed[0]?.error ?? null, firstWarning: warned[0]?.warning ?? null }))
+  log('designation brevo sync', JSON.stringify({ attribute, updated, failed: failed.length, withSection, sectionWarnings: warned.length, total, offset: data.offset, firstError: failed[0]?.error ?? null, firstWarning: warned[0]?.warning ?? null }))
   return {
     ok: failed.length === 0,
     attribute,
@@ -384,9 +383,8 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
     results,
     nextOffset,
     withSection,
-    withLink,
     sectionWarnings: warned.length,
-    message: `${designationBrevoMessage(attribute, updated, failed)} С подписан линк: ${withLink}, само секция (още неподписани): ${contacts.length - withLink}.${sectionNote(withSection, warned.map((row) => row.warning ?? ''))}`,
+    message: `${designationBrevoMessage(attribute, updated, failed)}${sectionNote(withSection, warned.map((row) => row.warning ?? ''))}`,
   }
 }
 

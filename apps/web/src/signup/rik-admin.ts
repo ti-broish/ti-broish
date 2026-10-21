@@ -72,7 +72,7 @@ export const rikOverview = createServerFn({ method: 'POST' })
            SUM(CASE WHEN status = 'registered' THEN 1 ELSE 0 END) AS registered,
            SUM(CASE WHEN status IN (${quoted(WAITING_STATUSES)}) THEN 1 ELSE 0 END) AS waiting,
            SUM(CASE WHEN status IN (${quoted(PROBLEM_STATUSES)}) THEN 1 ELSE 0 END) AS problems
-         FROM rik_status WHERE status != 'withdrawn' GROUP BY mir`,
+         FROM rik_status WHERE status NOT IN ('withdrawn', 'duplicate') GROUP BY mir`,
       )
       .all<{ mir: string; people: number; registered: number; waiting: number; problems: number }>()).results ?? []
     const tasks = (await db.prepare(`SELECT mir, COUNT(*) AS n FROM rik_tasks WHERE active = 1 AND done_at IS NULL GROUP BY mir`).all<{ mir: string; n: number }>()).results ?? []

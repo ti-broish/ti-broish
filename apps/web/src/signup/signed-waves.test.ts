@@ -2,7 +2,7 @@
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { collectStream, streamZipWriter } from './designation-zip-stream'
-import { PARTNER_PEOPLE_TABLE } from './partner-people-sql'
+import { PARTNER_PEOPLE_TABLE, PARTNER_WITHDRAWAL_COLUMNS } from './partner-people-sql'
 import {
   MISSING_PDFS_FILENAME,
   SIGNED_PEOPLE_SQL,
@@ -158,23 +158,28 @@ async function openDb(): Promise<Db | null> {
 }
 
 describe('signed people SQL', () => {
-  it('reads signups (not withdrawn) and partner people, and the first upload fixes the wave', async () => {
+  it('reads signups (not withdrawn) and partner people (not withdrawn, no duplicates), and the first upload fixes the wave', async () => {
     const db = await openDb()
     if (!db) return
     db.exec(`CREATE TABLE signups (id TEXT PRIMARY KEY, payload TEXT, egn TEXT, withdrawn INTEGER DEFAULT 0, published_section TEXT,
       designation_mir TEXT, designation_number INTEGER, designation_issued_at TEXT, designation_signed_at TEXT, designation_drive_file_id TEXT,
       designation_pdf_url TEXT, updated_at TEXT)`)
     db.exec(PARTNER_PEOPLE_TABLE)
-    for (const sql of SIGNED_WAVE_COLUMNS) db.exec(sql)
+    for (const sql of [...SIGNED_WAVE_COLUMNS, ...PARTNER_WITHDRAWAL_COLUMNS]) db.exec(sql)
     const payload = JSON.stringify({ firstName: 'Тодор', middleName: 'Иванов', lastName: 'Пробов' })
     const add = db.prepare(`INSERT INTO signups (id, payload, egn, withdrawn, published_section, designation_mir, designation_number, designation_issued_at, designation_signed_at, designation_drive_file_id)
-      VALUES (?, ?, 'x', ?, ?, ?, ?, '19.10.2026', ?, 'f')`)
-    add.run('s1', payload, 0, '020400001', '02', 605, '2026-10-19T17:58:00Z')
-    add.run('s2', payload, 1, '020400002', '02', 606, '2026-10-19T17:58:00Z')
-    add.run('s3', payload, 0, '230100001', null, 7, '2026-10-19T19:00:00Z')
-    add.run('s4', payload, 0, '020400003', '02', 607, null)
-    db.prepare(`INSERT INTO partner_people (id, partner, egn, first_name, last_name, designation_mir, designation_number, designation_issued_at, designation_signed_at, imported_at, updated_at)
-      VALUES ('pp-1', 'i-az', 'y', 'Иа', 'Партньор', '23', 8, '20.10.2026', '2026-10-20T08:00:00Z', 'now', 'now')`).run()
+      VALUES (?, ?, ?, ?, ?, ?, ?, '19.10.2026', ?, 'f')`)
+    add.run('s1', payload, 'x1', 0, '020400001', '02', 605, '2026-10-19T17:58:00Z')
+    add.run('s2', payload, 'x2', 1, '020400002', '02', 606, '2026-10-19T17:58:00Z')
+    add.run('s3', payload, 'x3', 0, '230100001', null, 7, '2026-10-19T19:00:00Z')
+    add.run('s4', payload, 'x4', 0, '020400003', '02', 607, null)
+    const partner = db.prepare(`INSERT INTO partner_people (id, partner, egn, first_name, last_name, designation_mir, designation_number, designation_issued_at, designation_signed_at, imported_at, updated_at, withdrawn_at)
+      VALUES (?, 'i-az', ?, 'Иа', 'Партньор', '23', ?, '20.10.2026', '2026-10-20T08:00:00Z', 'now', 'now', ?)`)
+    partner.run('pp-1', 'y', 8, null)
+    // Withdrawn „И аз“ пълномощно: not in a wave.
+    partner.run('pp-2', 'y2', 9, '2026-10-21T10:00:00Z')
+    // Same ЕГН as volunteer s1, who keeps № 605: a duplicate, not in a wave.
+    partner.run('pp-3', 'x1', 10, null)
 
     // A replacement upload today keeps s1 in its first wave.
     db.prepare(`UPDATE signups SET ${SIGNED_WAVE_SET_SQL}, designation_signed_at = ? WHERE id = ?`).run('2026-10-20T09:00:00Z', '2026-10-20T09:00:00Z', 's1')

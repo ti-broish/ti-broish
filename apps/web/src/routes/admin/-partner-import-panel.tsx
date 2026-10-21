@@ -6,7 +6,7 @@ import { adminPartnerImport } from '../../signup/partner-import-admin'
 type Preview = {
   committed: boolean
   written: number
-  counts: Record<PlanKind, number> & { alsoSignup: number; noMir: number }
+  counts: Record<PlanKind, number> & { alsoSignup: number; noMir: number; covered?: number }
   total: number
   summary: string
   mapping: ReadonlyArray<{ column: string; field: string }>
@@ -109,7 +109,15 @@ export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
             ))}
             <li className="rounded-full bg-[#f4e4b3] px-3 py-1 font-bold text-[#1a1020]">И записани доброволци: {preview.counts.alsoSignup}</li>
             <li className="rounded-full bg-[#f4e4b3] px-3 py-1 font-bold text-[#1a1020]">Нови без МИР: {preview.counts.noMir}</li>
+            <li className="rounded-full bg-[#f4e4b3] px-3 py-1 font-bold text-[#1a1020]" title="Същото ЕГН е на активен доброволец: внасят се за историята, но не се номерират (доброволецът има пълномощното).">
+              Покрити от доброволец (без номер): {preview.counts.covered ?? 0}
+            </li>
           </ul>
+          {preview.counts.covered ? (
+            <p className="text-sm font-bold text-[#8f1d1d]" data-testid="partner-import-covered">
+              {preview.counts.covered} {preview.counts.covered === 1 ? 'човек вече е записан доброволец' : 'души вече са записани доброволци'} със същото ЕГН: внасят се като „покрит от доброволец“ и няма да получат номер, за да няма две пълномощни за един човек.
+            </p>
+          ) : null}
           <details>
             <summary className="cursor-pointer text-sm font-bold text-[#1a1020]">Как се попълват полетата</summary>
             <table className="mt-2 w-full text-left text-sm text-[#1a1020]">
@@ -156,7 +164,12 @@ export function PartnerImportPanel({ onImported }: { onImported: () => void }) {
                           <td className="py-1 pr-2 font-mono">{row.egn || '—'}</td>
                           <td className="py-1 pr-2">{row.mir || '—'}</td>
                           <td className="py-1 pr-2">{row.place || '—'}</td>
-                          <td className="py-1 pr-2">{row.signup ? `да (${SIGNUP_LABEL[row.signup]})` : '—'}</td>
+                          <td className="py-1 pr-2">
+                            {row.signup ? `да (${SIGNUP_LABEL[row.signup]})` : '—'}
+                            {row.covered ? (
+                              <span className="ml-1 rounded-full border border-[#2b062f] bg-[#f4e4b3] px-2 py-0.5 text-xs font-bold">покрит от доброволец</span>
+                            ) : null}
+                          </td>
                           <td className="py-1">{[...row.reasons, ...row.warnings].join('; ') || '—'}</td>
                         </tr>
                       ))}

@@ -19,6 +19,7 @@ import {
 } from './partner-import'
 import { isPartnerPersonId } from './partner-people-sql'
 import { ELECTION_DISTRICTS } from './designation-config'
+import { PARTNER_WITHDRAW_AUDIT_SQL, PARTNER_WITHDRAW_REASON_MAX, PARTNER_WITHDRAW_SQL } from './designation-audit-sql'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
 // No mail, Brevo or confirm-link code is imported here on purpose: the partner import is silent,
@@ -100,6 +101,39 @@ export const adminPartnerSetMir = createServerFn({ method: 'POST' })
       .run()) as { meta?: { changes?: number } }
     if (!result?.meta?.changes) return { ok: false as const, message: 'МИР не се сменя след номериране.' }
     return { ok: true as const, message: `МИР ${mir} е записан.` }
+  })
+
+/**
+ * Withdraw one „И аз“ пълномощно (admins). Number and МИР stay: history, and numbers are never
+ * reused. A withdrawn row is never numbered, zipped for signing, put in a signed wave or a „call the
+ * РИК“ task. Drive files are left as they are. Writes one audit line.
+ */
+export const adminPartnerWithdraw = createServerFn({ method: 'POST' })
+  .validator((input: { id: string; reason: string }) => ({
+    id: String(input?.id ?? ''),
+    reason: String(input?.reason ?? '').replace(/\s+/g, ' ').trim().slice(0, PARTNER_WITHDRAW_REASON_MAX),
+  }))
+  .handler(async ({ data }) => {
+    if (!isPartnerPersonId(data.id)) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    if (!data.reason) return { ok: false as const, message: 'Напиши причина за оттеглянето.' }
+    const access = await gate('publish')
+    if (!access.ok) return access
+    const at = new Date().toISOString()
+    await access.db.batch([
+      access.db.prepare(PARTNER_WITHDRAW_SQL).bind(at, access.email, data.reason, data.id),
+      access.db.prepare(PARTNER_WITHDRAW_AUDIT_SQL).bind(crypto.randomUUID(), access.email, at, data.id),
+    ])
+    const row = await access.db
+      .prepare('SELECT withdrawn_at, designation_number, designation_mir FROM partner_people WHERE id = ?')
+      .bind(data.id)
+      .first<{ withdrawn_at: string | null; designation_number: number | null; designation_mir: string | null }>()
+    if (!row) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    if (row.withdrawn_at !== at) return { ok: false as const, message: 'Това пълномощно вече е оттеглено.' }
+    const which = row.designation_number != null ? ` № ${row.designation_number} (МИР ${row.designation_mir ?? ''})` : ''
+    return {
+      ok: true as const,
+      message: `Пълномощното${which} е оттеглено. Номерът остава зает; файлът в Drive не е пипан. Поискай от РИК да го анулира, ако вече е подадено.`,
+    }
   })
 
 async function gate(action: StaffAction): Promise<{ ok: true; db: Database; email: string; role: StaffRole } | Denial> {

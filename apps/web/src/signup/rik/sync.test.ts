@@ -70,9 +70,10 @@ function fakeWeb(pages: Map<string, { status: number; body: string }>) {
 
 function seed(raw: SqliteDatabase, start: number) {
   raw.exec(`CREATE TABLE signups (id TEXT PRIMARY KEY, payload TEXT NOT NULL, designation_mir TEXT, designation_number INTEGER, designation_issued_at TEXT,
-    designation_signed_at TEXT, designation_first_signed_at TEXT, withdrawn INTEGER NOT NULL DEFAULT 0, sections TEXT NOT NULL DEFAULT '')`)
+    designation_signed_at TEXT, designation_first_signed_at TEXT, withdrawn INTEGER NOT NULL DEFAULT 0, sections TEXT NOT NULL DEFAULT '',
+    egn TEXT NOT NULL DEFAULT '', published_section TEXT)`)
   raw.exec(`CREATE TABLE partner_people (id TEXT PRIMARY KEY, first_name TEXT, middle_name TEXT, last_name TEXT, designation_mir TEXT, designation_number INTEGER,
-    designation_issued_at TEXT, designation_signed_at TEXT, designation_first_signed_at TEXT)`)
+    designation_issued_at TEXT, designation_signed_at TEXT, designation_first_signed_at TEXT, egn TEXT NOT NULL DEFAULT '', withdrawn_at TEXT)`)
   const recent = new Date(start - 6 * 3600_000).toISOString()
   const old = new Date(start - 48 * 3600_000).toISOString()
   const people: Array<[string, string, number, string, number?]> = [
@@ -89,7 +90,8 @@ function seed(raw: SqliteDatabase, start: number) {
     const [firstName, middleName, lastName] = name.split(' ')
     insert.run(id, JSON.stringify({ firstName, middleName, lastName }), '23', number, '19.10.2026', signed, withdrawn ?? 0, '["230100001"]')
   }
-  raw.prepare('INSERT INTO partner_people VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('pp-1', 'Ина', 'Иванова', 'Петрова', '24', 601, '19.10.2026', recent, null)
+  raw.prepare(`INSERT INTO partner_people (id, first_name, middle_name, last_name, designation_mir, designation_number, designation_issued_at,
+    designation_signed_at, designation_first_signed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run('pp-1', 'Ина', 'Иванова', 'Петрова', '24', 601, '19.10.2026', recent, null)
 }
 
 function snapshot(raw: SqliteDatabase) {

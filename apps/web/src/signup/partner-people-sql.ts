@@ -35,6 +35,18 @@ export const PARTNER_PEOPLE_INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_partner_people_email ON partner_people(email)',
 ]
 
+/**
+ * Withdrawal and the import's „покрит от доброволец“ mark. A withdrawn row keeps its number and
+ * МИР (history; the МИР counter still counts it) but is never numbered, zipped for signing, put in
+ * a signed wave or a „call the РИК“ task. Also in sql/2026-10-21-partner-withdrawal.sql.
+ */
+export const PARTNER_WITHDRAWAL_COLUMNS = [
+  'ALTER TABLE partner_people ADD COLUMN withdrawn_at TEXT',
+  'ALTER TABLE partner_people ADD COLUMN withdrawn_by TEXT',
+  'ALTER TABLE partner_people ADD COLUMN withdrawn_reason TEXT',
+  'ALTER TABLE partner_people ADD COLUMN covered_by_signup_id TEXT',
+]
+
 /** Partner people ids carry this prefix, so a designation route knows which table to read. */
 export const PARTNER_ID_PREFIX = 'pp-'
 

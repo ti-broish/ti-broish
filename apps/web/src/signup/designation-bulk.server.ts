@@ -29,6 +29,18 @@ import {
 } from './designation-files'
 import { DESIGNATION_ASSIGN_SQL, PARTNER_DESIGNATION_ASSIGN_SQL, designationMirOf, parseStoredNumber } from './designation-number'
 import { brevoSignupIds } from './partner-people-sql'
+import {
+  EGN_HOLDERS_SQL,
+  duplicateOf,
+  egnKeySql,
+  holderFromRow,
+  keepersByEgn,
+  planEgnGuard,
+  type DuplicateMark,
+  type EgnHolder,
+} from './designation-duplicates'
+import { designationNumberAuditSql } from './designation-audit-sql'
+import { numberingMessage } from './designation-number-message'
 import { addToSignScopeCounts, emptySignScopeCounts } from './designation-sign-scope'
 import { runSqlBatches } from './designation-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
@@ -54,6 +66,13 @@ interface ListedPerson {
   createdAt: string
   /** Partner slug for people from partner_people („И аз“); their `section` is only the МИР. */
   partner?: string
+  /** Normalised ЕГН, server-side only (never in the view). */
+  egnKey: string
+  /** Partner only: withdrawn пълномощно. */
+  withdrawnAt: string | null
+  withdrawnReason: string | null
+  /** Partner only: an active volunteer has the same ЕГН (marked on import). */
+  covered: boolean
 }
 
 export function workerEnv(): Record<string, string | undefined> {
@@ -94,7 +113,8 @@ const LIST_SQL = `SELECT id,
   designation_signed_at,
   designation_pdf_url,
   designation_drive_file_id,
-  created_at
+  created_at,
+  ${egnKeySql('egn')} AS egn_key
   FROM signups
   WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0`
 
@@ -106,7 +126,9 @@ const PARTNER_LIST_SQL = `SELECT id, first_name, middle_name, last_name, email,
   COALESCE(designation_mir, '') AS section,
   designation_number, designation_issued_at, designation_generated_at, designation_signing_generated_at, designation_signed_at,
   designation_pdf_url, designation_drive_file_id,
-  imported_at AS created_at, partner
+  imported_at AS created_at, partner,
+  ${egnKeySql('egn')} AS egn_key, withdrawn_at, withdrawn_reason,
+  CASE WHEN EXISTS (SELECT 1 FROM signups c WHERE c.id = partner_people.covered_by_signup_id AND COALESCE(c.withdrawn, 0) = 0) THEN 1 ELSE 0 END AS covered
   FROM partner_people`
 
 interface RawListed {
@@ -125,6 +147,10 @@ interface RawListed {
   designation_drive_file_id: string | null
   created_at: string
   partner?: string | null
+  egn_key?: string | null
+  withdrawn_at?: string | null
+  withdrawn_reason?: string | null
+  covered?: number | null
 }
 
 function fromRaw(row: RawListed): ListedPerson {
@@ -147,6 +173,10 @@ function fromRaw(row: RawListed): ListedPerson {
     driveFileId: (row.designation_drive_file_id ?? '').trim() || null,
     createdAt: row.created_at ?? '',
     ...(row.partner ? { partner: String(row.partner) } : {}),
+    egnKey: String(row.egn_key ?? ''),
+    withdrawnAt: (row.withdrawn_at ?? '').trim() || null,
+    withdrawnReason: (row.withdrawn_reason ?? '').trim() || null,
+    covered: Number(row.covered ?? 0) === 1,
   }
 }
 
@@ -154,7 +184,7 @@ function displayName(person: ListedPerson) {
   return [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ') || 'без име'
 }
 
-function toView(person: ListedPerson): DesignationPersonView {
+function toView(person: ListedPerson, duplicate: DuplicateMark | null = null): DesignationPersonView {
   const mir = mirFromSection(person.section)
   return {
     id: person.id,
@@ -170,7 +200,20 @@ function toView(person: ListedPerson): DesignationPersonView {
     driveUrl: person.driveUrl,
     hasDriveFile: Boolean(person.driveFileId),
     ...(person.partner ? { partner: person.partner } : {}),
+    ...(duplicate ? { duplicateOf: { number: duplicate.number, mir: duplicate.mir } } : {}),
+    ...(person.withdrawnAt ? { withdrawnAt: person.withdrawnAt, withdrawnReason: person.withdrawnReason ?? '' } : {}),
+    ...(person.covered ? { covered: true } : {}),
   }
+}
+
+async function loadHolders(db: Database): Promise<EgnHolder[]> {
+  const result = await db.prepare(EGN_HOLDERS_SQL).all<{ id: string; kind: string; egn_key: string; mir: string | null; number: number | string | null; published: number | null }>()
+  return (result.results ?? []).map(holderFromRow).filter((row): row is EgnHolder => row != null)
+}
+
+/** Withdrawn „И аз“ rows and duplicates never go to a ZIP for signing or the „За подпис“ counts. */
+function signable(person: ListedPerson, duplicate: DuplicateMark | null) {
+  return !person.withdrawnAt && !duplicate
 }
 
 function matchesFilter(person: ListedPerson, mir: string, q: string) {
@@ -195,19 +238,31 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
   if (!access.ok) return access
   const all = await listPublished(access.db)
   const partners = await listPartnerPeople(access.db)
+  const keepers = keepersByEgn(await loadHolders(access.db))
+  const dup = new Map<string, DuplicateMark>()
+  for (const row of [...all, ...partners]) {
+    if (row.withdrawnAt) continue
+    const mark = duplicateOf(row, keepers)
+    if (mark) dup.set(row.id, mark)
+  }
+  const dupOf = (row: ListedPerson) => dup.get(row.id) ?? null
+  const activePartners = partners.filter((row) => !row.withdrawnAt)
   const counts: DesignationCounts = {
     published: all.length,
     numbered: all.filter((row) => row.number != null).length,
     generated: all.filter((row) => row.generatedAt).length,
     signed: all.filter((row) => row.signedAt).length,
     missing: all.filter((row) => !row.signedAt).length,
+    duplicates: dup.size,
   }
   // Partner people are counted apart: they are not signups and never part of the signup counts.
   const partnerCounts: DesignationPartnerCounts = {
-    total: partners.length,
-    numbered: partners.filter((row) => row.number != null).length,
-    noMir: partners.filter((row) => !row.section).length,
-    signed: partners.filter((row) => row.signedAt).length,
+    total: activePartners.length,
+    numbered: activePartners.filter((row) => row.number != null).length,
+    noMir: activePartners.filter((row) => !row.section).length,
+    signed: activePartners.filter((row) => row.signedAt).length,
+    withdrawn: partners.length - activePartners.length,
+    covered: activePartners.filter((row) => row.covered).length,
   }
   const everyone = [...all, ...partners]
   const mirsMap = new Map<string, number>()
@@ -219,12 +274,13 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
   const mirs: DesignationMirOption[] = [...mirsMap.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([code, count]) => ({ code, label: mirLabel(code) || `${code} ${ELECTION_DISTRICTS[code] ?? ''}`.trim(), count }))
-  const people = everyone.filter((row) => matchesFilter(row, data.mir, data.q)).map(toView)
-  const zipEligible = people.filter((row) => row.number != null).length
+  const listed = everyone.filter((row) => matchesFilter(row, data.mir, data.q))
+  const people = listed.map((row) => toView(row, dupOf(row)))
+  const zipEligible = listed.filter((row) => row.number != null && signable(row, dupOf(row))).length
   // Per scope for the signing ZIP: МИР filter only (the ZIP ignores the search box).
-  const inMir = everyone.filter((row) => matchesFilter(row, data.mir, ''))
+  const inMir = everyone.filter((row) => matchesFilter(row, data.mir, '') && signable(row, dupOf(row)))
   const scopeCounts = inMir.reduce(addToSignScopeCounts, emptySignScopeCounts())
-  const partnerScopeCounts = partners.reduce(addToSignScopeCounts, emptySignScopeCounts())
+  const partnerScopeCounts = partners.filter((row) => signable(row, dupOf(row))).reduce(addToSignScopeCounts, emptySignScopeCounts())
   return {
     ok: true as const,
     counts,
@@ -252,13 +308,30 @@ export async function handleDesignationNumber() {
     return a.id.localeCompare(b.id)
   })
   // Per-МИР MAX+1 from 501 inside each UPDATE, so concurrent runs cannot collide.
-  const toAssign = ordered.filter((row) => row.number == null && designationMirOf(row.section))
+  const unnumbered = ordered.filter((row) => row.number == null && designationMirOf(row.section))
+  // One person, one пълномощно: an ЕГН that already holds a number (either table), or that came up
+  // earlier in this run (volunteers first), is skipped. The UPDATEs check the same, so parallel runs are safe.
+  const guard = planEgnGuard(
+    unnumbered.map((row) => ({
+      id: row.id,
+      kind: row.partner ? ('partner' as const) : ('signup' as const),
+      egnKey: row.egnKey,
+      covered: row.covered,
+      withdrawn: Boolean(row.withdrawnAt),
+    })),
+    await loadHolders(access.db),
+  )
+  const toAssign = unnumbered.filter((row) => guard.allowed.has(row.id))
   // Partner people share the counter (PARTNER_DESIGNATION_ASSIGN_SQL), so numbers never collide.
-  const assignStatements = toAssign.map((row) =>
+  // Each UPDATE is followed by its audit line, written only when that UPDATE numbered the row.
+  const assignStatements = toAssign.flatMap((row) => [
     access.db
       .prepare(row.partner ? PARTNER_DESIGNATION_ASSIGN_SQL : DESIGNATION_ASSIGN_SQL)
       .bind(designationMirOf(row.section), issuedOn, now, row.id),
-  )
+    access.db
+      .prepare(designationNumberAuditSql(row.partner ? 'partner_people' : 'signups'))
+      .bind(crypto.randomUUID(), access.email, now, row.id),
+  ])
   const dateStatements = ordered
     .filter((row) => row.number != null && !row.issuedAt)
     .map((row) =>
@@ -269,13 +342,38 @@ export async function handleDesignationNumber() {
         .bind(issuedOn, now, row.id),
     )
   await runSqlBatches(access.db, [...assignStatements, ...dateStatements])
-  const assigned = toAssign.length
+  // Count what really got a number: a parallel run may have taken an ЕГН in between.
+  const after = toAssign.length
+    ? await countNumbered(access.db, toAssign.map((row) => row.id))
+    : 0
+  const assigned = after
+  const duplicates = guard.skipped.filter((row) => row.reason === 'duplicate').length + (toAssign.length - after)
+  const covered = guard.skipped.filter((row) => row.reason === 'covered').length
   return {
     ok: true as const,
     assigned,
+    skippedDuplicates: duplicates,
+    skippedCovered: covered,
     updated: assigned + dateStatements.length,
-    message: assigned === 0 ? 'Всички с публикувана секция вече имат номер.' : `Номерирани ${assigned} души.`,
+    message: numberingMessage(assigned, duplicates, covered),
   }
+}
+
+async function countNumbered(db: Database, ids: string[]) {
+  let total = 0
+  for (let start = 0; start < ids.length; start += 50) {
+    const part = ids.slice(start, start + 50)
+    const marks = part.map(() => '?').join(', ')
+    const row = await db
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM signups WHERE id IN (${marks}) AND designation_number IS NOT NULL)
+              + (SELECT COUNT(*) FROM partner_people WHERE id IN (${marks}) AND designation_number IS NOT NULL) AS n`,
+      )
+      .bind(...part, ...part)
+      .first<{ n: number }>()
+    total += Number(row?.n ?? 0)
+  }
+  return total
 }
 
 export async function handleDesignationHealth() {

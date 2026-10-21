@@ -43,7 +43,8 @@ import {
 } from '../../signup/designation-sign-scope'
 import { postSignedPdf } from '../../signup/designation-upload-errors'
 import { IAZ_LABEL, partnerBadge } from '../../signup/partner-import'
-import { adminPartnerSetMir } from '../../signup/partner-import-admin'
+import { adminPartnerSetMir, adminPartnerWithdraw } from '../../signup/partner-import-admin'
+import { COVERED_LABEL, WITHDRAWN_PARTNER_LABEL, duplicateBadge } from '../../signup/designation-duplicates'
 import { PartnerImportPanel } from './-partner-import-panel'
 import { PersonName } from './-person-name'
 import { SignedWavesPanel } from './-signed-waves-panel'
@@ -58,6 +59,7 @@ function PalnomoshtniPage() {
   const access = useAdminAccess()
   const canExport = access.permissions.exportCampaign
   const canEdit = access.permissions.edit
+  const canWithdraw = access.permissions.publish
   const [mir, setMir] = useState('')
   const [q, setQ] = useState('')
   const [counts, setCounts] = useState<DesignationCounts | null>(null)
@@ -202,10 +204,18 @@ function PalnomoshtniPage() {
             <Stat label="Подписани" value={counts.signed} />
             <Stat label="Липсващи" value={counts.missing} />
           </div>
+          {counts.duplicates ? (
+            <p className="text-sm font-bold text-[#8f1d1d]" data-testid="duplicate-count">
+              Дубликати по ЕГН: {counts.duplicates}. Не влизат в ZIP за подпис, в „За подпис“ и в задачите за РИК, и не се номерират. Оттегли
+              излишното пълномощно (бутон „Оттегли пълномощното“ при „{IAZ_LABEL}“).
+            </p>
+          ) : null}
           {partnerCounts && partnerCounts.total > 0 ? (
             <p className="text-sm text-[#333]" data-testid="partner-counts">
               Отделно, „{IAZ_LABEL}“ (не са записани доброволци и не отиват в Brevo): {partnerCounts.total} души, номерирани{' '}
               {partnerCounts.numbered}, подписани {partnerCounts.signed}
+              {partnerCounts.withdrawn ? `, оттеглени ${partnerCounts.withdrawn}` : ''}
+              {partnerCounts.covered ? `, покрити от доброволец ${partnerCounts.covered}` : ''}
               {partnerCounts.noMir ? `, без МИР ${partnerCounts.noMir} (избери МИР в таблицата, за да получат номер)` : ''}.
               {partnerScopeCounts ? ` За подпис („${SIGN_SCOPE_LABELS[signScope]}“): ${partnerScopeCount}.` : ''}
               {canExport && partnerBatches.length > 0
@@ -549,6 +559,9 @@ function PalnomoshtniPage() {
                   <th className="px-2 py-2">МИР</th>
                   <th className="px-2 py-2">Генерирано</th>
                   <th className="px-2 py-2">Подписано</th>
+                  <th className="px-2 py-2">
+                    <span className="sr-only">Действие</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -560,6 +573,30 @@ function PalnomoshtniPage() {
                       {partnerBadge(row.partner) ? (
                         <span className="ml-2 rounded-full border border-[#2b062f] bg-[#f4e4b3] px-2 py-0.5 text-xs font-bold text-[#1a1020]">
                           {partnerBadge(row.partner)}
+                        </span>
+                      ) : null}
+                      {row.withdrawnAt ? (
+                        <span
+                          className="ml-2 rounded-full border border-[#8f1d1d] bg-[#f7dede] px-2 py-0.5 text-xs font-bold text-[#8f1d1d]"
+                          data-testid="withdrawn-badge"
+                          title={row.withdrawnReason || undefined}
+                        >
+                          {WITHDRAWN_PARTNER_LABEL}
+                          {row.withdrawnReason ? `: ${row.withdrawnReason}` : ''}
+                        </span>
+                      ) : null}
+                      {row.duplicateOf ? (
+                        <span
+                          className="ml-2 rounded-full border border-[#8f1d1d] bg-[#f7dede] px-2 py-0.5 text-xs font-bold text-[#8f1d1d]"
+                          data-testid="duplicate-badge"
+                        >
+                          {duplicateBadge({ ...row.duplicateOf, keeperId: '' })}
+                          {row.duplicateOf.mir && row.duplicateOf.mir !== row.mir ? ` (МИР ${row.duplicateOf.mir})` : ''}
+                        </span>
+                      ) : null}
+                      {row.covered ? (
+                        <span className="ml-2 rounded-full border border-[#2b062f] bg-[#efe8f2] px-2 py-0.5 text-xs font-bold text-[#1a1020]" data-testid="covered-badge">
+                          {COVERED_LABEL}
                         </span>
                       ) : null}
                     </td>
@@ -581,6 +618,11 @@ function PalnomoshtniPage() {
                         formatWhen(row.signedAt)
                       )}
                     </td>
+                    <td className="px-2 py-2">
+                      {row.partner && !row.withdrawnAt && canWithdraw ? (
+                        <PartnerWithdraw id={row.id} number={row.number} disabled={busy} onDone={reload} setMessage={setMessage} />
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -590,6 +632,62 @@ function PalnomoshtniPage() {
       </section>
       {message ? <p className="text-sm font-bold text-[#1a1020]">{message}</p> : null}
     </div>
+  )
+}
+
+/** Withdraw one „И аз“ пълномощно, with a reason (admins). Number and МИР stay; Drive is not touched. */
+function PartnerWithdraw({
+  id,
+  number,
+  disabled,
+  onDone,
+  setMessage,
+}: {
+  id: string
+  number: number | null
+  disabled: boolean
+  onDone: () => void
+  setMessage: (text: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  if (!open) {
+    return (
+      <button type="button" className={adminGhost} disabled={disabled} onClick={() => setOpen(true)}>
+        Оттегли пълномощното
+      </button>
+    )
+  }
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!reason.trim()) return
+        setSaving(true)
+        void adminPartnerWithdraw({ data: { id, reason } })
+          .then((result) => {
+            setMessage(result.message)
+            if (result.ok) {
+              setOpen(false)
+              onDone()
+            }
+          })
+          .finally(() => setSaving(false))
+      }}
+    >
+      <label className="grid gap-1 text-xs font-bold text-[#1a1020]">
+        Причина{number != null ? ` (№ ${number})` : ''}
+        <input className={adminInput} value={reason} maxLength={300} required onChange={(event) => setReason(event.target.value)} />
+      </label>
+      <button type="submit" className={adminGhost} disabled={saving || !reason.trim()}>
+        Потвърди оттеглянето
+      </button>
+      <button type="button" className={adminGhost} disabled={saving} onClick={() => setOpen(false)}>
+        Откажи
+      </button>
+    </form>
   )
 }
 

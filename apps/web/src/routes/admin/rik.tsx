@@ -88,7 +88,7 @@ function RikPage() {
   }
 
   const setSearch = (patch: Partial<RikSearch>) => void navigate({ search: (prev) => ({ ...prev, page: 1, ...patch }) })
-  const totalPeople = overview ? Object.entries(overview.statuses).filter(([status]) => status !== 'withdrawn').reduce((sum, [, n]) => sum + n, 0) : 0
+  const totalPeople = overview ? Object.entries(overview.statuses).filter(([status]) => status !== 'withdrawn' && status !== 'duplicate').reduce((sum, [, n]) => sum + n, 0) : 0
 
   return (
     <div className="grid gap-5" data-testid="rik-page">

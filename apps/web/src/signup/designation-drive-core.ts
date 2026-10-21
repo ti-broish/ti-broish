@@ -28,12 +28,27 @@ export interface DriveAdminClient extends DriveClient {
 
 export class DriveHttpError extends Error {
   readonly status: number
+  /** Google's short reason (`rateLimitExceeded`, `notFound`, …) when the body had one. */
+  readonly reason: string
 
-  constructor(status: number) {
-    super(`Drive HTTP ${status}`)
+  constructor(status: number, reason = '') {
+    super(reason ? `Drive HTTP ${status}: ${reason}` : `Drive HTTP ${status}`)
     this.name = 'DriveHttpError'
     this.status = status
+    this.reason = reason
   }
+}
+
+/** `{ error: { errors: [{ reason }], message } }` → a short reason; never the whole body. */
+export function driveErrorReason(json: unknown): string {
+  if (!json || typeof json !== 'object') return ''
+  const error = (json as { error?: unknown }).error
+  if (!error || typeof error !== 'object') return typeof error === 'string' ? error.slice(0, 120) : ''
+  const bag = error as { errors?: Array<{ reason?: unknown }>; message?: unknown; status?: unknown }
+  const reason = bag.errors?.find((item) => typeof item?.reason === 'string')?.reason
+  if (typeof reason === 'string' && reason) return reason.slice(0, 120)
+  if (typeof bag.message === 'string' && bag.message) return bag.message.slice(0, 120)
+  return typeof bag.status === 'string' ? bag.status.slice(0, 120) : ''
 }
 
 interface ServiceAccount {
@@ -413,7 +428,7 @@ async function driveFetch(fetchImpl: typeof fetch, url: string, init: RequestIni
   } catch {
     json = { raw: text }
   }
-  if (!response.ok) throw new DriveHttpError(response.status)
+  if (!response.ok) throw new DriveHttpError(response.status, driveErrorReason(json))
   return json
 }
 

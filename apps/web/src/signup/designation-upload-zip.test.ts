@@ -6,6 +6,7 @@ import {
   isJunkUploadPath,
   matchSignedFiles,
   signedUploadBlockReason,
+  signedUploadPlan,
   type DesignationFilePerson,
 } from './designation-files'
 
@@ -133,5 +134,38 @@ describe('signed ZIP uploads (folders, macOS junk, Mac names)', () => {
     expect(signedUploadBlockReason({ ...base, preview: ok })).toBe('')
     const unreadable = matchSignedFiles([], people, { problems: [{ fileName: 'Signed-2', reason: 'не се чете' }] })
     expect(signedUploadBlockReason({ ...base, preview: unreadable })).toMatch(/1 не са PDF или не се четат/)
+  })
+})
+
+describe('single PDFs and whole-ZIP re-uploads', () => {
+  const partner = person({ id: 'pp-1', number: 508, section: '23', partner: 'i-az', firstName: 'Ана', middleName: '', lastName: 'Ив', name: 'Ана Ив' })
+  const done = person({ id: 'p-done', number: 501, hasDriveFile: true })
+
+  it('matches one loose PDF for an „И аз“ person, also from a mixed-script folder', () => {
+    for (const name of ['23_508_Ана_Ив_signed.pdf', 'Signed_\u0422i_Broish/23_508_Ана_Ив_signed.pdf']) {
+      const match = matchSignedFiles(expandUploadFilesDetailed([{ name, bytes: PDF }]).files, [partner, done])
+      expect(match.matched.map((row) => row.personId)).toEqual(['pp-1'])
+    }
+  })
+
+  it('skips people who already have a signed file unless replacing is asked for', () => {
+    const match = matchSignedFiles(
+      [
+        { name: '23_508_Ана_Ив_signed.pdf', bytes: PDF },
+        { name: '23_501_Мария_Георгиева_Петрова_signed.pdf', bytes: PDF },
+      ],
+      [partner, done],
+    )
+    const plan = signedUploadPlan(match, false)
+    expect(plan.toUpload.map((row) => row.personId)).toEqual(['pp-1'])
+    expect(plan.already.map((row) => row.personId)).toEqual(['p-done'])
+    expect(signedUploadPlan(match, true).toUpload).toHaveLength(2)
+  })
+
+  it('explains a disabled button when everything in the ZIP is already uploaded', () => {
+    const base = { canExport: true, canUploadDrive: true, busy: false, reading: false }
+    const match = matchSignedFiles([{ name: '23_501_Мария_Георгиева_Петрова_signed.pdf', bytes: PDF }], [done])
+    expect(signedUploadBlockReason({ ...base, preview: match })).toMatch(/Всички 1 съвпаднали вече имат качен подписан файл/)
+    expect(signedUploadBlockReason({ ...base, preview: match, replaceExisting: true })).toBe('')
   })
 })

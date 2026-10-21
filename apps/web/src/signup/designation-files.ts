@@ -591,6 +591,8 @@ export function signedUploadBlockReason(input: {
   busy: boolean
   reading: boolean
   preview: SignedUploadMatch | null
+  /** „Замени и вече качените“: people who already have a signed file are uploaded again. */
+  replaceExisting?: boolean
 }) {
   if (!input.canExport) return 'Нужно е право за експорт (редактор или админ).'
   if (!input.canUploadDrive) return 'Drive не е настроен. Виж реда за здраве по-горе.'
@@ -598,13 +600,29 @@ export function signedUploadBlockReason(input: {
   if (input.busy) return ''
   const preview = input.preview
   if (!preview) return 'Избери PDF-и, ZIP или папка (или ги пусни тук).'
-  if (preview.matched.length > 0) return ''
+  if (preview.matched.length > 0) {
+    const plan = signedUploadPlan(preview, input.replaceExisting ?? false)
+    if (plan.toUpload.length > 0) return ''
+    return `Всички ${plan.already.length} съвпаднали вече имат качен подписан файл. Отметни „Замени и вече качените“, ако искаш да ги качиш наново.`
+  }
   const bits: string[] = []
   if (preview.unmatched.length) bits.push(`${preview.unmatched.length} без съвпадение`)
   if (preview.duplicates.length) bits.push(`${preview.duplicates.length} с дубликати`)
   if (preview.notPdf.length) bits.push(`${preview.notPdf.length} не са PDF или не се четат`)
   if (bits.length === 0) return 'В избраното няма PDF файлове.'
   return `Няма файл за качване: ${bits.join(', ')}. Причината за всеки е в таблицата.`
+}
+
+/**
+ * Re-uploading a whole ZIP is safe: people who already have a signed file are skipped
+ * („вече качени N“) unless the admin explicitly asks to replace them.
+ */
+export function signedUploadPlan(preview: SignedUploadMatch, replaceExisting: boolean) {
+  if (replaceExisting) return { toUpload: preview.matched, already: [] as MatchedUpload[] }
+  return {
+    toUpload: preview.matched.filter((row) => !row.willReplace),
+    already: preview.matched.filter((row) => row.willReplace),
+  }
 }
 
 export function serializeBulkManifestCsv(rows: BulkManifestRow[]): string {

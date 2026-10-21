@@ -52,6 +52,9 @@ export interface RosterFields {
   roundsRunoff?: boolean
   paperCount?: number | null
   machineCount?: number | null
+  /** МИР and number of the пълномощно; a section in another МИР gets „Секция извън МИР на пълномощното“. */
+  designationMir?: string
+  designationNumber?: string
 }
 
 export interface TakenImport {

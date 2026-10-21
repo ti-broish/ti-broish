@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { DesignationMirBadge } from './-designation-mir-badge'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminGhost, adminInput } from '../../components/admin-ui'
@@ -622,7 +623,14 @@ function PalnomoshtniPage() {
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-2 py-2 font-mono text-xs">{row.partner ? '—' : row.section}</td>
+                    <td className="px-2 py-2 font-mono text-xs">
+                      {row.partner ? row.assignedSection || '—' : row.section}
+                      {row.assignedSection ? (
+                        <span className="mt-1 block font-sans">
+                          <DesignationMirBadge designationMir={row.designationMir} designationNumber={row.number} section={row.assignedSection} />
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-2 py-2">
                       {row.partner && row.number == null ? (
                         <PartnerMirSelect id={row.id} mir={row.mir} disabled={!canEdit || busy} onSaved={reload} setMessage={setMessage} />

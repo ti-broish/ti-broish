@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { DesignationMirBadge } from './-designation-mir-badge'
 import { adminGhost, adminInput } from '../../components/admin-ui'
 import { EgnReveal } from '../../components/EgnReveal'
 import type { PriorityInfo } from '../../signup/priority-sections'
@@ -24,6 +25,7 @@ type PartnerRow = {
   draftPriority: PriorityInfo | null
   publishedPriority: PriorityInfo | null
   hasEgn: boolean
+  mirMismatch?: string
 }
 type Counts = { total: number; drafted: number; published: number; waiting: number }
 
@@ -178,6 +180,7 @@ export function PartnerSectionsPanel({
                     <td className="px-2 py-2">{row.municipality || '—'}</td>
                     <td className="grid gap-1 px-2 py-2">
                       <span className="font-mono">{row.draft || '—'}</span>
+                      <DesignationMirBadge designationMir={row.mir} designationNumber={row.number} section={row.draft} />
                       <PriorityBadge info={row.draftPriority} />
                       {row.draft && row.locked ? <span className="text-xs">ръчна</span> : null}
                       {canEdit ? (
@@ -205,6 +208,7 @@ export function PartnerSectionsPanel({
                     </td>
                     <td className="px-2 py-2">
                       <span className="font-mono">{row.published || '—'}</span>
+                      <DesignationMirBadge designationMir={row.mir} designationNumber={row.number} section={row.published} />
                       <PriorityBadge info={row.publishedPriority} />
                     </td>
                     <td className="px-2 py-2">

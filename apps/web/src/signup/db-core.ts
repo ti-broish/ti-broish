@@ -1,5 +1,5 @@
 import { migrateCompanionColumns } from './db-core-migrate-companions'
-import { DESIGNATION_NUMBER_UNIQUE_INDEX_SQL } from './designation-number'
+import { DESIGNATION_HIGH_WATER_SEED, DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_NUMBER_UNIQUE_INDEX_SQL } from './designation-number'
 import { ensureSearchIndex } from './db-search'
 import { env } from 'cloudflare:workers'
 import { visibleSection } from './admin-csv'
@@ -273,6 +273,15 @@ async function ensureSignupSchema(db: SignupD1) {
     await db.prepare(DESIGNATION_NUMBER_UNIQUE_INDEX_SQL).run()
   } catch {
     // Applied by sql/2026-10-19-designation-number-per-mir.sql; never block requests on it.
+  }
+  // Numbers are never reused: the per-МИР high-water mark (table first, the assign SQL reads it).
+  await db.prepare(DESIGNATION_HIGH_WATER_TABLE).run()
+  for (const sql of [...DESIGNATION_HIGH_WATER_TRIGGERS, ...DESIGNATION_HIGH_WATER_SEED]) {
+    try {
+      await db.prepare(sql).run()
+    } catch (error) {
+      console.warn('designation high-water', error instanceof Error ? error.message : error)
+    }
   }
   const now = new Date().toISOString()
   for (const email of parseAdminEmails((env as unknown as { ADMIN_EMAILS?: string }).ADMIN_EMAILS)) {

@@ -81,6 +81,7 @@ export const adminDistribute = createServerFn({ method: 'POST' })
         abroad: skipped('abroad'),
         noPlace: skipped('no-place'),
         noSection: skipped('no-section'),
+        outsideMir: skipped('outside-mir'),
         keptAtAddress: plan.keptAtAddress,
       })} ${mobileText}`,
     }

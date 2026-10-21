@@ -13,6 +13,13 @@ import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
 type Database = SignupD1
+
+/**
+ * Who the abroad allocator drafts: living abroad, or numbered for МИР 32. A numbered пълномощно is valid
+ * only in its МИР, so someone numbered for a МИР in Bulgaria is never drafted abroad.
+ */
+export const ABROAD_PERSON_WHERE = `(designation_number IS NULL OR COALESCE(designation_mir, '') = '32')
+  AND (COALESCE(region_code, '') = '32' OR COALESCE(mir_code, '') = '32' OR (designation_number IS NOT NULL AND designation_mir = '32'))`
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
 
 /**
@@ -51,7 +58,7 @@ export const adminSaveAbroadDrafts = createServerFn({ method: 'POST' }).handler(
            AND COALESCE(draft_locked, 0) = 0
            AND COALESCE(submitted, 0) = 1
            AND COALESCE(withdrawn, 0) = 0
-           AND COALESCE(region_code, '') = '32'`,
+           AND ${ABROAD_PERSON_WHERE}`,
       )
       .bind(row.sectionId, now, row.personId)
       .run()
@@ -87,7 +94,7 @@ async function loadAbroadPeople(db: Database) {
       FROM signups
       WHERE COALESCE(submitted, 0) = 1
         AND COALESCE(withdrawn, 0) = 0
-        AND (COALESCE(region_code, '') = '32' OR COALESCE(mir_code, '') = '32')`,
+        AND ${ABROAD_PERSON_WHERE}`,
     )
     .all<{
       id: string
@@ -116,8 +123,9 @@ async function loadAbroadPeople(db: Database) {
       email: row.email.trim().toLowerCase(),
       role: row.role,
       mobileTeam: place.mobileTeam,
-      regionCode: row.region_code || '32',
-      mir: row.mir || '32',
+      // Numbered for МИР 32 while living in Bulgaria: abroad is their only reach.
+      regionCode: row.region_code === '32' || row.mir === '32' ? row.region_code || '32' : '32',
+      mir: row.region_code === '32' || row.mir === '32' ? row.mir || '32' : '32',
       countryName: place.countryName,
       cityName: row.town_name || place.townName,
     })

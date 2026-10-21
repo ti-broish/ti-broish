@@ -89,6 +89,8 @@ interface RawPerson {
   machine_count: number | null
   withdrawal_processed_at: string
   withdrawal_processed_by: string
+  designation_mir?: string | null
+  designation_number?: number | string | null
 }
 
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -210,6 +212,8 @@ function fieldsOf(row: RawPerson): RosterFields {
     roundsRunoff: row.rounds_runoff === 1,
     paperCount: typeof row.paper_count === 'number' ? row.paper_count : null,
     machineCount: typeof row.machine_count === 'number' ? row.machine_count : null,
+    designationMir: row.designation_mir ?? '',
+    designationNumber: row.designation_number == null || row.designation_number === '' ? '' : String(row.designation_number),
   }
 }
 
@@ -237,7 +241,9 @@ const PERSON_SQL = `${PERSON_SQL_BASE}${NOTES_SQL},
   paper_count,
   machine_count,
   COALESCE(withdrawal_processed_at, '') AS withdrawal_processed_at,
-  COALESCE(withdrawal_processed_by, '') AS withdrawal_processed_by`
+  COALESCE(withdrawal_processed_by, '') AS withdrawal_processed_by,
+  COALESCE(designation_mir, '') AS designation_mir,
+  designation_number`
 
 function bound(db: Database, sql: string, binds: unknown[]) {
   const statement = db.prepare(sql)

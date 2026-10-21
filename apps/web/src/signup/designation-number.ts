@@ -108,12 +108,77 @@ export function planDesignationNumbering(
 }
 
 /**
+ * Numbers are never reused (Harry, 21.10.2026). A number freed by a move to another МИР or a cleared
+ * row would come back with MAX + 1, so every number ever issued raises a per-МИР high-water mark:
+ * triggers on both tables keep it, and the bootstrap seeds it from the current MAX, the audit lines
+ * („31/504 от …“) and RELEASED_DESIGNATION_NUMBERS. The next number is max(high-water, MAX) + 1.
+ */
+export const DESIGNATION_HIGH_WATER_TABLE = `CREATE TABLE IF NOT EXISTS designation_high_water (
+  mir TEXT PRIMARY KEY,
+  n INTEGER NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT ''
+)`
+
+/** Numbers issued and later freed before the high-water mark existed (31/504 and 31/502 moved to МИР 32). */
+export const RELEASED_DESIGNATION_NUMBERS: ReadonlyArray<readonly [string, number]> = [
+  ['31', 502],
+  ['31', 504],
+  ['03', 515],
+  ['17', 506],
+]
+
+const RAISE = (table: string, event: string) => `CREATE TRIGGER IF NOT EXISTS trg_${table}_designation_high_water_${event}
+AFTER ${event === 'insert' ? 'INSERT' : 'UPDATE OF designation_number, designation_mir'} ON ${table}
+WHEN NEW.designation_number IS NOT NULL AND COALESCE(NEW.designation_mir, '') != ''
+BEGIN
+  INSERT INTO designation_high_water (mir, n, updated_at) VALUES (NEW.designation_mir, NEW.designation_number, datetime('now'))
+  ON CONFLICT(mir) DO UPDATE SET n = MAX(n, excluded.n), updated_at = excluded.updated_at WHERE excluded.n > n;
+END`
+
+export const DESIGNATION_HIGH_WATER_TRIGGERS = [
+  RAISE('signups', 'insert'),
+  RAISE('signups', 'update'),
+  RAISE('partner_people', 'insert'),
+  RAISE('partner_people', 'update'),
+]
+
+/** Idempotent seed: only ever raises the mark. The audit part reads „МИР/номер от …“ lines. */
+export const DESIGNATION_HIGH_WATER_SEED = [
+  `INSERT INTO designation_high_water (mir, n, updated_at)
+SELECT mir, MAX(n), datetime('now') FROM (
+  SELECT designation_mir AS mir, designation_number AS n FROM signups WHERE designation_number IS NOT NULL AND COALESCE(designation_mir, '') != ''
+  UNION ALL
+  SELECT designation_mir, designation_number FROM partner_people WHERE designation_number IS NOT NULL AND COALESCE(designation_mir, '') != ''
+) WHERE 1 GROUP BY mir
+ON CONFLICT(mir) DO UPDATE SET n = MAX(n, excluded.n), updated_at = excluded.updated_at WHERE excluded.n > n`,
+  `INSERT INTO designation_high_water (mir, n, updated_at)
+SELECT mir, MAX(n), datetime('now') FROM (
+  SELECT substr(after_text, 1, 2) AS mir, CAST(substr(after_text, 4) AS INTEGER) AS n FROM signup_audit
+  WHERE field = 'designation_number' AND substr(after_text, 3, 1) = '/' AND substr(after_text, 1, 2) GLOB '[0-9][0-9]'
+) WHERE n >= ${DESIGNATION_NUMBER_START} GROUP BY mir
+ON CONFLICT(mir) DO UPDATE SET n = MAX(n, excluded.n), updated_at = excluded.updated_at WHERE excluded.n > n`,
+  ...RELEASED_DESIGNATION_NUMBERS.map(
+    ([mir, n]) => `INSERT INTO designation_high_water (mir, n, updated_at) VALUES ('${mir}', ${n}, datetime('now'))
+ON CONFLICT(mir) DO UPDATE SET n = MAX(n, excluded.n), updated_at = excluded.updated_at WHERE excluded.n > n`,
+  ),
+]
+
+/** Every statement the bootstrap runs for the mark, in order: table, triggers, seed. */
+export const DESIGNATION_HIGH_WATER_SQL = [DESIGNATION_HIGH_WATER_TABLE, ...DESIGNATION_HIGH_WATER_TRIGGERS, ...DESIGNATION_HIGH_WATER_SEED]
+
+/** The next number in a МИР: after the highest ever issued (high-water) and the highest stored. */
+export function nextNumberInMir(stored: number | null | undefined, highWater: number | null | undefined) {
+  return Math.max(stored ?? 0, highWater ?? 0, DESIGNATION_NUMBER_START - 1) + 1
+}
+
+/**
  * Next number in МИР ?1 across both tables that hold пълномощни: signups and
- * partner_people („И аз“). One counter per МИР, so numbers never collide.
+ * partner_people („И аз“), and the high-water mark, so a freed number never comes back.
  */
 const NEXT_IN_MIR_SQL = `MAX(
     COALESCE((SELECT MAX(designation_number) FROM signups WHERE designation_mir = ?1), ${DESIGNATION_NUMBER_START - 1}),
     COALESCE((SELECT MAX(designation_number) FROM partner_people WHERE designation_mir = ?1), ${DESIGNATION_NUMBER_START - 1}),
+    COALESCE((SELECT n FROM designation_high_water WHERE mir = ?1), ${DESIGNATION_NUMBER_START - 1}),
     ${DESIGNATION_NUMBER_START - 1}) + 1`
 
 /**
@@ -155,6 +220,8 @@ export const DESIGNATION_MAX_PER_MIR_SQL = `SELECT mir, MAX(n) AS n FROM (
   UNION ALL
   SELECT designation_mir AS mir, designation_number AS n FROM partner_people
     WHERE designation_number IS NOT NULL AND COALESCE(designation_mir, '') != ''
+  UNION ALL
+  SELECT mir, n FROM designation_high_water
 ) GROUP BY mir`
 
 export function maxPerMirFromRows(rows: Array<{ mir: string | null; n: number | string | null }>) {

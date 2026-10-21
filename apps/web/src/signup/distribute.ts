@@ -4,7 +4,7 @@ import { rKey } from './priority-sections'
 import { isSpecialBulgariaSection } from './stationary-sections'
 import { lastTurnout, sectionTier, type Turnout } from './section-tiers'
 
-export type SkipReason = 'mobile' | 'video' | 'abroad' | 'no-place' | 'no-section'
+export type SkipReason = 'mobile' | 'video' | 'abroad' | 'no-place' | 'no-section' | 'outside-mir'
 export type Together = 'address' | 'town' | 'municipality' | 'region' | 'solo'
 
 export interface DistributeCompanion {
@@ -33,6 +33,15 @@ export interface DistributePerson {
   companions: DistributeCompanion[]
   /** On an exact tie, a travel area before home (default). „И аз“ people set false: closer wins the tie. */
   preferTravel?: boolean
+  /**
+   * The МИР of the person's numbered пълномощно. A пълномощно is valid only in its МИР, so a numbered
+   * person is drafted only there (32: abroad only, left to the abroad allocator). If none of their stated
+   * places is in that МИР, they are drafted there only with designationAnywhere (they can travel);
+   * otherwise they are skipped as 'outside-mir'. Empty: unnumbered, the stated places decide.
+   */
+  designationMir?: string
+  /** Can travel anywhere in the пълномощно's МИР when none of their places is in it. */
+  designationAnywhere?: boolean
 }
 
 export interface DistributeSection {
@@ -174,6 +183,8 @@ export function describeDistribution(input: {
   noSection: number
   keptAtAddress: number
   kept?: number
+  /** Numbered people whose places miss the пълномощно's МИР and who did not say they can travel. */
+  outsideMir?: number
 }) {
   const drafted =
     input.drafted === 1 && input.paper === 1
@@ -195,6 +206,7 @@ export function describeDistribution(input: {
   else if (kept > 1) sentences.push(`Задържахме ${kept} корекции.`)
   if (later.length) sentences.push(`За после остават ${later.join(', ')}.`)
   if (input.noSection) sentences.push(`Без свободна секция в обхвата: ${input.noSection}.`)
+  if (input.outsideMir) sentences.push(`С пълномощно за МИР извън посочените места (без чернова): ${input.outsideMir}.`)
   if (input.keptAtAddress === 1) sentences.push('1 група е на един адрес.')
   else if (input.keptAtAddress > 1) sentences.push(`${input.keptAtAddress} групи са на един адрес.`)
   return sentences.join(' ')
@@ -272,6 +284,13 @@ export function readResultsSections(payload: unknown): DistributeSection[] {
  */
 export function wholeReachMirs(person: DistributePerson) {
   if (skipReason(person) !== null) return []
+  const lock = designationLock(person)
+  if (lock && !reachesMir(person, lock)) return [lock]
+  if (lock) return wideReachMirs(person).filter((mir) => mir === lock)
+  return wideReachMirs(person)
+}
+
+function wideReachMirs(person: DistributePerson) {
   if (person.radius !== 'region' && person.radius !== 'distant') return []
   const picked = new Set(person.travelStops.map((stop) => padMir(stop.regionCode)).filter(Boolean))
   const mirs = new Set<string>()
@@ -482,8 +501,27 @@ function allowedSections(person: DistributePerson, sections: DistributeSection[]
 function sectionFits(person: DistributePerson, section: DistributeSection, reach: 'home' | 'chosen') {
   if (section.isMobile === true) return false
   const parts = sectionParts(section.id)
+  if (!parts) return false
+  const lock = designationLock(person)
+  if (lock && parts.mir !== lock) return false
+  // None of their places is in the пълномощно's МИР: anywhere in that МИР (counted as a chosen area).
+  if (lock && !reachesMir(person, lock)) return reach === 'chosen'
+  return placeFits(person, section, parts, reach)
+}
+
+/** The 2-digit МИР of a numbered person's пълномощно, or ''. */
+export function designationLock(person: Pick<DistributePerson, 'designationMir'>) {
+  return padMir(person.designationMir ?? '')
+}
+
+/** Does any of the person's stated places (home or chosen) sit in this МИР? */
+function reachesMir(person: DistributePerson, mir: string) {
+  return mirsFor(person, 'home').has(mir) || mirsFor(person, 'chosen').has(mir)
+}
+
+function placeFits(person: DistributePerson, section: DistributeSection, parts: NonNullable<ReturnType<typeof sectionParts>>, reach: 'home' | 'chosen') {
   const mirs = mirsFor(person, reach)
-  if (!parts || !mirs.has(parts.mir)) return false
+  if (!mirs.has(parts.mir)) return false
   const municipality = pad2(person.municipalityCode)
   if (person.radius === 'municipality' && municipality) {
     if (parts.municipality !== municipality) return false
@@ -728,10 +766,13 @@ function preferred(members: DistributePerson[], anchors: readonly DistributeAnch
 }
 
 function skipReason(person: DistributePerson): SkipReason | null {
-  if (person.regionCode === '32' || padMir(person.mir) === '32') return 'abroad'
+  const lock = designationLock(person)
+  if (lock === '32') return 'abroad'
+  if (!lock && (person.regionCode === '32' || padMir(person.mir) === '32')) return 'abroad'
   if (person.mobileTeam || person.role === 'mobile') return 'mobile'
   if (person.role === 'video') return 'video'
   if (person.role !== 'section') return 'mobile'
+  if (lock && !reachesMir(person, lock)) return person.designationAnywhere ? null : 'outside-mir'
   if (person.radius === 'distant') return oblastMirs(person).size || person.distantMirs.some((code) => padMir(code)) ? null : 'no-place'
   if (person.radius === 'region') return oblastMirs(person).size ? null : 'no-place'
   if (!LOCAL_RADIUS.has(person.radius) || !padMir(person.mir)) return 'no-place'

@@ -80,6 +80,9 @@ export interface DesignationPersonView {
   withdrawnReason?: string
   /** „И аз“ only: an active volunteer has the same ЕГН („покрит от доброволец“); never numbered. */
   covered?: boolean
+  /** The пълномощно's stored МИР and the person's section (draft or published), for „Секция извън МИР на пълномощното“. */
+  designationMir?: string
+  assignedSection?: string
 }
 
 /** „И аз“ partner people, counted apart from signups. Counts are for active (not withdrawn) rows. */

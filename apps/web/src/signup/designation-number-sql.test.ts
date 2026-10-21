@@ -3,7 +3,12 @@ import { designationNumberAuditSql, PARTNER_WITHDRAW_AUDIT_SQL, PARTNER_WITHDRAW
 import { partnerDuplicateSql, signupDuplicateSql } from './designation-duplicates'
 import {
   DESIGNATION_ASSIGN_SQL,
+  DESIGNATION_HIGH_WATER_SEED,
+  DESIGNATION_HIGH_WATER_SQL,
+  DESIGNATION_HIGH_WATER_TABLE,
+  DESIGNATION_HIGH_WATER_TRIGGERS,
   DESIGNATION_MAX_PER_MIR_SQL,
+  nextNumberInMir,
   DESIGNATION_NUMBER_UNIQUE_INDEX_SQL,
   PARTNER_DESIGNATION_ASSIGN_SQL,
 } from './designation-number'
@@ -36,9 +41,55 @@ describe.skipIf(!sqlite)('designation number SQL (SQLite, as D1)', () => {
       egn TEXT NOT NULL DEFAULT '', withdrawn_at TEXT, withdrawn_by TEXT, withdrawn_reason TEXT, covered_by_signup_id TEXT)`)
     db.exec('DROP TABLE IF EXISTS signup_audit')
     db.exec('CREATE TABLE signup_audit (id TEXT PRIMARY KEY, signup_id TEXT NOT NULL, actor TEXT NOT NULL, field TEXT NOT NULL, before_text TEXT NOT NULL, after_text TEXT NOT NULL, created_at TEXT NOT NULL)')
+    db.exec('DROP TABLE IF EXISTS designation_high_water')
+    for (const name of ['signups_designation_high_water_insert', 'signups_designation_high_water_update', 'partner_people_designation_high_water_insert', 'partner_people_designation_high_water_update']) {
+      db.exec(`DROP TRIGGER IF EXISTS trg_${name}`)
+    }
+    db.exec(DESIGNATION_HIGH_WATER_TABLE)
+    for (const sql of DESIGNATION_HIGH_WATER_TRIGGERS) db.exec(sql)
     for (const id of ['a', 'b', 'c', 'd']) db.prepare('INSERT INTO signups (id) VALUES (?)').run(id)
     return db
   }
+
+  it('never reuses a number: a freed number stays used (high-water mark)', () => {
+    const db = seed()
+    const assign = db.prepare(DESIGNATION_ASSIGN_SQL)
+    assign.run('31', '21.10.2026', 'now', 'a')
+    assign.run('31', '21.10.2026', 'now', 'b')
+    assign.run('31', '21.10.2026', 'now', 'c')
+    // 31/503 moves to МИР 32 (as Ралица and Любка did): MAX in МИР 31 drops to 502.
+    db.exec(`UPDATE signups SET designation_mir = '32', designation_number = 519 WHERE id = 'c'`)
+    assign.run('31', '22.10.2026', 'now', 'd')
+    expect(db.prepare(`SELECT designation_number AS n FROM signups WHERE id = 'd'`).all()).toEqual([{ n: 504 }])
+    expect(db.prepare(`SELECT mir, n FROM designation_high_water ORDER BY mir`).all()).toEqual([
+      { mir: '31', n: 504 },
+      { mir: '32', n: 519 },
+    ])
+    expect(db.prepare(DESIGNATION_MAX_PER_MIR_SQL).all()).toEqual(expect.arrayContaining([{ mir: '31', n: 504 }]))
+  })
+
+  it('the seed raises the mark from the stored MAX, the audit lines and the known released numbers', () => {
+    const db = seed()
+    db.exec(`UPDATE signups SET designation_mir = '31', designation_number = 501 WHERE id = 'a'`)
+    db.exec(`UPDATE signups SET designation_mir = '31', designation_number = 503 WHERE id = 'b'`)
+    db.exec(`DELETE FROM designation_high_water`)
+    db.exec(`INSERT INTO signup_audit VALUES ('1', 'pp-x', 'admin', 'designation_number', '', '26/530 от 21.10.2026', 'now')`)
+    db.exec(`INSERT INTO signup_audit VALUES ('2', 'pp-y', 'admin', 'designation_number', '', '32/520 от 21.10.2026 (МИР 31 → 32, Извън страната; 31/502 освободен)', 'now')`)
+    for (const sql of DESIGNATION_HIGH_WATER_SEED) db.exec(sql)
+    for (const sql of DESIGNATION_HIGH_WATER_SEED) db.exec(sql)
+    const marks = Object.fromEntries((db.prepare('SELECT mir, n FROM designation_high_water').all() as Array<{ mir: string; n: number }>).map((row) => [row.mir, row.n]))
+    // 31/504 was issued and freed: the next МИР 31 number is 505, not 504.
+    expect(marks).toMatchObject({ '31': 504, '26': 530, '32': 520, '03': 515, '17': 506 })
+    db.prepare(DESIGNATION_ASSIGN_SQL).run('31', '22.10.2026', 'now', 'c')
+    expect(db.prepare(`SELECT designation_number AS n FROM signups WHERE id = 'c'`).all()).toEqual([{ n: 505 }])
+    expect(DESIGNATION_HIGH_WATER_SQL.length).toBe(1 + DESIGNATION_HIGH_WATER_TRIGGERS.length + DESIGNATION_HIGH_WATER_SEED.length)
+  })
+
+  it('nextNumberInMir: after the higher of the stored MAX and the high-water mark, from 501', () => {
+    expect(nextNumberInMir(503, 504)).toBe(505)
+    expect(nextNumberInMir(510, 504)).toBe(511)
+    expect(nextNumberInMir(null, null)).toBe(501)
+  })
 
   it('starts each МИР at 501, keeps МИРs independent and never renumbers', () => {
     const db = seed()

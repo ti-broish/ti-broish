@@ -9,6 +9,9 @@ import { reservedOrgOf } from './reserved-sections-db'
 import { isReservedAbort } from './reserved-sections-sql'
 import { isSectionHeldAbort } from './partner-people-sql'
 import { withPickedIds } from './section-state'
+import { designationMirMismatch } from './designation-mir-guard'
+import { describePublishPreview } from './publish-preview'
+import { previewPartnerPublish, publishPartnerDrafts } from './partner-publish'
 
 type Database = SignupD1
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -48,14 +51,14 @@ export const adminDraft = createServerFn({ method: 'POST' })
     const db = access.db
     const section = normalizeSection(data.section).slice(0, 32)
     const person = await db
-      .prepare(`SELECT id, email, ${PERSON_REACH_COLUMNS} FROM signups WHERE id = ?`)
+      .prepare(`SELECT id, email, ${PERSON_REACH_COLUMNS}, ${DESIGNATION_COLUMNS} FROM signups WHERE id = ?`)
       .bind(data.id)
-      .first<{ id: string; email: string; mir: string; region: string; radius: string; distant_region_codes: string; travel_municipalities: string }>()
+      .first<{ id: string; email: string; mir: string; region: string; radius: string; distant_region_codes: string; travel_municipalities: string } & DesignationColumns>()
     if (!person) return { ok: false as const, message: 'Няма такова записване.' }
     // Reserved by another organisation: refuse, do not save a draft that could never be published.
     const reservedBy = section ? await reservedOrgOf(db, section) : null
     if (reservedBy) return { ok: false as const, reserved: reservedBy, message: reservedMessage(reservedCode(section) || section, reservedBy) }
-    const warnings = section ? await assignmentWarnings(db, section, person.id, personReachFrom(person)) : []
+    const warnings = section ? await assignmentWarnings(db, section, person.id, personReachFrom(person), designationOf(person)) : []
     try {
       await db
       .prepare(
@@ -91,16 +94,16 @@ export const adminPublish = createServerFn({ method: 'POST' })
     const pending = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
     const rows = await bound(
       db,
-      `SELECT id, email, ${PERSON_REACH_COLUMNS}, COALESCE(draft_section, '') AS draft_section
+      `SELECT id, email, ${PERSON_REACH_COLUMNS}, ${DESIGNATION_COLUMNS}, COALESCE(draft_section, '') AS draft_section
        FROM signups WHERE (${filter.clause}) AND ${pending}`,
       filter.binds,
-    ).all<{ id: string; email: string; mir: string; region: string; radius: string; distant_region_codes: string; travel_municipalities: string; draft_section: string }>()
+    ).all<{ id: string; email: string; mir: string; region: string; radius: string; distant_region_codes: string; travel_municipalities: string; draft_section: string } & DesignationColumns>()
     const now = new Date().toISOString()
     let published = 0
     const blocked: Array<{ email: string; section: string; warning: string }> = []
     for (const row of rows.results ?? []) {
       const section = normalizeSection(row.draft_section)
-      const warnings = await assignmentWarnings(db, section, row.id, personReachFrom(row))
+      const warnings = await assignmentWarnings(db, section, row.id, personReachFrom(row), designationOf(row))
       if (publishBlocked(warnings)) {
         blocked.push({ email: row.email, section, warning: warningSummary(warnings) })
         continue
@@ -117,10 +120,62 @@ export const adminPublish = createServerFn({ method: 'POST' })
       }
       published += 1
     }
-    return { ok: true as const, published, blocked }
+    // The whole view (not a row or the picked rows): „И аз“ partner drafts in the same scope go out too,
+    // through the partner publish path (section_published + „И аз“ reservation; no email, no Brevo).
+    const partners = data.ids && data.ids.length > 0 ? { published: 0, blocked: [] } : await publishPartnerDrafts(db, { view: data.view, mir: data.mir }, now)
+    return {
+      ok: true as const,
+      published,
+      blocked,
+      partnersPublished: partners.published,
+      partnersBlocked: partners.blocked.map((row) => ({ section: row.section, warning: row.reason })),
+    }
   })
 
-async function assignmentWarnings(db: Database, section: string, personId: string, reach: PersonReach): Promise<AssignWarning[]> {
+/** What „Публикувай черновите в този изглед“ would publish now: volunteers and „И аз“, with what a guard stops. */
+export const adminPublishPreview = createServerFn({ method: 'POST' })
+  .validator((input: { view: string; mir: string }) => input)
+  .handler(async ({ data }) => {
+    const access = await gate('publish')
+    if (!access.ok) return access
+    const db = access.db
+    const filter = withPickedIds(distributionWhere(viewOf(data.view), data.mir), undefined)
+    if ('error' in filter) return { ok: false as const, message: filter.error }
+    const pending = `COALESCE(draft_section, '') != '' AND COALESCE(draft_section, '') != COALESCE(published_section, '')`
+    const rows =
+      (
+        await bound(db, `SELECT COALESCE(draft_section, '') AS draft_section, ${DESIGNATION_COLUMNS} FROM signups WHERE (${filter.clause}) AND ${pending}`, filter.binds).all<
+          { draft_section: string } & DesignationColumns
+        >()
+      ).results ?? []
+    const mismatched = rows.filter((row) =>
+      designationMirMismatch({ designationMir: row.designation_mir, designationNumber: row.designation_number, section: normalizeSection(row.draft_section) }),
+    ).length
+    const partners = await previewPartnerPublish(db, { view: data.view, mir: data.mir })
+    return {
+      ok: true as const,
+      volunteers: rows.length - mismatched,
+      volunteersMismatched: mismatched,
+      partners: partners.pending,
+      partnersMismatched: partners.mismatched,
+      message: describePublishPreview({ volunteers: rows.length - mismatched, partners: partners.pending, mismatched: mismatched + partners.mismatched }),
+    }
+  })
+
+const DESIGNATION_COLUMNS = `COALESCE(designation_mir, '') AS designation_mir, designation_number`
+type DesignationColumns = { designation_mir: string; designation_number: number | null }
+
+function designationOf(row: DesignationColumns) {
+  return { mir: row.designation_mir, number: row.designation_number }
+}
+
+async function assignmentWarnings(
+  db: Database,
+  section: string,
+  personId: string,
+  reach: PersonReach,
+  designation?: { mir: string | null; number: number | string | null },
+): Promise<AssignWarning[]> {
   const takenOrg = await reservedOrgOf(db, section)
   const duplicate = await findDuplicateOwner(db, section, personId)
   return validateAssignment({
@@ -130,6 +185,7 @@ async function assignmentWarnings(db: Database, section: string, personId: strin
     reach,
     takenOrg,
     duplicate,
+    designation,
   })
 }
 

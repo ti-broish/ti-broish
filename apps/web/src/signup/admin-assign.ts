@@ -1,6 +1,7 @@
 import { mirFromSection, normalizeSection } from './admin-csv'
+import { designationMirMessage, designationMirMismatch } from './designation-mir-guard'
 
-export type AssignWarningCode = 'taken' | 'duplicate' | 'mir_mismatch' | 'outside_places'
+export type AssignWarningCode = 'taken' | 'duplicate' | 'mir_mismatch' | 'outside_places' | 'designation_mir'
 
 export interface AssignWarning {
   code: AssignWarningCode
@@ -88,6 +89,8 @@ export function validateAssignment(input: {
   reach?: PersonReach
   takenOrg: string | null
   duplicate: DuplicateOwner | null
+  /** The numbered пълномощно: a section in another МИР blocks publishing (designation-mir-guard.ts). */
+  designation?: { mir: string | null; number: number | string | null }
 }): AssignWarning[] {
   const section = normalizeSection(input.section)
   if (!section) return []
@@ -111,6 +114,11 @@ export function validateAssignment(input: {
     })
   }
 
+  const mismatch = input.designation
+    ? designationMirMismatch({ designationMir: input.designation.mir, designationNumber: input.designation.number, section })
+    : null
+  if (mismatch) warnings.push({ code: 'designation_mir', level: 'block', message: designationMirMessage(mismatch) })
+
   // Never blocks: an admin may place someone outside their stated places on purpose. Inside them: no warning.
   const reach = input.reach ?? { mir: input.personMir, region: '', radius: '', distantMirs: [], travelStops: [] }
   const outside = sectionOutsideReach(section, reach)
@@ -132,7 +140,7 @@ export function validateAssignment(input: {
   return warnings
 }
 
-/** Publish is blocked when any warning has level `block` (taken, duplicate). Outside the stated places only warns. */
+/** Publish is blocked when any warning has level `block` (taken, duplicate, outside the пълномощно's МИР). Outside the stated places only warns. */
 export function publishBlocked(warnings: AssignWarning[]) {
   return warnings.some((warning) => warning.level === 'block')
 }

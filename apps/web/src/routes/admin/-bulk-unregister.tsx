@@ -123,6 +123,8 @@ export function BulkUnregisterBar({
 /** „Отписани“: frees any seat a withdrawn person still holds and cleans their Brevo contacts. No email. */
 export function CleanupWithdrawnButton({ onDone }: { onDone: (message: string) => void }) {
   const [busy, setBusy] = useState(false)
+  // One „Почисти наново“ run: every click until „Няма останали“ continues from the same start time.
+  const [againSince, setAgainSince] = useState('')
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <button
@@ -131,13 +133,31 @@ export function CleanupWithdrawnButton({ onDone }: { onDone: (message: string) =
         disabled={busy}
         onClick={() => {
           setBusy(true)
-          void adminCleanupWithdrawn()
+          void adminCleanupWithdrawn({ data: {} })
             .then((result) => onDone(result.message))
             .catch(() => onDone('Почистването не мина. Опитай пак.'))
             .finally(() => setBusy(false))
         }}
       >
         {busy ? 'Почистваме…' : 'Почисти отписаните (секции и Brevo)'}
+      </button>
+      <button
+        type="button"
+        className={adminGhost}
+        disabled={busy}
+        title="За отписани с подписано пълномощно, които старият синхрон с Brevo върна в списъка."
+        onClick={() => {
+          setBusy(true)
+          void adminCleanupWithdrawn({ data: { again: true, ...(againSince ? { since: againSince } : {}) } })
+            .then((result) => {
+              onDone(result.message)
+              setAgainSince(result.ok && 'left' in result && result.left ? result.since : '')
+            })
+            .catch(() => onDone('Почистването не мина. Опитай пак.'))
+            .finally(() => setBusy(false))
+        }}
+      >
+        Почисти наново
       </button>
       <span className="text-[#5f5164]">Маха ги от всички списъци в Brevo и изчиства полетата за секция. Без писма.</span>
     </div>

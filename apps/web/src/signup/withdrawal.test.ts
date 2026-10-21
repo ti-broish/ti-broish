@@ -18,7 +18,7 @@ async function openDb(): Promise<{ raw: Raw; db: SignupD1 } | null> {
   }
   raw.exec(`CREATE TABLE signups (id TEXT PRIMARY KEY, email TEXT, payload TEXT, withdrawn INTEGER DEFAULT 0, withdrawn_at TEXT, withdrawn_by TEXT,
     withdrawn_reason TEXT, withdrawn_note TEXT, withdrawal_processed_at TEXT, withdrawal_processed_by TEXT, draft_section TEXT, draft_locked INTEGER DEFAULT 0, published_section TEXT, published_at TEXT,
-    designation_number INTEGER, updated_at TEXT)`)
+    designation_number INTEGER, designation_pdf_url TEXT, updated_at TEXT)`)
   raw.exec(`CREATE TABLE signup_audit (id TEXT PRIMARY KEY, signup_id TEXT, actor TEXT, field TEXT, before_text TEXT, after_text TEXT, created_at TEXT)`)
   const statement = (sql: string, binds: unknown[] = []): ReturnType<SignupD1['prepare']> => ({
     bind: (...values: unknown[]) => statement(sql, values.map((value) => (typeof value === 'boolean' ? Number(value) : value))),
@@ -150,6 +150,45 @@ describe('backfill: withdrawn people who still hold a seat', () => {
     expect(await cleanupWithdrawnBrevo(open.db, 'admin@example.com', 'now3', brevo)).toEqual({ checked: 0, cleaned: 0, failed: 0, left: 0 })
     expect(brevo).toHaveBeenCalledTimes(3)
     expect(brevo).not.toHaveBeenCalledWith('active@example.com')
+  })
+})
+
+describe('„Почисти наново“: withdrawn people the old resync put back on the Brevo list', () => {
+  it('re-cleans withdrawn people with a signed link once per run, even when they were cleaned before; never the active or unsigned', async () => {
+    const open = await openDb()
+    if (!open) return
+    for (const id of ['w1', 'w2', 'w3']) seed(open.raw, id, 1, null)
+    seed(open.raw, 'wnolink', 1, null)
+    seed(open.raw, 'active', 0, '182600013')
+    open.raw.exec(`UPDATE signups SET designation_pdf_url = 'https://drive.example/' || id, withdrawn_at = '2026-10-20T10:00:00.000Z' WHERE id IN ('w1','w2','w3','active')`)
+    open.raw.exec(`UPDATE signups SET withdrawn_at = '2026-10-20T10:00:00.000Z' WHERE id = 'wnolink'`)
+    // Their withdrawal cleanup already ran (so the plain cleanup skips them), then the old resync re-added them.
+    for (const id of ['w1', 'w2', 'w3', 'wnolink']) {
+      open.raw.prepare(`INSERT INTO signup_audit VALUES (?, ?, 'admin', 'withdrawn', '', ?, '2026-10-20T10:00:00.000Z')`).run(`a-${id}`, id, `Отписан ${BREVO_CLEANED_MARK}`)
+    }
+    const brevo = vi.fn(async (_email: string) => cleaned)
+    expect(await cleanupWithdrawnBrevo(open.db, 'admin@example.com', '2026-10-21T11:00:00.000Z', brevo)).toEqual({ checked: 0, cleaned: 0, failed: 0, left: 0 })
+
+    const since = '2026-10-21T11:00:00.000Z'
+    expect(await cleanupWithdrawnBrevo(open.db, 'admin@example.com', '2026-10-21T11:00:01.000Z', brevo, 2, { since })).toEqual({ checked: 2, cleaned: 2, failed: 0, left: 1 })
+    expect(await cleanupWithdrawnBrevo(open.db, 'admin@example.com', '2026-10-21T11:00:02.000Z', brevo, 2, { since })).toEqual({ checked: 1, cleaned: 1, failed: 0, left: 0 })
+    // Same run again: nothing left, nothing called (idempotent).
+    expect(await cleanupWithdrawnBrevo(open.db, 'admin@example.com', '2026-10-21T11:00:03.000Z', brevo, 2, { since })).toEqual({ checked: 0, cleaned: 0, failed: 0, left: 0 })
+    expect(brevo.mock.calls.map(([email]) => email).sort()).toEqual(['w1@example.com', 'w2@example.com', 'w3@example.com'])
+    const audit = open.raw.prepare(`SELECT after_text FROM signup_audit WHERE field = 'brevo_cleanup'`).all() as Array<{ after_text: string }>
+    expect(audit).toHaveLength(3)
+    for (const row of audit) expect(row.after_text.startsWith('Почистване наново')).toBe(true)
+  })
+
+  it('a failed re-clean stays in the run until it is clean', async () => {
+    const open = await openDb()
+    if (!open) return
+    seed(open.raw, 'w1', 1, null)
+    open.raw.exec(`UPDATE signups SET designation_pdf_url = 'https://drive.example/w1' WHERE id = 'w1'`)
+    const since = '2026-10-21T11:00:00.000Z'
+    const failing = vi.fn(async (_email: string): Promise<BrevoListOutcome> => ({ ok: false, action: 'removed', detail: 'Brevo HTTP 500' }))
+    expect(await cleanupWithdrawnBrevo(open.db, 'admin', '2026-10-21T11:00:01.000Z', failing, 25, { since })).toEqual({ checked: 1, cleaned: 0, failed: 1, left: 1 })
+    expect(await cleanupWithdrawnBrevo(open.db, 'admin', '2026-10-21T11:00:02.000Z', vi.fn(async () => cleaned), 25, { since })).toEqual({ checked: 1, cleaned: 1, failed: 0, left: 0 })
   })
 })
 

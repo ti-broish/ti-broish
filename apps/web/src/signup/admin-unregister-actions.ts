@@ -270,17 +270,25 @@ export const selfRestoreSignup = createServerFn({ method: 'POST' })
  * then takes up to 25 not-yet-clean contacts out of every Brevo list and blanks their section fields.
  * No email, no campaign. Click again while „остават“ is above zero.
  */
-export const adminCleanupWithdrawn = createServerFn({ method: 'POST' }).handler(async () => {
+export const adminCleanupWithdrawn = createServerFn({ method: 'POST' })
+  .validator((input: { again?: boolean; since?: string } | undefined) => {
+    const since = typeof input?.since === 'string' && !Number.isNaN(Date.parse(input.since)) ? new Date(input.since).toISOString() : ''
+    return { again: input?.again === true, since }
+  })
+  .handler(async ({ data }) => {
   const access = await gate('edit')
   if (!access.ok) return access
   const now = new Date().toISOString()
   const { released } = await releaseWithdrawnSections(access.db, now)
-  const result = await cleanupWithdrawnBrevo(access.db, access.email, now)
+  // „Почисти наново“: withdrawn people with a signed link, once per re-run. The server picks the run's start
+  // (its own clock, never later than now); the page sends it back on the next click until none are left.
+  const since = data.again ? (data.since && data.since < now ? data.since : now) : ''
+  const result = await cleanupWithdrawnBrevo(access.db, access.email, now, undefined, 25, data.again ? { since } : undefined)
   const parts = [
     released ? `Освободени секции: ${released}.` : '',
     `Brevo: изчистени ${result.cleaned} от ${result.checked}.`,
     result.failed ? `Неизчистени ${result.failed} (виж историята на човека).` : '',
     result.left ? `Остават ${result.left}.` : 'Няма останали.',
   ]
-  return { ok: true as const, released, ...result, message: parts.filter(Boolean).join(' ') }
-})
+  return { ok: true as const, released, ...result, since, message: parts.filter(Boolean).join(' ') }
+  })

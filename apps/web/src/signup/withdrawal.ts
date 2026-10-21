@@ -130,8 +130,18 @@ export async function releaseWithdrawnSections(
 }
 
 /**
+ * Re-run scope („Почисти наново“): withdrawn people with a signed пълномощно. Until v0.0.52 the
+ * „Синхронизирай с Brevo“ resync pushed them back onto the Brevo list after their withdrawal cleanup.
+ * `since` is when this re-run started: a person cleaned at or after it is done, so repeated clicks
+ * of one re-run page through everyone once and then stop (idempotent).
+ */
+export const WITHDRAWN_RECLEAN_SCOPE_SQL = `COALESCE(s.withdrawn, 0) = 1 AND COALESCE(s.designation_pdf_url, '') <> ''`
+
+/**
  * Withdrawn people whose Brevo contact was never fully cleaned (withdrawn before this existed, or Brevo failed).
  * Each gets a 'brevo_cleanup' audit row; a clean one is not picked again.
+ * With `again`, withdrawn people with a signed link are cleaned once more (see WITHDRAWN_RECLEAN_SCOPE_SQL):
+ * the same cleanup (off every list, section fields blanked), no deletion, no email.
  */
 export async function cleanupWithdrawnBrevo(
   db: SignupD1,
@@ -139,20 +149,26 @@ export async function cleanupWithdrawnBrevo(
   now: string,
   brevo: (email: string) => Promise<BrevoListOutcome> = (email) => brevoWithdrawCleanup(email),
   limit = 25,
+  again?: { since: string },
 ) {
-  const pending = `COALESCE(s.withdrawn, 0) = 1 AND NOT EXISTS (
+  const cleanedAfter = (from: string) => `NOT EXISTS (
       SELECT 1 FROM signup_audit a WHERE a.signup_id = s.id AND a.after_text LIKE '%${BREVO_CLEANED_MARK}%'
-        AND a.created_at >= COALESCE(s.withdrawn_at, ''))`
-  const rows = (await db.prepare(`SELECT s.id, s.email FROM signups s WHERE ${pending} ORDER BY s.id LIMIT ?`).bind(limit).all<{ id: string; email: string }>()).results ?? []
+        AND a.created_at >= ${from})`
+  const pending = again
+    ? `${WITHDRAWN_RECLEAN_SCOPE_SQL} AND ${cleanedAfter('?')}`
+    : `COALESCE(s.withdrawn, 0) = 1 AND ${cleanedAfter("COALESCE(s.withdrawn_at, '')")}`
+  const binds = again ? [again.since] : []
+  const rows =
+    (await db.prepare(`SELECT s.id, s.email FROM signups s WHERE ${pending} ORDER BY s.id LIMIT ?`).bind(...binds, limit).all<{ id: string; email: string }>()).results ?? []
   let cleaned = 0
   let failed = 0
   for (const row of rows) {
     const outcome = await brevo(row.email)
     if (brevoCleaned(outcome)) cleaned += 1
     else failed += 1
-    await writeSignupAudit(db, row.id, actor, 'brevo_cleanup', 'Отписан', `Почистване${brevoOutcomeAuditSuffix(outcome)}`, now)
+    await writeSignupAudit(db, row.id, actor, 'brevo_cleanup', 'Отписан', `${again ? 'Почистване наново' : 'Почистване'}${brevoOutcomeAuditSuffix(outcome)}`, now)
   }
-  const left = await db.prepare(`SELECT COUNT(*) AS n FROM signups s WHERE ${pending}`).first<{ n: number }>()
+  const left = await db.prepare(`SELECT COUNT(*) AS n FROM signups s WHERE ${pending}`).bind(...binds).first<{ n: number }>()
   return { checked: rows.length, cleaned, failed, left: Number(left?.n ?? 0) }
 }
 

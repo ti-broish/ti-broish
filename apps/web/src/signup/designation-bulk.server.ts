@@ -29,6 +29,7 @@ import {
 } from './designation-files'
 import { DESIGNATION_ASSIGN_SQL, PARTNER_DESIGNATION_ASSIGN_SQL, designationMirOf, parseStoredNumber } from './designation-number'
 import { brevoSignupIds } from './partner-people-sql'
+import { addToSignScopeCounts, emptySignScopeCounts } from './designation-sign-scope'
 import { runSqlBatches } from './designation-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
@@ -46,6 +47,7 @@ interface ListedPerson {
   number: number | null
   issuedAt: string | null
   generatedAt: string | null
+  signingGeneratedAt: string | null
   signedAt: string | null
   driveUrl: string | null
   driveFileId: string | null
@@ -88,6 +90,7 @@ const LIST_SQL = `SELECT id,
   designation_number,
   designation_issued_at,
   designation_generated_at,
+  designation_signing_generated_at,
   designation_signed_at,
   designation_pdf_url,
   designation_drive_file_id,
@@ -101,7 +104,7 @@ const LIST_SQL = `SELECT id,
  */
 const PARTNER_LIST_SQL = `SELECT id, first_name, middle_name, last_name, email,
   COALESCE(designation_mir, '') AS section,
-  designation_number, designation_issued_at, designation_generated_at, designation_signed_at,
+  designation_number, designation_issued_at, designation_generated_at, designation_signing_generated_at, designation_signed_at,
   designation_pdf_url, designation_drive_file_id,
   imported_at AS created_at, partner
   FROM partner_people`
@@ -116,6 +119,7 @@ interface RawListed {
   designation_number: number | string | null
   designation_issued_at: string | null
   designation_generated_at: string | null
+  designation_signing_generated_at?: string | null
   designation_signed_at: string | null
   designation_pdf_url: string | null
   designation_drive_file_id: string | null
@@ -137,6 +141,7 @@ function fromRaw(row: RawListed): ListedPerson {
     number: parseStoredNumber(row.designation_number),
     issuedAt: (row.designation_issued_at ?? '').trim() || null,
     generatedAt: (row.designation_generated_at ?? '').trim() || null,
+    signingGeneratedAt: (row.designation_signing_generated_at ?? '').trim() || null,
     signedAt: (row.designation_signed_at ?? '').trim() || null,
     driveUrl: (row.designation_pdf_url ?? '').trim() || null,
     driveFileId: (row.designation_drive_file_id ?? '').trim() || null,
@@ -216,6 +221,10 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
     .map(([code, count]) => ({ code, label: mirLabel(code) || `${code} ${ELECTION_DISTRICTS[code] ?? ''}`.trim(), count }))
   const people = everyone.filter((row) => matchesFilter(row, data.mir, data.q)).map(toView)
   const zipEligible = people.filter((row) => row.number != null).length
+  // Per scope for the signing ZIP: МИР filter only (the ZIP ignores the search box).
+  const inMir = everyone.filter((row) => matchesFilter(row, data.mir, ''))
+  const scopeCounts = inMir.reduce(addToSignScopeCounts, emptySignScopeCounts())
+  const partnerScopeCounts = partners.reduce(addToSignScopeCounts, emptySignScopeCounts())
   return {
     ok: true as const,
     counts,
@@ -223,6 +232,8 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
     people,
     mirs,
     zipEligible,
+    scopeCounts,
+    partnerScopeCounts,
     zipBatchLimit: DESIGNATION_ZIP_BATCH_LIMIT,
   }
 }

@@ -33,6 +33,14 @@ import {
   type UploadBrevo,
 } from '../../signup/designation-brevo-ui'
 import { ELECTION_DISTRICTS } from '../../signup/designation-config'
+import {
+  SIGN_SCOPES,
+  SIGN_SCOPE_HINTS,
+  SIGN_SCOPE_LABELS,
+  signScopeBatches,
+  type SignScope,
+  type SignScopeCounts,
+} from '../../signup/designation-sign-scope'
 import { postSignedPdf } from '../../signup/designation-upload-errors'
 import { IAZ_LABEL, partnerBadge } from '../../signup/partner-import'
 import { adminPartnerSetMir } from '../../signup/partner-import-admin'
@@ -57,6 +65,9 @@ function PalnomoshtniPage() {
   const [people, setPeople] = useState<DesignationPersonView[]>([])
   const [mirs, setMirs] = useState<DesignationMirOption[]>([])
   const [zipEligible, setZipEligible] = useState(0)
+  const [signScope, setSignScope] = useState<SignScope>('new')
+  const [scopeCounts, setScopeCounts] = useState<SignScopeCounts | null>(null)
+  const [partnerScopeCounts, setPartnerScopeCounts] = useState<SignScopeCounts | null>(null)
   const [healthLine, setHealthLine] = useState('Проверяваме Drive и Brevo…')
   const [canUploadDrive, setCanUploadDrive] = useState(false)
   const [message, setMessage] = useState('')
@@ -83,6 +94,8 @@ function PalnomoshtniPage() {
       setPeople(result.people)
       setMirs(result.mirs)
       setZipEligible(result.zipEligible)
+      setScopeCounts('scopeCounts' in result && result.scopeCounts ? result.scopeCounts : null)
+      setPartnerScopeCounts('partnerScopeCounts' in result && result.partnerScopeCounts ? result.partnerScopeCounts : null)
     })
   }, [mir, q])
 
@@ -107,7 +120,21 @@ function PalnomoshtniPage() {
     [people],
   )
   const signedCount = counts?.signed ?? 0
-  const batches = zipBatchPlan(zipEligible, DESIGNATION_ZIP_BATCH_LIMIT)
+  // Older responses (and tests) without scope counts fall back to the full list.
+  const scopeCount = scopeCounts ? scopeCounts[signScope] : zipEligible
+  const batches = scopeCounts
+    ? signScopeBatches(signScope, scopeCount, DESIGNATION_ZIP_BATCH_LIMIT)
+    : zipBatchPlan(zipEligible, DESIGNATION_ZIP_BATCH_LIMIT)
+  const scopeParam = scopeCounts ? `&scope=${signScope}` : ''
+  const partnerScopeCount = partnerScopeCounts ? partnerScopeCounts[signScope] : (partnerCounts?.numbered ?? 0)
+  const partnerBatches = partnerScopeCounts
+    ? signScopeBatches(signScope, partnerScopeCount, DESIGNATION_ZIP_BATCH_LIMIT)
+    : zipBatchPlan(partnerCounts?.numbered ?? 0, DESIGNATION_ZIP_BATCH_LIMIT)
+  // „Само новите“ shrinks once a ZIP is served; refresh the counts shortly after a click.
+  const afterZipClick = () => {
+    window.setTimeout(reload, 4000)
+    window.setTimeout(reload, 15000)
+  }
   const uploadBlockReason = signedUploadBlockReason({ canExport, canUploadDrive, busy, reading, preview, replaceExisting })
   const plan = preview ? signedUploadPlan(preview, replaceExisting) : null
 
@@ -180,12 +207,14 @@ function PalnomoshtniPage() {
               Отделно, „{IAZ_LABEL}“ (не са записани доброволци и не отиват в Brevo): {partnerCounts.total} души, номерирани{' '}
               {partnerCounts.numbered}, подписани {partnerCounts.signed}
               {partnerCounts.noMir ? `, без МИР ${partnerCounts.noMir} (избери МИР в таблицата, за да получат номер)` : ''}.
-              {canExport && partnerCounts.numbered > 0
-                ? zipBatchPlan(partnerCounts.numbered, DESIGNATION_ZIP_BATCH_LIMIT).map((batch) => (
+              {partnerScopeCounts ? ` За подпис („${SIGN_SCOPE_LABELS[signScope]}“): ${partnerScopeCount}.` : ''}
+              {canExport && partnerBatches.length > 0
+                ? partnerBatches.map((batch) => (
                     <a
                       key={`iaz-${batch.offset}`}
                       className={`${adminGhost} ml-2`}
-                      href={`/admin/palnomoshtni/zip?partner=1&offset=${batch.offset}&limit=${batch.limit}`}
+                      href={`/admin/palnomoshtni/zip?partner=1&offset=${batch.offset}&limit=${batch.limit}${scopeParam}`}
+                      onClick={afterZipClick}
                     >
                       Изтегли ZIP „{IAZ_LABEL}“ {batch.from}–{batch.to}
                     </a>
@@ -222,16 +251,43 @@ function PalnomoshtniPage() {
           </button>
         </div>
         <div className="grid gap-2">
+          {scopeCounts ? (
+            <fieldset className="grid gap-1" data-testid="sign-scope">
+              <legend className="text-sm font-bold text-[#1a1020]">ZIP за подпис — кои</legend>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {SIGN_SCOPES.map((option) => (
+                  <label key={option} className="flex items-center gap-2 text-sm text-[#1a1020]" title={SIGN_SCOPE_HINTS[option]}>
+                    <input
+                      type="radio"
+                      name="sign-scope"
+                      value={option}
+                      checked={signScope === option}
+                      onChange={() => setSignScope(option)}
+                    />
+                    {SIGN_SCOPE_LABELS[option]} ({scopeCounts[option]})
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-[#333]">
+                {SIGN_SCOPE_HINTS[signScope]}
+                {signScope === 'new' ? ' Всеки свален ZIP ги отбелязва, следващият дава следващите.' : ''}
+              </p>
+            </fieldset>
+          ) : null}
           <p className="text-sm font-bold text-[#1a1020]">
             ZIP партиди: {batches.length || 0}
-            {zipEligible ? ` · ${zipEligible} номерирани в този филтър, по ${DESIGNATION_ZIP_BATCH_LIMIT}` : ''}
+            {scopeCount
+              ? ` · ${scopeCount} ${scopeCounts ? `„${SIGN_SCOPE_LABELS[signScope]}“` : 'номерирани'} в този филтър, по ${DESIGNATION_ZIP_BATCH_LIMIT}`
+              : ''}
           </p>
           <div className="flex flex-wrap gap-2">
             {batches.length === 0 ? (
-              <p className="text-sm text-[#333]">Няма номерирани хора за ZIP в този филтър.</p>
+              <p className="text-sm text-[#333]">
+                {scopeCounts ? `Няма хора за „${SIGN_SCOPE_LABELS[signScope]}“ в този филтър.` : 'Няма номерирани хора за ZIP в този филтър.'}
+              </p>
             ) : (
               batches.map((batch) => {
-                const href = `/admin/palnomoshtni/zip?mir=${encodeURIComponent(mir)}&offset=${batch.offset}&limit=${batch.limit}`
+                const href = `/admin/palnomoshtni/zip?mir=${encodeURIComponent(mir)}&offset=${batch.offset}&limit=${batch.limit}${scopeParam}`
                 if (!canExport) {
                   return (
                     <button key={href} type="button" className={adminGhost} disabled title={EXPORT_REASON}>
@@ -240,7 +296,7 @@ function PalnomoshtniPage() {
                   )
                 }
                 return (
-                  <a key={href} className={adminGhost} href={href}>
+                  <a key={href} className={adminGhost} href={href} onClick={afterZipClick}>
                     Изтегли ZIP {batch.from}–{batch.to}
                   </a>
                 )

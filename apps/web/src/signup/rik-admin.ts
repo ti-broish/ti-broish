@@ -6,6 +6,7 @@ import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './
 import { ABROAD_MIR, DEFAULT_FETCH_BUDGET, DOMESTIC_MIRS, mirLabel } from './rik/config'
 import { STATUS_LABELS, TASK_LABELS, type RikStatus, type RikTaskType } from './rik/match'
 import { nameKey } from './rik/normalize'
+import { RIK_PROBLEM_STATUSES, rikPeopleWhere } from './rik/people-filter'
 import { createRikSync, ensureRikTables } from './rik/sync'
 
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -52,7 +53,7 @@ export interface RikSourceRow {
   openTasks: number
 }
 
-const PROBLEM_STATUSES: RikStatus[] = ['stale', 'name_mismatch', 'number_mismatch', 'annulled', 'elsewhere', 'other_party', 'withdrawn_registered', 'rik_unavailable']
+const PROBLEM_STATUSES = RIK_PROBLEM_STATUSES
 const WAITING_STATUSES: RikStatus[] = ['pending', 'not_signed']
 
 function quoted(list: string[]) {
@@ -195,17 +196,7 @@ export const rikPeople = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const access = await gate('view')
     if (!access.ok) return access
-    const where: string[] = []
-    const binds: unknown[] = []
-    if (data.mir) {
-      where.push('s.mir = ?')
-      binds.push(data.mir.padStart(2, '0'))
-    }
-    if (data.status === 'problems') where.push(`s.status IN (${quoted(PROBLEM_STATUSES)})`)
-    else if (data.status) {
-      where.push('s.status = ?')
-      binds.push(data.status)
-    }
+    const { where, binds } = rikPeopleWhere(data)
     const clause = where.length ? ` WHERE ${where.join(' AND ')}` : ''
     const all = ((await access.db.prepare(`${PEOPLE_SQL}${clause} ORDER BY s.mir, s.number`).bind(...binds).all<Record<string, unknown>>()).results ?? []).map(personRow)
     const needle = data.q ? nameKey(data.q) : ''

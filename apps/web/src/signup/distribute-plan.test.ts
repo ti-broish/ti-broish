@@ -96,4 +96,46 @@ describe('planCountryDistribution', () => {
     expect(planned.sections.map((row) => row.id)).toContain('143200001')
     expect(planned.plan.assignments.map((row) => [row.personId, row.sectionId])).toEqual([['far', '143200001']])
   })
+
+  it('gives mobile people a section after every section volunteer, from what is left, importance first', async () => {
+    const db = fakeDb({
+      signups: [signup('sec'), signup('mob', { role: 'mobile', payload: JSON.stringify({ mobileTeam: true, place: { townId: 68134, municipalityCode: '46', cityRegionCode: '15' } }) })],
+      priority: [
+        { section_code: '234615001', r: 4.0, level: 'watch' },
+        { section_code: '234615002', r: 4.5, level: 'elevated' },
+      ],
+    })
+    const planned = await planCountryDistribution(db, { fetchJson: sectionsApi })
+    expect(planned.ok).toBe(true)
+    if (!planned.ok) return
+    expect(planned.plan.assignments.map((row) => [row.personId, row.sectionId])).toEqual([['sec', '234615002']])
+    expect(planned.plan.skipped.map((row) => [row.personId, row.reason])).toEqual([['mob', 'mobile']])
+    expect(planned.mobilePlan.assignments.map((row) => [row.personId, row.sectionId])).toEqual([['mob', '234615001']])
+  })
+
+  it('a mobile person with a whole-РИК note can get any section of their МИР', async () => {
+    const db = fakeDb({
+      signups: [
+        signup('mob', {
+          role: 'mobile',
+          radius: 'settlement',
+          city_region_code: '',
+          mir: '24',
+          region_code: 'sofia-merged',
+          note_text: 'мобилна за целия РИК',
+          payload: JSON.stringify({ mobileTeam: true, place: { municipalityCode: '46' } }),
+        }),
+      ],
+    })
+    const planned = await planCountryDistribution(db, {
+      fetchJson: async (path: string) => {
+        if (path.startsWith('towns?country=000&election_region=24&municipality=46')) return [{ id: 68134 }]
+        if (path.startsWith('sections?town=68134')) return [{ id: '244601001', place: 'Адрес', town: { id: 68134 }, votersCount: 100 }, { id: '234615001', place: 'Друг МИР', town: { id: 68134 }, votersCount: 900 }]
+        return null
+      },
+    })
+    expect(planned.ok).toBe(true)
+    if (!planned.ok) return
+    expect(planned.mobilePlan.assignments.map((row) => [row.personId, row.sectionId])).toEqual([['mob', '244601001']])
+  })
 })

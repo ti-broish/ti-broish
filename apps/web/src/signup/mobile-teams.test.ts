@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeMobilePlan, mobileAreas, mobileReaches, mobileTeams, planMobileTeams, type MobilePerson, type MobilePrioritySection } from './mobile-teams'
+import { describeMobilePlan, mentionsWholeMir, mobileAreas, mobileReaches, mobileSkipReason, mobileTeams, planMobileTeams, type MobilePerson, type MobilePrioritySection } from './mobile-teams'
 import { MOBILE_DRAFTS_GUARDS, MOBILE_DRAFTS_TABLE } from './mobile-teams-sql'
 
 function person(patch: Partial<MobilePerson> & Pick<MobilePerson, 'id'>): MobilePerson {
@@ -27,6 +27,57 @@ function person(patch: Partial<MobilePerson> & Pick<MobilePerson, 'id'>): Mobile
 function prio(sectionCode: string, r: number | null, town = 'с.Село', municipality = 'Община'): MobilePrioritySection {
   return { sectionCode, r, level: r === null ? 'quarantine' : r > 4 ? 'elevated' : 'watch', town, municipality }
 }
+
+describe('whole РИК and the МИР of the section', () => {
+  it('reads „мобилна за целия РИК“ and similar notes', () => {
+    expect(mentionsWholeMir('Мобилна за целия РИК')).toBe(true)
+    expect(mentionsWholeMir('може в цял МИР 24')).toBe(true)
+    expect(mentionsWholeMir('само в Люлин')).toBe(false)
+    expect(mentionsWholeMir(null)).toBe(false)
+  })
+
+  it('a whole-РИК person reaches every section of their МИР and nothing else, car or not', () => {
+    const p = person({ id: 'w', mir: '24', regionCode: 'sofia-merged', radius: 'settlement', hasCar: null, townName: '', wholeMir: true })
+    expect(mobileSkipReason(p)).toBeNull()
+    expect(mobileReaches(p, { sectionCode: '244601001', town: 'гр.София' })).toBe(true)
+    expect(mobileReaches(p, { sectionCode: '244625001', town: 'гр.София' })).toBe(true)
+    expect(mobileReaches(p, { sectionCode: '234601001', town: 'гр.София' })).toBe(false)
+  })
+
+  it('a whole-РИК area is the whole МИР with up to 5 targets, best R first', () => {
+    const p = person({ id: 'w', mir: '24', regionCode: '24', radius: 'region', hasCar: null, wholeMir: true })
+    const open = ['244601001', '244602001', '244603001', '244604001', '244605001', '244606001'].map((code, i) => prio(code, 4 + i / 10, 'гр.София'))
+    const [area] = mobileAreas([p], open)
+    expect(area.scope).toBe('mir')
+    expect(area.key).toBe('24')
+    expect(area.label).toBe('МИР 24 · целия РИК')
+    expect(area.targets.map((target) => target.code)).toEqual(['244606001', '244605001', '244604001', '244603001', '244602001'])
+  })
+
+  it('a section pins the area to the МИР of that section (the пълномощно is per МИР)', () => {
+    const p = person({ id: 'p', radius: 'distant', distantMirs: ['27'], pinnedMir: '27' })
+    expect(mobileReaches(p, { sectionCode: '271000001', town: 'x' })).toBe(true)
+    expect(mobileReaches(p, { sectionCode: '261000001', town: 'x' })).toBe(false)
+  })
+
+  it('a section placed by hand outside the declared reach opens that whole МИР', () => {
+    const p = person({ id: 'p', mir: '', regionCode: '', radius: 'settlement', townName: '', pinnedMir: '24' })
+    expect(mobileSkipReason(p)).toBeNull()
+    expect(mobileReaches(p, { sectionCode: '244601001', town: 'гр.София' })).toBe(true)
+    expect(mobileReaches(p, { sectionCode: '254601001', town: 'гр.София' })).toBe(false)
+  })
+
+  it('a section abroad skips the person as abroad', () => {
+    expect(mobileSkipReason(person({ id: 'a', mir: '', regionCode: '', pinnedMir: '32' }))).toBe('abroad')
+  })
+
+  it('people in a group but with sections in different МИРs are not one team', () => {
+    const a = person({ id: 'a', pinnedMir: '26', companions: [{ email: 'b@example.com', inGroup: true, samePlace: true }] })
+    const b = person({ id: 'b', pinnedMir: '27' })
+    expect(mobileTeams([a, b])).toHaveLength(2)
+    expect(mobileTeams([a, { ...b, pinnedMir: '26' }])).toHaveLength(1)
+  })
+})
 
 describe('mobileReaches', () => {
   it('keeps a settlement person in their town and МИР', () => {

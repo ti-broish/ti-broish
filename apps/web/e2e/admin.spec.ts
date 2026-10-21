@@ -378,6 +378,46 @@ test.describe('staff admin', () => {
     }
   })
 
+  test('mobile teams: a whole-РИК note gets the whole МИР as the area, shown on the Секции row; a rerun keeps it', async ({ page }) => {
+    seedMobileTeam()
+    runLocalD1("UPDATE signups SET staff_note = 'мобилна за целия РИК' WHERE id = 'e2e-mobile';")
+    await signIn(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    try {
+      await page.goto('/admin/sections?q=mobile.admin-e2e')
+      const row = page.getByTestId('section-person-row').filter({ hasText: 'mobile.admin-e2e@example.com' })
+      await expect(row.getByTestId('mobile-row')).toContainText('Мобилен екип · без район', { timeout: 30_000 })
+      const panel = page.getByTestId('mobile-panel')
+      await panel.locator('summary').click()
+      await expect(async () => {
+        await panel.getByRole('button', { name: 'Чернови за мобилни екипи' }).click()
+        await panel.getByRole('button', { name: 'Да, чернови за мобилните екипи без чернова (без публикуване)' }).click({ timeout: 3_000 })
+        await expect(page.getByText(/Мобилни екипи: \d+ с район за обикаляне/).first()).toBeVisible({ timeout: 10_000 })
+      }).toPass({ timeout: 40_000 })
+      const drafts = panel.getByTestId('mobile-drafts')
+      await expect(drafts).toContainText('МИР 29 · целия РИК')
+      // Open priority sections anywhere in МИР 29, best R first; never the reserved (003) or the covered one (004).
+      await expect(drafts).toContainText('299900001')
+      await expect(drafts).toContainText('299900002')
+      await expect(drafts).toContainText('299900005')
+      await expect(drafts).not.toContainText('299900003')
+      await expect(drafts).not.toContainText('299900004')
+      await page.reload()
+      await expect(row.getByTestId('mobile-badge')).toContainText('Мобилен · МИР 29 · целия РИК · 3 секц.', { timeout: 30_000 })
+      // Rerun: the valid automatic draft stays.
+      await panel.locator('summary').click()
+      await expect(async () => {
+        await panel.getByRole('button', { name: 'Чернови за мобилни екипи' }).click()
+        await panel.getByRole('button', { name: 'Да, чернови за мобилните екипи без чернова (без публикуване)' }).click({ timeout: 3_000 })
+        await expect(page.getByText(/Нови райони: 0, запазени: \d+/).first()).toBeVisible({ timeout: 10_000 })
+      }).toPass({ timeout: 40_000 })
+    } finally {
+      runLocalD1(
+        "DELETE FROM mobile_drafts WHERE signup_id = 'e2e-mobile'; DELETE FROM priority_sections WHERE section_code LIKE '2999%'; DELETE FROM taken_sections WHERE organisation = 'E2E Мобилен резерв'; DELETE FROM signups WHERE id IN ('e2e-mobile', 'e2e-mobile-covered');",
+      )
+    }
+  })
+
   test('Секции names the oblast, district and section in Bulgarian', async ({ page }) => {
     seedStaffRoster()
     await signIn(page)
@@ -539,6 +579,8 @@ test.describe('staff admin', () => {
     await page.getByRole('button', { name: 'Да, запиши черновите (без публикуване, корекциите остават)' }).click()
     const notice = page.getByText(/Записахме \d+ чернов/)
     await expect(notice).toBeVisible({ timeout: 90_000 })
+    // Mobile teams are part of the same button: a section draft and an area, with a count in the summary.
+    await expect(notice).toContainText('Мобилни екипи:')
     await page.waitForLoadState('networkidle')
     await expect(notice).toBeVisible()
     await page.getByRole('button', { name: 'Изчисти черновите' }).click()

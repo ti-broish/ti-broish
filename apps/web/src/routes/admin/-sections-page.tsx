@@ -13,7 +13,7 @@ import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import type { SectionSpot } from '../../signup/section-where'
 import { ReservedSectionsPanel, type ReservedRowView } from './-reserved-sections-panel'
-import { MobileTeamsPanel } from './-mobile-teams'
+import { MobileTeamsPanel, useMobileIndex } from './-mobile-teams'
 import { PartnerSectionsPanel } from './-partner-sections-panel'
 import { loadReservedIndex } from './-reserved-badge'
 import { adminReservedSections } from '../../signup/reserved-sections-admin'
@@ -54,6 +54,8 @@ export function SectionsPage() {
   const [armedClear, setArmedClear] = useState(false)
   const [distributing, setDistributing] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [mobileVersion, setMobileVersion] = useState(0)
+  const mobileIndex = useMobileIndex(mobileVersion)
   const [draftValues, setDraftValues] = useState<Record<string, string>>({})
   const [rowWarnings, setRowWarnings] = useState<Record<string, AssignWarning[]>>({})
   const [spots, setSpots] = useState<Record<string, SectionSpot>>({})
@@ -217,7 +219,7 @@ export function SectionsPage() {
 
   return (
     <div className="grid gap-5">
-      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. Всеки е в едно от трите състояния: без секция, с чернова (вижда се само тук) или с публикувана секция (вижда я в профила си). На всеки ред: впиши секция и натисни „Запази“: това е чернова, без публикуване и без имейл; „Публикувай“ я показва в профила, без имейл; „Махни публикуването“ я връща в чернова. Можеш да избереш няколко реда и „Публикувай избраните“. „Направи чернови за страната“ пресмята само автоматичните чернови на хора без публикувана секция: първо приоритетна секция (в града, после в общината, по R), после хартиена под 300 избиратели; резервираните от други организации и машинните извън приоритетните се пропускат. Публикуваните секции и ръчните чернови (запазени със „Запази“ или върнати от публикуване) не се пипат и не се дават на друг. „Чернови само за хората без секция“ не пипа никоя чернова. „Изчисти черновите“ маха само автоматичните чернови; ръчните и публикуваните остават. Чуждите чернови в чужбина не се пипат от разпределението за страната." />
+      <AdminHeading title="Секции" lede="Тук са само хората, които са завършили записването. Всеки е в едно от трите състояния: без секция, с чернова (вижда се само тук) или с публикувана секция (вижда я в профила си). На всеки ред: впиши секция и натисни „Запази“: това е чернова, без публикуване и без имейл; „Публикувай“ я показва в профила, без имейл; „Махни публикуването“ я връща в чернова. Можеш да избереш няколко реда и „Публикувай избраните“. „Направи чернови за страната“ пресмята само автоматичните чернови на хора без публикувана секция: първо приоритетна секция (в града, после в общината, по R), после хартиена под 300 избиратели; резервираните от други организации се пропускат. После мобилните екипи: секция от останалите по същия ред (за пълномощното) и район с приоритетни секции за обикаляне в МИР-а на секцията (виж „Мобилни екипи“); обобщението казва колко са получили и колко са без място. Публикуваните секции и ръчните чернови (запазени със „Запази“ или върнати от публикуване) не се пипат и не се дават на друг. „Чернови само за хората без секция“ не пипа никоя чернова. „Изчисти черновите“ маха само автоматичните чернови; ръчните и публикуваните остават. Чуждите чернови в чужбина не се пипат от разпределението за страната." />
       <label className="grid max-w-md gap-1 text-sm font-bold text-[#1a1020]" htmlFor="section-search">
         Търсене
         <input id="section-search" className={adminInput} type="search" value={draft} placeholder="Име, имейл, телефон или ЕГН" onChange={(event) => setDraft(event.target.value)} />
@@ -283,7 +285,7 @@ export function SectionsPage() {
         setMessage={setMessage}
         reload={(notice) => loadReserved(notice)}
       />
-      <MobileTeamsPanel canEdit={canEdit} setMessage={setMessage} />
+      <MobileTeamsPanel canEdit={canEdit} setMessage={setMessage} refresh={mobileVersion} />
       <PartnerSectionsPanel canEdit={canEdit} canPublish={canPublish} canRevealEgn={access.permissions.revealEgn} setMessage={setMessage} />
       <form
         className="flex flex-wrap items-end gap-2"
@@ -332,6 +334,7 @@ export function SectionsPage() {
               void adminDistribute({ data: {} }).then((result) => {
                 setDistributing(false)
                 setMessage(result.message)
+                setMobileVersion((value) => value + 1)
                 if (result.ok) load(result.message)
               }).catch(() => {
                 setDistributing(false)
@@ -357,6 +360,7 @@ export function SectionsPage() {
               void adminDistribute({ data: { onlyEmpty: true } }).then((result) => {
                 setDistributing(false)
                 setMessage(result.message)
+                setMobileVersion((value) => value + 1)
                 if (result.ok) load(result.message)
               }).catch(() => {
                 setDistributing(false)
@@ -474,6 +478,7 @@ export function SectionsPage() {
                 priority={priorityMap}
                 reserved={reservedIndex}
                 reach={reach}
+                mobile={mobileIndex[person.id] ?? null}
                 canEdit={canEdit}
                 draftValues={draftValues}
                 setDraftValues={setDraftValues}

@@ -1,5 +1,5 @@
 import type { SignupD1 } from './db-core'
-import { mobileAreas, planMobileTeams, type MobileArea, type MobilePerson, type MobilePrioritySection, type MobileTarget } from './mobile-teams'
+import { mentionsWholeMir, mobileAreas, planMobileTeams, type MobileArea, type MobilePerson, type MobilePrioritySection, type MobileTarget } from './mobile-teams'
 
 /** Reads for mobile-team drafts. No writes here; see mobile-teams-admin.ts. */
 type Database = Pick<SignupD1, 'prepare'>
@@ -35,6 +35,8 @@ interface PersonRow {
   has_drone: number | null
   rounds_first: number | null
   rounds_runoff: number | null
+  section: string
+  note_text: string
 }
 
 /** Mobile-team people. `missing` keeps those with no draft, no published section and no mobile draft. */
@@ -54,7 +56,9 @@ export async function loadMobilePeople(db: Database, filter: { missing?: boolean
             COALESCE(s.extra_city_regions, '[]') AS extra_city_regions,
             COALESCE(s.distant_region_codes, '[]') AS distant_region_codes,
             COALESCE(s.travel_municipalities, '[]') AS travel_municipalities,
-            s.has_car, s.car_seats, s.has_drone, s.rounds_first, s.rounds_runoff
+            s.has_car, s.car_seats, s.has_drone, s.rounds_first, s.rounds_runoff,
+            COALESCE(NULLIF(s.published_section, ''), s.draft_section, '') AS section,
+            COALESCE(s.staff_note, '') || ' ' || COALESCE(s.notes, '') || ' ' || COALESCE(json_extract(s.payload, '$.notes'), '') AS note_text
      FROM signups s
      WHERE ${where.join(' AND ')}${filter.id ? ' AND s.id = ?' : ''}`,
   )
@@ -91,6 +95,8 @@ export async function loadMobilePeople(db: Database, filter: { missing?: boolean
     roundsFirst: row.rounds_first !== 0,
     roundsRunoff: row.rounds_runoff !== 0,
     companions: bySignup.get(row.id) ?? [],
+    pinnedMir: sectionMir(row.section),
+    wholeMir: mentionsWholeMir(row.note_text),
   }))
 }
 
@@ -170,6 +176,12 @@ export async function suggestMobileAreas(db: Database, signupId: string, limit =
   const context = await loadMobileContext(db, { exceptTeam: own?.teamKey })
   const open = context.priority.filter((section) => !context.unavailable.has(section.sectionCode))
   return { person, areas: mobileAreas([person], open, context.teamsPerMir).slice(0, limit) }
+}
+
+/** The МИР of a section code (first two of nine digits), or ''. */
+export function sectionMir(code: string | null | undefined) {
+  const digits = String(code ?? '').replace(/\D/g, '')
+  return digits.length === 9 ? digits.slice(0, 2) : ''
 }
 
 export function parseTargets(raw: string): MobileTarget[] {

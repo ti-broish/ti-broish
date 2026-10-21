@@ -33,7 +33,8 @@ export const AUTO_DRAFT_WHERE = `COALESCE(draft_section, '') != ''
 export const CLEAR_AUTO_DRAFTS_SQL = `UPDATE signups SET draft_section = NULL, updated_at = ? WHERE ${AUTO_DRAFT_WHERE}`
 
 /**
- * Step 2, per planned person: write an automatic draft. With onlyEmpty = 1 an existing draft of
+ * Step 2, per planned person: write an automatic draft. Section volunteers first, then mobile-team
+ * volunteers (they need a section for the пълномощно). With onlyEmpty = 1 an existing draft of
  * any kind stays. Binds: section, updated_at, id, onlyEmpty (0 | 1).
  */
 export const RERUN_WRITE_DRAFT_SQL = `UPDATE signups
@@ -43,5 +44,5 @@ export const RERUN_WRITE_DRAFT_SQL = `UPDATE signups
     AND COALESCE(draft_locked, 0) = 0
     AND COALESCE(submitted, 0) = 1
     AND COALESCE(withdrawn, 0) = 0
-    AND COALESCE(role, '') = 'section'
+    AND COALESCE(role, '') IN ('section', 'mobile')
     AND (? = 0 OR COALESCE(draft_section, '') = '')`

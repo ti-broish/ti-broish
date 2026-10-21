@@ -80,15 +80,15 @@ function Targets({ targets }: { targets: MobileTarget[] }) {
 }
 
 /** Секции: the mobile-team drafts and the „Чернови за мобилни екипи“ button. */
-export function MobileTeamsPanel({ canEdit, setMessage }: { canEdit: boolean; setMessage: (message: string) => void }) {
+export function MobileTeamsPanel({ canEdit, setMessage, refresh = 0 }: { canEdit: boolean; setMessage: (message: string) => void; refresh?: number }) {
   const [version, setVersion] = useState(0)
   const [data, setData] = useState<{ drafts: MobileDraftView[]; waiting: number }>({ drafts: [], waiting: 0 })
   const [busy, setBusy] = useState(false)
   const [armed, setArmed] = useState(false)
   const [preview, setPreview] = useState('')
   useEffect(() => {
-    void loadMobileIndex(version > 0).then(setData)
-  }, [version])
+    void loadMobileIndex(version + refresh > 0).then(setData)
+  }, [version, refresh])
 
   function run(dryRun: boolean) {
     setBusy(true)
@@ -117,9 +117,11 @@ export function MobileTeamsPanel({ canEdit, setMessage }: { canEdit: boolean; se
       </summary>
       <div className="mt-3 grid gap-3 text-sm text-[#1a1020]">
         <p>
-          Мобилен екип получава район (МИР и община, или град/район, ако човекът стига само дотам) и до 5 приоритетни секции без наш човек, по R (до 3 без кола). Обхватът е
-          според записването: радиус, избрани общини и области, кола. Екип с общ адрес остава заедно. Резервираните секции и вече покритите не влизат. Само чернова: не
-          публикуваме, не номерираме и не пращаме писма.
+          „Направи чернови за страната“ дава на мобилните екипи и секция (за пълномощното, след всички секционни, по същия ред: тир, R, избиратели), и район за обикаляне.
+          Районът е в МИР-а на секцията им (пълномощното е за този МИР): МИР и община, или град/район, ако човекът стига само дотам, а с бележка „за целия РИК“ — целият МИР.
+          В него до 5 приоритетни секции без наш човек, по R (до 3 без кола). Обхватът е според записването: радиус, избрани общини и области, кола. Екип с общ адрес остава
+          заедно. Резервираните секции и вече покритите не влизат. Ръчните райони („Запази“ в профила) не се пипат; автоматичните остават, докато са валидни. Секцията се
+          публикува като всяка друга; районът е само чернова: не номерираме и не пращаме писма.
         </p>
         {canEdit ? (
           <div className="flex flex-wrap gap-2">
@@ -163,7 +165,10 @@ export function MobileTeamsPanel({ canEdit, setMessage }: { canEdit: boolean; se
                       {draft.name || draft.signupId.slice(0, 8)}
                     </Link>
                   </td>
-                  <td className="py-1">{draft.areaLabel}</td>
+                  <td className="py-1">
+                    {draft.areaLabel}
+                    {draft.source === 'manual' ? <span className="ml-1 text-xs font-bold">(ръчен)</span> : null}
+                  </td>
                   <td className="py-1">
                     <Targets targets={draft.targets} />
                   </td>

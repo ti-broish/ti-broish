@@ -3,6 +3,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminInput } from '../../components/admin-ui'
+import { EgnReveal } from '../../components/EgnReveal'
 import { StaffTravel, type StaffTravelValue } from '../../components/StaffTravel'
 import { adminPerson, adminUpdatePerson } from '../../signup/admin'
 import { adminSectionPlaces } from '../../signup/admin-section-places'
@@ -123,7 +124,13 @@ function PersonPage() {
               <span className="inline-flex min-h-7 items-center rounded-full bg-[#1f4d7a] px-2 text-xs font-bold text-white">{CALLED_LABEL}</span>
             ) : null}
           </div>
-          <PersonFacts person={person} />
+          <PersonFacts
+            person={person}
+            canRevealEgn={access.permissions.revealEgn}
+            onEgnRevealed={(audit) => {
+              if (audit) setChanges((prev) => [audit, ...prev.filter((line) => line.id !== audit.id)])
+            }}
+          />
           <ReservedNotice codes={[person.publishedSection, person.draftSection]} />
           <MobileDraftCard personId={person.id} canEdit={canEdit} mobile={person.role === 'mobile'} />
           <UnregisterPanel person={person} canEdit={canEdit} onChanged={reload} />
@@ -287,7 +294,7 @@ function PersonPage() {
               История
             </h2>
             {changes.length === 0 ? (
-              <p className="text-sm text-[#333]">Няма записани промени по ролята, дните, пътуването, бележката или отписването.</p>
+              <p className="text-sm text-[#333]">Няма записани промени по ролята, дните, пътуването, бележката, отписването или прегледи на ЕГН.</p>
             ) : (
               <ul className="grid gap-2 text-sm text-[#1a1020]">
                 {changes.map((change) => (
@@ -305,13 +312,26 @@ function PersonPage() {
   )
 }
 
-function PersonFacts({ person }: { person: AdminPerson }) {
+function PersonFacts({
+  person,
+  canRevealEgn,
+  onEgnRevealed,
+}: {
+  person: AdminPerson
+  canRevealEgn: boolean
+  onEgnRevealed: (audit: AuditLine | null) => void
+}) {
   const where = [person.town, person.place].filter(Boolean).join(' · ')
   return (
     <dl className="grid gap-3 rounded-2xl border-2 border-[#2b062f] bg-[#f6f1f7] p-4 text-sm text-[#1a1020] sm:grid-cols-2">
       <Fact label="Имейл" value={person.email} />
       <Fact label="Потвърждение" value={person.emailConfirmed ? 'Имейлът е потвърден' : 'Имейлът не е потвърден'} />
-      <Fact label="ЕГН" value={person.hasEgn ? 'ЕГН е въведено' : 'Няма ЕГН'} />
+      <div className="grid gap-1">
+        <dt className="font-bold">ЕГН</dt>
+        <dd>
+          <EgnReveal personId={person.id} hasEgn={person.hasEgn} canReveal={canRevealEgn} onRevealed={onEgnRevealed} />
+        </dd>
+      </div>
       <Fact label="Желано място (от записването)" value={where || 'Няма избрано място'} />
       <Fact label="Докъде" value={person.radiusLabel || 'Не е избрано докъде може да стигне.'} />
       <Fact label="Секция" value={sectionLine(person)} />

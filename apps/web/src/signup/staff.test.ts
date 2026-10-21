@@ -10,6 +10,7 @@ describe('staff roles', () => {
       exportInternal: false,
       publish: false,
       invite: false,
+      revealEgn: false,
     })
   })
 

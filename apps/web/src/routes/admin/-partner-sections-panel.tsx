@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { adminGhost, adminInput } from '../../components/admin-ui'
+import { EgnReveal } from '../../components/EgnReveal'
 import type { PriorityInfo } from '../../signup/priority-sections'
 import {
   adminPartnerDistribute,
@@ -22,6 +23,7 @@ type PartnerRow = {
   source: string
   draftPriority: PriorityInfo | null
   publishedPriority: PriorityInfo | null
+  hasEgn: boolean
 }
 type Counts = { total: number; drafted: number; published: number; waiting: number }
 
@@ -40,7 +42,17 @@ async function withRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
  * Секции → „И аз“ — секции. Partner people get sections like signups, but publishing only sets the
  * section and the „И аз“ reservation: no email, no Brevo, no profile, no login.
  */
-export function PartnerSectionsPanel({ canEdit, canPublish, setMessage }: { canEdit: boolean; canPublish: boolean; setMessage: (message: string) => void }) {
+export function PartnerSectionsPanel({
+  canEdit,
+  canPublish,
+  canRevealEgn = false,
+  setMessage,
+}: {
+  canEdit: boolean
+  canPublish: boolean
+  canRevealEgn?: boolean
+  setMessage: (message: string) => void
+}) {
   const [rows, setRows] = useState<PartnerRow[]>([])
   const [counts, setCounts] = useState<Counts>({ total: 0, drafted: 0, published: 0, waiting: 0 })
   const [version, setVersion] = useState(0)
@@ -159,7 +171,10 @@ export function PartnerSectionsPanel({ canEdit, canPublish, setMessage }: { canE
                       {row.mir || '—'}
                       {row.number ? ` / ${row.number}` : ''}
                     </td>
-                    <td className="px-2 py-2">{row.name}</td>
+                    <td className="grid gap-1 px-2 py-2">
+                      <span>{row.name}</span>
+                      {canRevealEgn ? <EgnReveal personId={row.id} hasEgn={row.hasEgn} canReveal compact /> : null}
+                    </td>
                     <td className="px-2 py-2">{row.municipality || '—'}</td>
                     <td className="grid gap-1 px-2 py-2">
                       <span className="font-mono">{row.draft || '—'}</span>

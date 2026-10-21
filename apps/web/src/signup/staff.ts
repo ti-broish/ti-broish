@@ -2,12 +2,13 @@ export const STAFF_ROLES = ['viewer', 'editor', 'admin'] as const
 
 export type StaffRole = (typeof STAFF_ROLES)[number]
 
-export type StaffAction = 'view' | 'edit' | 'exportCampaign' | 'exportInternal' | 'publish' | 'invite'
+/** revealEgn: see one person's full ЕГН on their profile (admins only; every reveal is audited). */
+export type StaffAction = 'view' | 'edit' | 'exportCampaign' | 'exportInternal' | 'publish' | 'invite' | 'revealEgn'
 
 const ALLOWED: Record<StaffRole, readonly StaffAction[]> = {
   viewer: ['view'],
   editor: ['view', 'edit', 'exportCampaign'],
-  admin: ['view', 'edit', 'exportCampaign', 'exportInternal', 'publish', 'invite'],
+  admin: ['view', 'edit', 'exportCampaign', 'exportInternal', 'publish', 'invite', 'revealEgn'],
 }
 
 export function parseStaffRole(value: string | null | undefined): StaffRole | null {
@@ -25,6 +26,7 @@ export function permissionsFor(role: StaffRole) {
     exportInternal: roleAllows(role, 'exportInternal'),
     publish: roleAllows(role, 'publish'),
     invite: roleAllows(role, 'invite'),
+    revealEgn: roleAllows(role, 'revealEgn'),
   }
 }
 

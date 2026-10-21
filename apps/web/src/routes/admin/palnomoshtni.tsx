@@ -107,6 +107,7 @@ function PalnomoshtniPage() {
     [people],
   )
   const signedCount = counts?.signed ?? 0
+  const publishedCount = counts?.published ?? 0
   const batches = zipBatchPlan(zipEligible, DESIGNATION_ZIP_BATCH_LIMIT)
   const uploadBlockReason = signedUploadBlockReason({ canExport, canUploadDrive, busy, reading, preview, replaceExisting })
   const plan = preview ? signedUploadPlan(preview, replaceExisting) : null
@@ -405,15 +406,15 @@ function PalnomoshtniPage() {
           Синхрон с Brevo
         </h2>
         <p className="text-sm text-[#333]">
-          Качването вече праща линка към Brevo ({'DOCUMENT_URL'}). Този бутон праща наново всички качени подписани линкове ({signedCount}).
+          Качването вече праща линка към Brevo ({'DOCUMENT_URL'}). Този бутон праща всички с публикувана секция ({publishedCount}): подписаните ({signedCount}) с линка, останалите само със секцията ({'DOCUMENT_URL'} остава празен). Отказалите се не се пращат. Само обновява контакти, без имейли.
           Хората от „{IAZ_LABEL}“ никога не отиват в Brevo.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             className={adminGhost}
-            disabled={!canExport || busy || signedCount === 0}
-            title={!canExport ? EXPORT_REASON : 'Праща вече качените линкове към Brevo наново, без да качваш файловете.'}
+            disabled={!canExport || busy || publishedCount === 0}
+            title={!canExport ? EXPORT_REASON : 'Праща секцията и (за подписаните) линка към Brevo наново, без да качваш файловете.'}
             onClick={() => {
               setBusy(true)
               setMessage('')
@@ -436,7 +437,7 @@ function PalnomoshtniPage() {
           >
             Синхронизирай с Brevo
           </button>
-          {canExport && signedCount === 0 ? <p className="text-sm text-[#333]">Още няма качени подписани пълномощни.</p> : null}
+          {canExport && publishedCount === 0 ? <p className="text-sm text-[#333]">Още няма публикувани секции.</p> : null}
         </div>
         {brevoStatus ? (
           <p role="status" aria-live="polite" aria-label="Резултат от синхрона с Brevo" className={`text-sm font-bold ${toneClass(brevoStatus.tone)}`}>

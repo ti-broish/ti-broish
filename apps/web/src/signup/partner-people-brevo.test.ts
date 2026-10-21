@@ -212,6 +212,16 @@ describe('„Синхронизирай с Brevo“', () => {
       expect(entry.sql).not.toContain('partner_people')
     }
   })
+
+  it('the all-people resync covers every published signup, signed or not, and never the withdrawn', async () => {
+    const { handleDesignationSyncBrevo, DESIGNATION_BREVO_SCOPE_SQL } = await import('./designation-bulk.server')
+    await handleDesignationSyncBrevo({ personIds: [], allSigned: true, offset: 0 })
+    const page = calls.sql.find((entry) => entry.sql.includes('LIMIT ? OFFSET ?'))
+    expect(page?.sql).toContain(DESIGNATION_BREVO_SCOPE_SQL)
+    expect(DESIGNATION_BREVO_SCOPE_SQL).toContain("COALESCE(published_section, '') <> ''")
+    expect(DESIGNATION_BREVO_SCOPE_SQL).toContain('COALESCE(withdrawn, 0) = 0')
+    expect(page?.sql).not.toMatch(/designation_pdf_url, ''\) <> ''/)
+  })
 })
 
 describe('every other Brevo path reads signups only', () => {

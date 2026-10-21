@@ -19,8 +19,8 @@ export type RegisterKind = keyof typeof REGISTER_PATHS
 
 /** How long a signed пълномощно may stay unpublished before the РИК gets a call. */
 export const STALE_AFTER_HOURS = 36
-/** Each РИК is fetched at most this often by the cron (it runs hourly). */
-export const MIN_INTERVAL_MINUTES = 110
+/** Each РИК is fetched at most this often; under the hourly cron (:07) that means every run (50 min leaves slack for run jitter). */
+export const MIN_INTERVAL_MINUTES = 50
 /** Other parties' batch pages change rarely; re-read them at most this often. */
 export const OTHER_PARTY_INTERVAL_MINUTES = 360
 /** Contacts (phones) are re-read at most once a day. */

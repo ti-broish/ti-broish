@@ -142,7 +142,8 @@ describe('designation text', () => {
 
   it('builds the district line from the section code', () => {
     expect(districtLineOf('234600001')).toBe('23 изборен район – София-град')
-    expect(districtLineOf('320000001')).toBe('32 изборен район – Чужбина')
+    expect(districtLineOf('320000001')).toBe('Извън страната')
+    expect(districtLineOf('320000001')).not.toContain('изборен район')
     expect(districtLineOf('')).toBe('[TODO: изборен район]')
   })
 

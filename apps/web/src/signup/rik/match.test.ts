@@ -58,6 +58,14 @@ describe('classification mirrors last election’s sheet', () => {
     expect(stale.tasks).toEqual([expect.objectContaining({ id: 'a:call_rik:not_published', type: 'call_rik', mir: '23' })])
   })
 
+  it('a РИК that has published nothing yet: waiting, no call per person', () => {
+    for (const health of ['empty', 'not_published'] as const) {
+      const { results, tasks } = run([person('a', 'Иван Петров Иванов', { signedAt: OLD })], [], [{ mir: '23', health, failures: 0, lastError: '' }])
+      expect(results[0]).toMatchObject({ status: 'pending', detail: 'РИК 23 още не е публикувал регистъра.' })
+      expect(tasks).toEqual([])
+    }
+  })
+
   it('not signed yet: nothing to chase', () => {
     const { results, tasks } = run([person('a', 'Иван Петров Иванов', { signedAt: null })], [])
     expect(results[0]!.status).toBe('not_signed')

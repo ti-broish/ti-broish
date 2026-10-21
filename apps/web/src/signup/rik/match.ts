@@ -228,6 +228,11 @@ export function classifyPerson(
     return { result: result('elsewhere', { entryId: first.id, otherMir: first.mir }), tasks }
   }
 
+  // A РИК that has not published its register at all yet is not chased per person: that would be
+  // one call per person for one fact. Only once the РИК publishes (any party) does „not there“ count.
+  if (health.health !== 'ok') {
+    return { result: result('pending', { detail: `РИК ${person.mir} още не е публикувал регистъра.` }), tasks }
+  }
   if (hoursBetween(person.signedAt, now) >= STALE_AFTER_HOURS) {
     tasks.push(
       task(person, 'call_rik', 'not_published', `Подписаното пълномощно № ${person.number} е подадено преди повече от ${STALE_AFTER_HOURS} ч., а РИК ${person.mir} още не го е публикувал.`),

@@ -6,7 +6,7 @@ import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupD1, type Signup
 import { normalizeCallRequest, signupGap, type Profile } from './model'
 import { companionsForSignup, syncCompanions } from './companion-lifecycle'
 import { deliverMail, isDevMailHost } from './mail'
-import { egnProblem, signupColumns } from './record'
+import { egnAgeProblem, egnProblem, signupColumns } from './record'
 import { receiptClaimed, signupReceiptMail } from './receipt'
 import { sessionCookieSecure } from './session-cookie'
 import { SELF_WITHDRAW_REASON } from './admin-unregister'
@@ -104,6 +104,13 @@ export const saveSignup = createServerFn({ method: 'POST' })
       return { ok: false as const, message: 'Този имейл чака потвърждение от писмото.' }
     }
     const existing = bySession ?? byEmail
+    if (egnAgeProblem(data.egn, null)) {
+      const stored = existing
+        ? await db.prepare(`SELECT COALESCE(egn, '') AS egn FROM signups WHERE id = ?`).bind(existing.id).first<{ egn: string }>()
+        : null
+      const ageProblem = egnAgeProblem(data.egn, stored?.egn)
+      if (ageProblem) return { ok: false as const, message: ageProblem }
+    }
     const id = existing?.id ?? crypto.randomUUID()
     const token = existing?.session_token ?? crypto.randomUUID()
     // A new request from someone the team already called reopens it in the queue.

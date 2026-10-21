@@ -122,6 +122,14 @@ describe('field mapping', () => {
     }
   })
 
+  it('skips an „И аз“ row whose ЕГН is under 18 on election day', () => {
+    const young = egn(8, 50, 26, 321) // born 26.10.2008: 18 the day after the election
+    const row = mapPartnerRow(raw({ egn: young }))
+    expect(row.ok).toBe(false)
+    if (!row.ok) expect(row.reasons).toEqual(['не навършва 18 години до деня на изборите (25.10.2026 г.)'])
+    expect(mapPartnerRow(raw({ egn: egn(8, 50, 25, 321) })).ok).toBe(true)
+  })
+
   it('imports a row without a phone, with a warning', () => {
     const result = mapPartnerRow(raw({ phone: '' }))
     expect(result.ok && result.person.warnings).toContain('няма телефон')

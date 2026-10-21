@@ -17,7 +17,7 @@
 	},
 	"upload_source_maps": true,
 	// РИК registers sync (src/signup/rik). Staging has no cron; production reads every РИК hourly at :07,
-	// each РИК at most every ~2 h (MIN_INTERVAL_MINUTES). Cron Triggers run in UTC.
+	// each РИК on every run (MIN_INTERVAL_MINUTES = 50). Cron Triggers run in UTC.
 	"triggers": { "crons": [] },
 	"d1_databases": [
 		{

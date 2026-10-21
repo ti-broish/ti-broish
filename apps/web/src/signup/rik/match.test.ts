@@ -120,6 +120,23 @@ describe('classification mirrors last election’s sheet', () => {
     expect(gone.tasks).toEqual([])
   })
 
+  it('duplicate (same ЕГН keeps another number) never gets „call the РИК“; if published, ask to annul that number', () => {
+    const quiet = run([person('pp-1', 'Иван Петров Иванов', { source: 'partner', number: 515, signedAt: OLD, duplicate: true })], [])
+    expect(quiet.results[0]!.status).toBe('duplicate')
+    expect(quiet.tasks).toEqual([])
+    const published = run(
+      [person('s-1', 'Иван Петров Иванов', { number: 504 }), person('pp-1', 'Иван Петров Иванов', { source: 'partner', number: 515, duplicate: true })],
+      [entry('Иван Петров Иванов', { number: 504 }), entry('Иван Петров Иванов', { number: 515 })],
+    )
+    const byId = new Map(published.results.map((row) => [row.personId, row]))
+    expect(byId.get('s-1')!.status).toBe('registered')
+    expect(byId.get('pp-1')!.status).toBe('duplicate')
+    expect(published.tasks.filter((task) => task.personId === 'pp-1')).toEqual([
+      expect.objectContaining({ type: 'remove_person', reason: 'duplicate', detail: expect.stringContaining('№ 515') }),
+    ])
+    expect(published.tasks.some((task) => task.type === 'call_rik')).toBe(false)
+  })
+
   it('rows that disappeared from the register do not count', () => {
     const { results } = run([person('a', 'Иван Петров Иванов')], [entry('Иван Петров Иванов', { missingSince: RECENT })])
     expect(results[0]!.status).toBe('pending')

@@ -15,6 +15,7 @@ import { runSqlBatches } from './designation-sql'
 import { PARTNER_DESIGNATION_COLUMNS, isPartnerPersonId } from './partner-people-sql'
 import { streamZipWriter } from './designation-zip-stream'
 import { parseSignScope, signScopeWhere } from './designation-sign-scope'
+import { partnerDuplicateSql, signupDuplicateSql } from './designation-duplicates'
 
 registerWorkerDesignationFonts()
 
@@ -54,6 +55,7 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
   const scopeWhere = signScopeWhere(scope)
   const from0 = scope === 'new' ? 0 : offset
   // Signups with a published section plus „И аз“ partner people with a МИР, in one numbered list.
+  // Never a withdrawn „И аз“ row or a duplicate (same ЕГН holds another number): one person, one пълномощно.
   const rows = await access.db
     .prepare(
       `SELECT * FROM (
@@ -68,6 +70,7 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
             AND (?1 = '' OR substr(published_section, 1, 2) = ?1)
             AND ?4 = 0
             AND ${scopeWhere}
+            AND NOT ${signupDuplicateSql('signups')}
         UNION ALL
         SELECT ${PARTNER_DESIGNATION_COLUMNS}
           FROM partner_people
@@ -75,6 +78,8 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
             AND designation_number IS NOT NULL
             AND (?1 = '' OR designation_mir = ?1)
             AND ${scopeWhere}
+            AND withdrawn_at IS NULL
+            AND NOT ${partnerDuplicateSql('partner_people')}
       )
         ORDER BY designation_number, id
         LIMIT ?2 OFFSET ?3`,

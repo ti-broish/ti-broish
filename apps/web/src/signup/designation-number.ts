@@ -3,6 +3,8 @@
  * section code) and start at 501 in each МИР. A number and its date are fixed
  * once assigned; gaps from deleted rows are not reused.
  */
+import { partnerEgnFreeSql, signupEgnFreeSql } from './designation-duplicates'
+
 export const DESIGNATION_NUMBER_START = 501
 
 /** МИР code a number belongs to: the first two digits of the section code, or '' when unknown. */
@@ -119,24 +121,28 @@ const NEXT_IN_MIR_SQL = `MAX(
  * or bulk runs cannot hand out the same number (D1 runs each statement
  * atomically; the unique index on (designation_mir, designation_number) is the
  * backstop). Binds: ?1 МИР, ?2 issued date (dd.mm.yyyy, Sofia), ?3 updated_at, ?4 id.
- * Does nothing for a person who already has a number.
+ * Does nothing for a person who already has a number, or whose ЕГН already holds one in
+ * either table (one person, one пълномощно; checked in the same statement, so parallel-safe).
  */
 export const DESIGNATION_ASSIGN_SQL = `UPDATE signups SET
   designation_mir = ?1,
   designation_number = ${NEXT_IN_MIR_SQL},
   designation_issued_at = ?2,
   updated_at = ?3
-  WHERE id = ?4 AND designation_number IS NULL`
+  WHERE id = ?4 AND designation_number IS NULL
+    AND ${signupEgnFreeSql('signups')}`
 
 /**
  * Same counter for a partner person („И аз“). Their МИР is set on import (or by
- * staff) and is fixed once numbered. Binds as DESIGNATION_ASSIGN_SQL.
+ * staff) and is fixed once numbered. Binds as DESIGNATION_ASSIGN_SQL. Skips a withdrawn row,
+ * a row covered by an active volunteer, and an ЕГН that already holds a number.
  */
 export const PARTNER_DESIGNATION_ASSIGN_SQL = `UPDATE partner_people SET
   designation_number = ${NEXT_IN_MIR_SQL},
   designation_issued_at = ?2,
   updated_at = ?3
-  WHERE id = ?4 AND designation_number IS NULL AND designation_mir = ?1`
+  WHERE id = ?4 AND designation_number IS NULL AND designation_mir = ?1
+    AND ${partnerEgnFreeSql('partner_people')}`
 
 /** One number per МИР: numbers restart at 501 in every МИР. */
 export const DESIGNATION_NUMBER_UNIQUE_INDEX_SQL =

@@ -23,6 +23,7 @@ export type RikStatus =
   | 'other_party' // their name is on another party's / committee's register
   | 'withdrawn_registered' // left us, still published
   | 'withdrawn' // left us, not published: nothing to do
+  | 'duplicate' // same ЕГН keeps another number with us: never call the РИК for this one
   | 'rik_unavailable' // the РИК's register could not be read
 
 export type RikTaskType = 'call_rik' | 'remove_person' | 'fix_data' | 'check_rik'
@@ -39,6 +40,7 @@ export const STATUS_LABELS: Record<RikStatus, string> = {
   other_party: 'За друга партия',
   withdrawn_registered: 'Отписан, но регистриран',
   withdrawn: 'Отписан',
+  duplicate: 'Дубликат',
   rik_unavailable: 'РИК не се чете',
 }
 
@@ -58,6 +60,8 @@ export interface RikPerson {
   issuedOn: string
   nameKey: string
   withdrawn: boolean
+  /** Same ЕГН keeps another of our numbers: no „call the РИК“ task; if published, ask the РИК to annul it. */
+  duplicate?: boolean
   /** When the signed пълномощно went to the РИК (first signed upload), ISO; null when not signed. */
   signedAt: string | null
 }
@@ -157,6 +161,16 @@ export function classifyPerson(
       return { result: result('withdrawn_registered', { entryId: published.id }), tasks }
     }
     return { result: result('withdrawn'), tasks }
+  }
+
+  if (person.duplicate) {
+    const published = registered ?? ownByName.find((row) => row.number === person.number) ?? null
+    if (published) {
+      tasks.push(
+        task(person, 'remove_person', 'duplicate', `Дубликат: същото ЕГН има друг наш № в РИК ${person.mir}. Поискай РИК да анулира № ${person.number}.`),
+      )
+    }
+    return { result: result('duplicate', { entryId: published?.id ?? null }), tasks }
   }
 
   // Double registrations are a problem whatever the own РИК says.

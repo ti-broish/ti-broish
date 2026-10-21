@@ -73,14 +73,23 @@ export interface DesignationPersonView {
   hasDriveFile: boolean
   /** Partner slug for „И аз“ people (not signups; only for пълномощни). */
   partner?: string
+  /** Same ЕГН already holds № X (in this or the other table): no number, ZIP or РИК task for this row. */
+  duplicateOf?: { number: number; mir: string }
+  /** „И аз“ only: the пълномощно was withdrawn („Оттеглено“); number and МИР stay. */
+  withdrawnAt?: string
+  withdrawnReason?: string
+  /** „И аз“ only: an active volunteer has the same ЕГН („покрит от доброволец“); never numbered. */
+  covered?: boolean
 }
 
-/** „И аз“ partner people, counted apart from signups. */
+/** „И аз“ partner people, counted apart from signups. Counts are for active (not withdrawn) rows. */
 export interface DesignationPartnerCounts {
   total: number
   numbered: number
   noMir: number
   signed: number
+  withdrawn?: number
+  covered?: number
 }
 
 export interface DesignationCounts {
@@ -89,6 +98,8 @@ export interface DesignationCounts {
   generated: number
   signed: number
   missing: number
+  /** Rows whose ЕГН already holds another number (badge „Дубликат“). */
+  duplicates?: number
 }
 
 export interface DesignationMirOption {

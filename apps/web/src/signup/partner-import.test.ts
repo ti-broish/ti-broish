@@ -15,6 +15,7 @@ import {
   partnerImportStatements,
   partnerMir,
   planPartnerImport,
+  planSummary,
   previewRows,
   splitFullName,
   type PartnerRawRow,
@@ -163,7 +164,7 @@ describe('plan', () => {
 
   it('sorts rows into new, already imported, repeated in the file and invalid; one ЕГН is one person', () => {
     const plan = planPartnerImport(rows, [C], [])
-    expect(plan.counts).toEqual({ new: 4, already: 1, repeat: 1, invalid: 1, alsoSignup: 0, noMir: 0 })
+    expect(plan.counts).toEqual({ new: 4, already: 1, repeat: 1, invalid: 1, alsoSignup: 0, noMir: 0, covered: 0 })
     expect(plan.rows.find((row) => row.line === 4)).toMatchObject({ kind: 'repeat' })
     expect(plan.rows.find((row) => row.line === 2)).toMatchObject({ kind: 'new' })
     expect(plan.rows.find((row) => row.line === 5)).toMatchObject({ kind: 'already' })
@@ -194,8 +195,29 @@ describe('plan', () => {
     expect(insert.sql).toMatch(/ON CONFLICT\(partner, egn\) DO NOTHING/)
     expect(insert.params).toEqual([
       'pp-id', IAZ_PARTNER, B, 'harry+iaz2@hkdobrev.com', '0888123456', 'Мария', '', 'Иванова',
-      '03', expect.any(String), 'Варна', '', '03', '2026-10-19T04:21:00.000Z', '2026-10-19T19:00:00.000Z', '2026-10-19T19:00:00.000Z',
+      '03', expect.any(String), 'Варна', '', '03', '2026-10-19T04:21:00.000Z', '2026-10-19T19:00:00.000Z', '2026-10-19T19:00:00.000Z', null,
     ])
+  })
+
+  it('imports a person whose ЕГН is on an active volunteer, marked „покрит от доброволец“ (never numbered)', () => {
+    const plan = planPartnerImport(rows, [], [
+      { id: 'sig-active', withdrawn: 0, email: 'other@example.com', egn: C },
+      { id: 'sig-gone', withdrawn: 1, email: 'gone@example.com', egn: B },
+    ])
+    expect(plan.counts.covered).toBe(1)
+    const covered = plan.rows.find((row) => row.line === 5)!
+    expect(covered).toMatchObject({ kind: 'new', signup: 'egn', coveredBy: 'sig-active' })
+    expect(covered.reasons.join(' ')).toContain('покрит от доброволец')
+    // A withdrawn volunteer covers nobody.
+    expect(plan.rows.find((row) => row.line === 3)!.coveredBy).toBeUndefined()
+    const statements = partnerImportStatements(plan, '2026-10-19T19:00:00.000Z', () => 'pp-id')
+    const insert = statements.find((statement) => statement.params.includes(C))!
+    expect(insert.sql).toMatch(/covered_by_signup_id/)
+    expect(insert.params.at(-1)).toBe('sig-active')
+    expect(statements.find((statement) => statement.params.includes(B))!.params.at(-1)).toBeNull()
+    const preview = previewRows(plan)
+    expect(preview.find((row) => row.line === 5)!.covered).toBe(true)
+    expect(planSummary(plan)).toContain('Покрити от доброволец (внасят се, но без номер')
   })
 
   it('is idempotent: the second run of the same file finds everyone already imported', () => {

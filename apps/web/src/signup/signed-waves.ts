@@ -1,6 +1,7 @@
 import { formatBgDate, formatDesignationNumber } from './designation-config'
 import { bulkDesignationSignedFilename } from './designation-files'
 import { formatNumberWithDate, parseStoredNumber } from './designation-number'
+import { partnerDuplicateSql, signupDuplicateSql } from './designation-duplicates'
 export { SIGNED_WAVE_COLUMNS, SIGNED_WAVE_SET_SQL } from './signed-waves-sql'
 import { buildRikTableXlsx, rikTableFilename, rikTableTitle, sortRikRows, type RikTableRow } from './rik-table'
 
@@ -49,7 +50,8 @@ export interface SignedRow {
 }
 
 /**
- * Everyone with a signed пълномощно, signups (not withdrawn) and „И аз“ partner people.
+ * Everyone with a signed пълномощно, signups (not withdrawn) and „И аз“ partner people (not withdrawn),
+ * never a duplicate (same ЕГН keeps another number).
  * The wave timestamp falls back to designation_signed_at for rows signed before the
  * first-signed column existed.
  */
@@ -64,13 +66,15 @@ export const SIGNED_PEOPLE_SQL = `SELECT id,
     COALESCE(designation_drive_file_id, '') AS drive_file_id, 0 AS partner
   FROM signups
   WHERE designation_signed_at IS NOT NULL AND designation_number IS NOT NULL AND COALESCE(withdrawn, 0) = 0
+    AND NOT ${signupDuplicateSql('signups')}
 UNION ALL
 SELECT id, first_name, middle_name, last_name, COALESCE(egn, '') AS egn, COALESCE(designation_mir, '') AS mir,
     designation_number, COALESCE(designation_issued_at, '') AS issued_at,
     COALESCE(designation_first_signed_at, designation_signed_at) AS first_signed_at,
     COALESCE(designation_drive_file_id, '') AS drive_file_id, 1 AS partner
   FROM partner_people
-  WHERE designation_signed_at IS NOT NULL AND designation_number IS NOT NULL`
+  WHERE designation_signed_at IS NOT NULL AND designation_number IS NOT NULL AND withdrawn_at IS NULL
+    AND NOT ${partnerDuplicateSql('partner_people')}`
 
 export function signedPersonFromRow(row: SignedRow): SignedPerson | null {
   const number = parseStoredNumber(row.designation_number)

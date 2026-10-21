@@ -80,7 +80,12 @@ export type MapResult = { ok: true; person: PartnerPerson } | { ok: false; line:
 export interface SignupOverlap {
   email: string
   egn: string
+  /** Signup id and withdrawn flag: an active signup with the same ЕГН covers the partner row. */
+  id?: string
+  withdrawn?: number | null
 }
+
+export const COVERED_REASON = 'покрит от доброволец'
 
 export type PlanKind = 'new' | 'already' | 'repeat' | 'invalid'
 
@@ -91,6 +96,8 @@ export interface PlanRow {
   person?: PartnerPerson
   /** Also a signup: same ЕГН and/or email. Not merged, only reported. */
   signup?: 'egn' | 'email' | 'both'
+  /** „Покрит от доброволец“: an active signup has this ЕГН. Imported for history, never numbered. */
+  coveredBy?: string
   reasons: string[]
 }
 
@@ -98,7 +105,7 @@ export interface PartnerPlan {
   partner: string
   total: number
   rows: PlanRow[]
-  counts: Record<PlanKind, number> & { alsoSignup: number; noMir: number }
+  counts: Record<PlanKind, number> & { alsoSignup: number; noMir: number; covered: number }
   headerErrors: string[]
 }
 
@@ -512,6 +519,12 @@ export function planPartnerImport(
   const importedSet = new Set(imported.map((egn) => egn.replace(/\D/g, '')))
   const signupEgn = new Set(signups.map((row) => row.egn.replace(/\D/g, '')).filter(Boolean))
   const signupEmail = new Set(signups.map((row) => row.email.trim().toLowerCase()).filter(Boolean))
+  // The ЕГН is the person: an active volunteer with it covers the partner row (one пълномощно only).
+  const coveringSignup = new Map<string, string>()
+  for (const row of signups) {
+    const key = row.egn.replace(/\D/g, '')
+    if (key && row.id && Number(row.withdrawn ?? 0) === 0 && !coveringSignup.has(key)) coveringSignup.set(key, row.id)
+  }
   for (const [, group] of byEgn) {
     const latest = group.reduce(later)
     for (const person of group) {
@@ -524,17 +537,21 @@ export function planPartnerImport(
     const byEmailHit = Boolean(latest.email) && signupEmail.has(latest.email)
     const signup = byEgnHit && byEmailHit ? 'both' : byEgnHit ? 'egn' : byEmailHit ? 'email' : undefined
     const reasons: string[] = []
-    if (signup) reasons.push(signup === 'email' ? 'има записване с този имейл (не се сливат)' : 'има записване с това ЕГН (не се сливат)')
+    const coveredBy = coveringSignup.get(latest.egn)
+    if (coveredBy) reasons.push(`${COVERED_REASON}: внася се за историята, но няма да получи номер`)
+    else if (signup) reasons.push(signup === 'email' ? 'има записване с този имейл (не се сливат)' : 'има записване с това ЕГН (не се сливат)')
+    const covered = coveredBy ? { coveredBy } : {}
     if (importedSet.has(latest.egn)) {
-      rows.push({ line: latest.line, kind: 'already', email: latest.email, person: latest, signup, reasons: ['вече е внесен (не се променя)', ...reasons] })
+      rows.push({ line: latest.line, kind: 'already', email: latest.email, person: latest, signup, ...covered, reasons: ['вече е внесен (не се променя)', ...reasons] })
     } else {
-      rows.push({ line: latest.line, kind: 'new', email: latest.email, person: latest, signup, reasons })
+      rows.push({ line: latest.line, kind: 'new', email: latest.email, person: latest, signup, ...covered, reasons })
     }
   }
   rows.sort((a, b) => a.line - b.line)
-  const counts = { new: 0, already: 0, repeat: 0, invalid: 0, alsoSignup: 0, noMir: 0 }
+  const counts = { new: 0, already: 0, repeat: 0, invalid: 0, alsoSignup: 0, noMir: 0, covered: 0 }
   for (const row of rows) {
     counts[row.kind] += 1
+    if (row.kind === 'new' && row.coveredBy) counts.covered += 1
     if ((row.kind === 'new' || row.kind === 'already') && row.signup) counts.alsoSignup += 1
     if (row.kind === 'new' && row.person && !row.person.mir) counts.noMir += 1
   }
@@ -558,12 +575,12 @@ export function lookupKeys(rawRows: PartnerRawRow[]) {
 export const IMPORTED_EGNS_SQL = (egnCount: number) =>
   `SELECT egn FROM partner_people WHERE partner = ? AND egn IN (${Array(Math.max(egnCount, 1)).fill('?').join(', ')})`
 
-/** Signups sharing an email or ЕГН. Only email and ЕГН come back, to report the overlap. */
+/** Signups sharing an email or ЕГН. Email, ЕГН, id and withdrawn come back, to report the overlap and mark coverage. */
 export const SIGNUP_OVERLAP_SQL = (emailCount: number, egnCount: number) => {
   const parts: string[] = []
   if (emailCount) parts.push(`lower(email) IN (${Array(emailCount).fill('?').join(', ')})`)
   if (egnCount) parts.push(`REPLACE(COALESCE(egn, ''), ' ', '') IN (${Array(egnCount).fill('?').join(', ')})`)
-  return `SELECT lower(COALESCE(email, '')) AS email, REPLACE(COALESCE(egn, ''), ' ', '') AS egn FROM signups WHERE ${parts.join(' OR ') || '1 = 0'}`
+  return `SELECT id, COALESCE(withdrawn, 0) AS withdrawn, lower(COALESCE(email, '')) AS email, REPLACE(COALESCE(egn, ''), ' ', '') AS egn FROM signups WHERE ${parts.join(' OR ') || '1 = 0'}`
 }
 
 // ---------- statements ----------
@@ -579,8 +596,8 @@ export const randomPartnerId = () => `${PARTNER_ID_PREFIX}${crypto.randomUUID()}
 export const INSERT_PARTNER_PERSON_SQL = `INSERT INTO partner_people (
   id, partner, egn, email, phone, first_name, middle_name, last_name,
   region_code, region_name, municipality_name, place_note, designation_mir,
-  submitted_at, imported_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  submitted_at, imported_at, updated_at, covered_by_signup_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(partner, egn) DO NOTHING`
 
 export function placeNote(person: Pick<PartnerPerson, 'place' | 'travel' | 'unmatched'> & { comment?: string }) {
@@ -617,6 +634,7 @@ export function partnerImportStatements(plan: PartnerPlan, now: string, newId: (
         person.submittedAt,
         now,
         now,
+        row.coveredBy ?? null,
       ],
     })
   }
@@ -657,6 +675,8 @@ export interface PreviewRow {
   mir: string
   place: string
   signup: '' | 'egn' | 'email' | 'both'
+  /** „Покрит от доброволец“: imported, never numbered. */
+  covered: boolean
   reasons: string[]
   warnings: string[]
 }
@@ -673,6 +693,7 @@ export function previewRows(plan: PartnerPlan, limit = 500): PreviewRow[] {
       ? [row.person.place.regionName, row.person.place.municipalityName, row.person.place.cityRegionName].filter(Boolean).join(', ')
       : '',
     signup: row.signup ?? '',
+    covered: Boolean(row.coveredBy),
     reasons: row.reasons,
     warnings: row.person?.warnings ?? [],
   }))
@@ -680,5 +701,5 @@ export function previewRows(plan: PartnerPlan, limit = 500): PreviewRow[] {
 
 export function planSummary(plan: PartnerPlan) {
   const { counts } = plan
-  return `Редове ${plan.total}: нови ${counts.new}, вече внесени ${counts.already}, повторени във файла ${counts.repeat}, невалидни ${counts.invalid}. Също записани доброволци (не се сливат): ${counts.alsoSignup}. Нови без МИР: ${counts.noMir}.`
+  return `Редове ${plan.total}: нови ${counts.new}, вече внесени ${counts.already}, повторени във файла ${counts.repeat}, невалидни ${counts.invalid}. Също записани доброволци (не се сливат): ${counts.alsoSignup}. Нови без МИР: ${counts.noMir}.${counts.covered ? ` Покрити от доброволец (внасят се, но без номер — доброволецът има пълномощното): ${counts.covered}.` : ''}`
 }

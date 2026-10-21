@@ -12,6 +12,7 @@
  * It never writes signups, partner_people, sections or drafts, never removes anyone and never
  * mails: it only fills the rik_* tables.
  */
+import { partnerDuplicateSql, signupDuplicateSql } from '../designation-duplicates'
 import type { SignupD1 } from '../db-core'
 import {
   ABROAD_MIR,
@@ -101,7 +102,11 @@ export async function entryId(parts: { kind: string; mir: string; ours: boolean;
   return (await sha256Hex(`${parts.kind}|${parts.mir}|${owner}|${parts.nameKey}|${numberKey}`)).slice(0, 32)
 }
 
-/** Everyone who holds a пълномощно number: signups (incl. mobile teams) and „И аз“ partner people. */
+/**
+ * Everyone who holds a пълномощно number: signups (incl. mobile teams) and „И аз“ partner people.
+ * A withdrawn „И аз“ row reads as withdrawn; a duplicate (same ЕГН keeps another number) is flagged
+ * so it never gets a „call the РИК“ task.
+ */
 export const RIK_PEOPLE_SQL = `
 SELECT id, 'signup' AS source, COALESCE(designation_mir, '') AS mir, designation_number AS number,
        COALESCE(designation_issued_at, '') AS issued_on,
@@ -109,12 +114,15 @@ SELECT id, 'signup' AS source, COALESCE(designation_mir, '') AS mir, designation
        COALESCE(json_extract(payload, '$.middleName'), '') AS middle_name,
        COALESCE(json_extract(payload, '$.lastName'), '') AS last_name,
        COALESCE(withdrawn, 0) AS withdrawn,
-       COALESCE(designation_first_signed_at, designation_signed_at) AS signed_at
+       COALESCE(designation_first_signed_at, designation_signed_at) AS signed_at,
+       CASE WHEN COALESCE(withdrawn, 0) = 0 AND ${signupDuplicateSql('signups')} THEN 1 ELSE 0 END AS duplicate
 FROM signups WHERE designation_number IS NOT NULL AND COALESCE(designation_mir, '') != ''
 UNION ALL
 SELECT id, 'partner' AS source, COALESCE(designation_mir, '') AS mir, designation_number AS number,
-       COALESCE(designation_issued_at, '') AS issued_on, first_name, middle_name, last_name, 0 AS withdrawn,
-       COALESCE(designation_first_signed_at, designation_signed_at) AS signed_at
+       COALESCE(designation_issued_at, '') AS issued_on, first_name, middle_name, last_name,
+       CASE WHEN withdrawn_at IS NOT NULL THEN 1 ELSE 0 END AS withdrawn,
+       COALESCE(designation_first_signed_at, designation_signed_at) AS signed_at,
+       CASE WHEN withdrawn_at IS NULL AND ${partnerDuplicateSql('partner_people')} THEN 1 ELSE 0 END AS duplicate
 FROM partner_people WHERE designation_number IS NOT NULL AND COALESCE(designation_mir, '') != ''`
 
 interface PersonRow {
@@ -128,6 +136,7 @@ interface PersonRow {
   last_name: string
   withdrawn: number
   signed_at: string | null
+  duplicate?: number | null
 }
 
 export async function loadPeople(db: SignupD1): Promise<RikPerson[]> {
@@ -141,6 +150,7 @@ export async function loadPeople(db: SignupD1): Promise<RikPerson[]> {
     nameKey: nameKey(joinNames(row.first_name ?? '', row.middle_name ?? '', row.last_name ?? '')),
     withdrawn: Number(row.withdrawn) === 1,
     signedAt: row.signed_at || null,
+    duplicate: Number(row.duplicate ?? 0) === 1,
   }))
 }
 

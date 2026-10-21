@@ -42,6 +42,7 @@ export interface RikSourceRow {
   lastChangeAt: string | null
   lastError: string
   failures: number
+  blockedUntil: string | null
   pages: number
   batches: number
   ourEntries: number
@@ -79,7 +80,8 @@ export const rikOverview = createServerFn({ method: 'POST' })
     const tasks = (await db.prepare(`SELECT mir, COUNT(*) AS n FROM rik_tasks WHERE active = 1 AND done_at IS NULL GROUP BY mir`).all<{ mir: string; n: number }>()).results ?? []
     const byStatus = (await db.prepare(`SELECT status, COUNT(*) AS n FROM rik_status GROUP BY status`).all<{ status: string; n: number }>()).results ?? []
     const byType = (await db.prepare(`SELECT type, COUNT(*) AS n FROM rik_tasks WHERE active = 1 AND done_at IS NULL GROUP BY type`).all<{ type: string; n: number }>()).results ?? []
-    const lastRun = await db.prepare(`SELECT trigger, started_at, finished_at, fetched, changed, errors, note FROM rik_runs ORDER BY started_at DESC LIMIT 1`).first<Record<string, unknown>>()
+    // SELECT *: rik_runs.status is added by the sync on its first run after a deploy.
+    const lastRun = await db.prepare(`SELECT * FROM rik_runs ORDER BY started_at DESC LIMIT 1`).first<Record<string, unknown>>()
     const countMap = new Map(counts.map((row) => [row.mir, row]))
     const taskMap = new Map(tasks.map((row) => [row.mir, Number(row.n)]))
     const sourceMap = new Map(sources.map((row) => [String(row.mir), row]))
@@ -101,6 +103,7 @@ export const rikOverview = createServerFn({ method: 'POST' })
         lastChangeAt: (source.last_change_at as string | null) ?? null,
         lastError: String(source.last_error ?? ''),
         failures: Number(source.failures ?? 0),
+        blockedUntil: (source.blocked_until as string | null | undefined) ?? null,
         pages: Number(source.pages ?? 0),
         batches: Number(source.batches ?? 0),
         ourEntries: Number(source.our_entries ?? 0),
@@ -127,6 +130,7 @@ export const rikOverview = createServerFn({ method: 'POST' })
             changed: Number(lastRun.changed),
             errors: Number(lastRun.errors),
             note: String(lastRun.note ?? ''),
+            status: String(lastRun.status ?? ''),
           }
         : null,
     }

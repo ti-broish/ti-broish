@@ -24,7 +24,9 @@ export const RIK_TABLES = [
   batches INTEGER NOT NULL DEFAULT 0,
   our_entries INTEGER NOT NULL DEFAULT 0,
   other_matches INTEGER NOT NULL DEFAULT 0,
-  updated_at TEXT NOT NULL DEFAULT ''
+  updated_at TEXT NOT NULL DEFAULT '',
+  last_good_health TEXT NOT NULL DEFAULT '',
+  blocked_until TEXT
 )`,
   // Every page fetched, with a content hash so an unchanged page costs no writes.
   `CREATE TABLE IF NOT EXISTS rik_pages (
@@ -37,7 +39,9 @@ export const RIK_TABLES = [
   http_status INTEGER NOT NULL DEFAULT 0,
   rows INTEGER NOT NULL DEFAULT 0,
   fetched_at TEXT NOT NULL,
-  changed_at TEXT NOT NULL
+  changed_at TEXT NOT NULL,
+  etag TEXT NOT NULL DEFAULT '',
+  last_modified TEXT NOT NULL DEFAULT ''
 )`,
   // Register rows as published. Our committee: every row. Other parties: only rows whose name
   // matches one of our people (to spot double registrations), nothing else is kept.
@@ -94,8 +98,24 @@ export const RIK_TABLES = [
   fetched INTEGER NOT NULL DEFAULT 0,
   changed INTEGER NOT NULL DEFAULT 0,
   errors INTEGER NOT NULL DEFAULT 0,
-  note TEXT NOT NULL DEFAULT ''
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT ''
 )`,
+]
+
+/**
+ * Columns added after the tables first shipped: [table, column, definition]. Added when missing.
+ * rik_sources.last_good_health: the health of the last successful read, used while a РИК is in „warning“.
+ * rik_runs.status: running | ok | partial | failed | missed.
+ * rik_sources.blocked_until: the host answered with a challenge/403/429; leave it alone until then.
+ * rik_pages.etag / last_modified: validators for conditional requests (when the server sends them).
+ */
+export const RIK_COLUMNS: Array<[string, string, string]> = [
+  ['rik_sources', 'last_good_health', "TEXT NOT NULL DEFAULT ''"],
+  ['rik_runs', 'status', "TEXT NOT NULL DEFAULT ''"],
+  ['rik_sources', 'blocked_until', 'TEXT'],
+  ['rik_pages', 'etag', "TEXT NOT NULL DEFAULT ''"],
+  ['rik_pages', 'last_modified', "TEXT NOT NULL DEFAULT ''"],
 ]
 
 export const RIK_INDEXES = [

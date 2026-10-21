@@ -3,9 +3,12 @@
  * register for this election, stores what changed, then re-derives statuses and tasks.
  * Runs from the Worker cron (src/server.ts) and from the admin „Синхронизирай“ button.
  *
- * Polite and resilient: one request at a time with a pause, a request budget per run, each РИК
- * at most every MIN_INTERVAL_MINUTES, unchanged pages (same SHA-256) cost no writes, and a failing
- * РИК is recorded and skipped without stopping the others. Idempotent: entries are keyed by
+ * Polite and resilient: one request at a time with a pause, a request budget and a time limit per
+ * run, each РИК at most every MIN_INTERVAL_MINUTES, unchanged pages (same SHA-256) cost no writes,
+ * a 5xx/network failure is retried with backoff (RETRY_DELAYS_MS), and a failing РИК is recorded
+ * and skipped without stopping the others. A РИК that fails keeps its last good data: it goes to
+ * „warning“ on the first failed run and to „error“ only after ERROR_AFTER_FAILURES in a row.
+ * Every run has a rik_runs row from its start (status running → ok | partial | failed). Idempotent: entries are keyed by
  * МИР + register + party + name + number, so re-reading a page, a page split into batches or a
  * batch merged into another never duplicates a row.
  *
@@ -20,12 +23,20 @@ import {
   CONTACTS_INTERVAL_MINUTES,
   DEFAULT_FETCH_BUDGET,
   DOMESTIC_MIRS,
+  BLOCK_BACKOFF_MINUTES,
+  ERROR_AFTER_FAILURES,
+  FETCH_PAUSE_JITTER,
   FETCH_PAUSE_MS,
   INDEX_INTERVAL_MINUTES,
   MANUAL_CHECK_AFTER_FAILURES,
+  MAX_BLOCKED_PER_RUN,
+  MAX_INLINE_RETRY_AFTER_MS,
   MIN_INTERVAL_MINUTES,
   OTHER_PARTY_INTERVAL_MINUTES,
+  RETRY_DELAYS_MS,
   RIK_ELECTION,
+  RUN_TIME_LIMIT_MS,
+  UNCHANGED_LIST_BATCH_INTERVAL_MINUTES,
   USER_AGENT,
   defaultElectionBase,
   isOurCommittee,
@@ -33,10 +44,11 @@ import {
   registerUrl,
   type RegisterKind,
 } from './config'
+import { BlockedBySite, detectBlock, hostOf, mayBeBlockPage, parseRetryAfter } from './block'
 import { matchAll, type DerivedTask, type PersonResult, type RikEntryRow, type RikPerson, type RikSourceHealth } from './match'
 import { isAnnulledName, joinNames, nameKey, parseNumberWithDate, sha256Hex } from './normalize'
 import { electionBaseOf, parseContacts, parseRegisterBatch, parseRegisterList, parseRikIndex } from './parse'
-import { RIK_INDEXES, RIK_TABLES } from './sql'
+import { RIK_COLUMNS, RIK_INDEXES, RIK_TABLES } from './sql'
 
 export type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 
@@ -51,6 +63,14 @@ export interface SyncOptions {
   budget?: number
   pauseMs?: number
   sleep?: (ms: number) => Promise<void>
+  /** Random source for the pause jitter (tests). */
+  random?: () => number
+  /** Pauses before each retry of a 5xx/network failure; [] turns retries off. */
+  retryDelaysMs?: number[]
+  /** Stop starting new РИК after this long (ms); the rest go first next run. */
+  timeLimitMs?: number
+  /** A rik_runs row already started by the caller (the cron writes it before anything else). */
+  runId?: string
 }
 
 export interface SyncSummary {
@@ -61,6 +81,9 @@ export interface SyncSummary {
   synced: string[]
   skipped: string[]
   budgetLeft: number
+  retries: number
+  blocked: string[]
+  status: RikRunStatus
   statuses: Record<string, number>
   tasks: Record<string, number>
 }
@@ -71,16 +94,79 @@ export async function ensureRikTables(db: SignupD1) {
   if (ensured.has(db)) return
   for (const sql of RIK_TABLES) await db.prepare(sql).run()
   for (const sql of RIK_INDEXES) await db.prepare(sql).run()
+  const columns = new Map<string, Set<string>>()
+  for (const [table, column, definition] of RIK_COLUMNS) {
+    if (!columns.has(table)) {
+      const info = (await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>()).results ?? []
+      columns.set(table, new Set(info.map((row) => String(row.name))))
+    }
+    if (columns.get(table)!.has(column)) continue
+    try {
+      await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run()
+    } catch (error) {
+      if (!/duplicate column/i.test(error instanceof Error ? error.message : String(error))) throw error
+    }
+    columns.get(table)!.add(column)
+  }
   ensured.add(db)
 }
 
+export type RikRunStatus = 'running' | 'ok' | 'partial' | 'failed' | 'missed'
+
+function errorText(error: unknown) {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 300)
+}
+
+/** Writes the run row first, so a run that dies later still leaves a trace. */
+export async function startRikRun(db: SignupD1, trigger: SyncOptions['trigger'], at: Date, runId: string = crypto.randomUUID()) {
+  await ensureRikTables(db)
+  await db.prepare(`INSERT OR IGNORE INTO rik_runs (id, trigger, started_at, status) VALUES (?, ?, ?, 'running')`).bind(runId, trigger, at.toISOString()).run()
+  return runId
+}
+
+/** Marks a run that threw as failed, with the error, keeping whatever counts it had. */
+export async function failRikRun(db: SignupD1, runId: string, at: Date, error: unknown, counts: { fetched?: number; changed?: number; errors?: number } = {}) {
+  await db
+    .prepare(
+      `UPDATE rik_runs SET finished_at = ?, status = 'failed', fetched = MAX(fetched, ?), changed = MAX(changed, ?), errors = MAX(errors, ?), note = ? WHERE id = ?`,
+    )
+    .bind(at.toISOString(), counts.fetched ?? 0, counts.changed ?? 0, counts.errors ?? 0, `Грешка: ${errorText(error)}`, runId)
+    .run()
+}
+
+/** 5xx (incl. Cloudflare's 520/522/524 in front of CIK) is worth another try; 4xx is an answer. */
+export function isRetryableStatus(status: number) {
+  return status >= 500 && status <= 599
+}
+
 class BudgetSpent extends Error {}
+
+/** A 5xx with a long Retry-After: the host asked us to come back later. */
+class RetryLater extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterMs: number,
+  ) {
+    super(message)
+  }
+}
 
 interface Page {
   status: number
   body: string
   hash: string
+  etag: string
+  lastModified: string
 }
+
+interface Validators {
+  content_hash: string
+  etag: string | null
+  last_modified: string | null
+}
+
+const ACCEPT = 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8'
+const ACCEPT_LANGUAGE = 'bg,en;q=0.5'
 
 function minutesSince(iso: string | null | undefined, now: Date) {
   if (!iso) return Infinity
@@ -164,6 +250,8 @@ interface SourceRow {
   last_attempt_at: string | null
   failures: number
   last_error: string
+  last_good_health?: string | null
+  blocked_until?: string | null
 }
 
 export function createRikSync(db: SignupD1, options: SyncOptions) {
@@ -171,25 +259,90 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
   const fetcher: Fetcher = options.fetcher ?? ((url, init) => fetch(url, init))
   const pause = options.pauseMs ?? FETCH_PAUSE_MS
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+  const retryDelays = options.retryDelaysMs ?? RETRY_DELAYS_MS
   let budget = options.budget ?? DEFAULT_FETCH_BUDGET
   let fetched = 0
   let changed = 0
+  let requests = 0
+  let retries = 0
+  const blocked: string[] = []
 
-  async function get(url: string): Promise<Page> {
-    if (budget <= 0) throw new BudgetSpent('budget')
-    if (fetched > 0 && pause > 0) await sleep(pause)
-    budget -= 1
-    fetched += 1
-    const response = await fetcher(url, {
-      headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/xhtml+xml', 'accept-language': 'bg' },
-      redirect: 'follow',
-    })
-    const body = response.status === 200 ? await response.text() : ''
-    return { status: response.status, body, hash: body ? await sha256Hex(body) : '' }
+  /** Hosts that answered with a challenge/403/429 in this run: nothing more is asked of them. */
+  const blockedHosts = new Map<string, import('./block').BlockInfo>()
+  const random = options.random ?? Math.random
+
+  function jittered(ms: number) {
+    return Math.round(ms * (1 - FETCH_PAUSE_JITTER + 2 * FETCH_PAUSE_JITTER * random()))
+  }
+
+  /**
+   * One page, one request at a time (all hosts share one queue, so never more than one request in
+   * flight). A 5xx or a network error is retried after each of retryDelays (or the server's short
+   * Retry-After); each try costs budget. A challenge/403/429 page throws BlockedBySite and is never
+   * parsed. With validators from an earlier read the request is conditional (304 → unchanged).
+   */
+  async function get(url: string, validators?: Validators | null): Promise<Page> {
+    const host = hostOf(url)
+    const hostBlock = blockedHosts.get(host)
+    if (hostBlock) throw new BlockedBySite(url, hostBlock)
+    for (let attempt = 0; ; attempt += 1) {
+      if (budget <= 0) throw new BudgetSpent('budget')
+      if (requests > 0 && pause > 0) await sleep(jittered(pause))
+      budget -= 1
+      requests += 1
+      const headers: Record<string, string> = { 'user-agent': USER_AGENT, accept: ACCEPT, 'accept-language': ACCEPT_LANGUAGE }
+      if (validators?.etag) headers['if-none-match'] = validators.etag
+      if (validators?.last_modified) headers['if-modified-since'] = validators.last_modified
+      let response: Response
+      try {
+        response = await fetcher(url, { headers, redirect: 'follow' })
+      } catch (error) {
+        const subrequestLimit = /too many subrequests/i.test(errorText(error))
+        if (!subrequestLimit && attempt < retryDelays.length) {
+          retries += 1
+          await sleep(retryDelays[attempt]!)
+          continue
+        }
+        fetched += 1
+        throw error
+      }
+      const status = response.status
+      const body = mayBeBlockPage(status) ? await response.text() : ''
+      if (!mayBeBlockPage(status)) await response.body?.cancel().catch(() => {})
+      const block = detectBlock({ status, headers: response.headers, body }, now())
+      if (block) {
+        fetched += 1
+        blockedHosts.set(host, block)
+        throw new BlockedBySite(url, block)
+      }
+      if (isRetryableStatus(status) && attempt < retryDelays.length) {
+        const retryAfter = parseRetryAfter(response.headers.get('retry-after'), now())
+        if (retryAfter != null && retryAfter > MAX_INLINE_RETRY_AFTER_MS) {
+          fetched += 1
+          throw new RetryLater(`HTTP ${status} за ${url} (Retry-After ${Math.round(retryAfter / 1000)} s)`, retryAfter)
+        }
+        retries += 1
+        await sleep(retryAfter ?? retryDelays[attempt]!)
+        continue
+      }
+      fetched += 1
+      if (status === 304 && validators) return { status, body: '', hash: validators.content_hash, etag: validators.etag ?? '', lastModified: validators.last_modified ?? '' }
+      const text = status === 200 ? body : ''
+      return {
+        status,
+        body: text,
+        hash: text ? await sha256Hex(text) : '',
+        etag: response.headers.get('etag') ?? '',
+        lastModified: response.headers.get('last-modified') ?? '',
+      }
+    }
   }
 
   async function previousPage(url: string) {
-    return db.prepare('SELECT content_hash, fetched_at, rows FROM rik_pages WHERE url = ?').bind(url).first<{ content_hash: string; fetched_at: string; rows: number }>()
+    return db
+      .prepare('SELECT content_hash, fetched_at, rows, etag, last_modified FROM rik_pages WHERE url = ?')
+      .bind(url)
+      .first<{ content_hash: string; fetched_at: string; rows: number; etag: string | null; last_modified: string | null }>()
   }
 
   async function savePage(url: string, mir: string, kind: string, party: string, ours: boolean, page: Page, rows: number, stamp: string) {
@@ -198,13 +351,14 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     if (isChange) changed += 1
     await db
       .prepare(
-        `INSERT INTO rik_pages (url, mir, kind, party, ours, content_hash, http_status, rows, fetched_at, changed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO rik_pages (url, mir, kind, party, ours, content_hash, http_status, rows, fetched_at, changed_at, etag, last_modified)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(url) DO UPDATE SET party = excluded.party, ours = excluded.ours, content_hash = excluded.content_hash,
            http_status = excluded.http_status, rows = excluded.rows, fetched_at = excluded.fetched_at,
+           etag = excluded.etag, last_modified = excluded.last_modified,
            changed_at = CASE WHEN rik_pages.content_hash = excluded.content_hash THEN rik_pages.changed_at ELSE excluded.changed_at END`,
       )
-      .bind(url, mir, kind, party, ours ? 1 : 0, page.hash, page.status, rows, stamp, stamp)
+      .bind(url, mir, kind, party, ours ? 1 : 0, page.hash, page.status, rows, stamp, stamp, page.etag, page.lastModified)
       .run()
     return isChange
   }
@@ -252,13 +406,16 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
   }
 
   /** Reads one register of one РИК. Returns the rows to keep and page counts. */
-  async function readRegister(mir: string, base: string, kind: RegisterKind, ourKeys: Set<string>, stamp: string) {
+  async function readRegister(mir: string, base: string, kind: RegisterKind, ourKeys: Set<string>, stamp: string, published = false) {
     const listUrl = registerUrl(base, kind)
     const list = await get(listUrl)
+    // A register we already read does not vanish: a 404 then is a broken site, not „not published“
+    // (treating it as unpublished would mark every entry missing).
+    if (list.status === 404 && published) throw new Error(`HTTP 404 за ${listUrl} (регистърът се четеше преди)`)
     if (list.status === 404) return { state: 'not_published' as const, pages: 1, batches: 0, rows: [], unchangedSources: [] as string[] }
     if (list.status !== 200) throw new Error(`HTTP ${list.status} за ${listUrl}`)
     const parsed = parseRegisterList(list.body, listUrl)
-    await savePage(listUrl, mir, `${kind}-list`, '', false, list, parsed.batches.length, stamp)
+    const listChanged = await savePage(listUrl, mir, `${kind}-list`, '', false, list, parsed.batches.length, stamp)
     if (parsed.unrecognised) return { state: 'unrecognised' as const, pages: 1, batches: 0, rows: [], unchangedSources: [] }
     const batchUrls = new Map<string, { party: string; ours: boolean }>()
     for (const batch of parsed.batches) batchUrls.set(batch.url, { party: batch.party, ours: isOurCommittee(batch.party) })
@@ -270,7 +427,9 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
       if (seenList.has(next)) continue
       seenList.add(next)
       const page = await get(next)
-      if (page.status !== 200) continue
+      // A list page we could not read means the register was not read in full: fail the РИК
+      // (keeping its last good data) instead of marking the rows on that page missing.
+      if (page.status !== 200) throw new Error(`HTTP ${page.status} за ${next}`)
       const more = parseRegisterList(page.body, next)
       for (const batch of more.batches) batchUrls.set(batch.url, { party: batch.party, ours: isOurCommittee(batch.party) })
       for (const link of more.pages) if (!seenList.has(link)) queue.push(link)
@@ -279,9 +438,11 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     const unchangedSources: string[] = []
     let pages = seenList.size
     for (const [url, meta] of batchUrls) {
-      if (!meta.ours && !options.force) {
-        const before = await previousPage(url)
-        if (before && minutesSince(before.fetched_at, now()) < OTHER_PARTY_INTERVAL_MINUTES) {
+      const before = await previousPage(url)
+      if (!options.force && before) {
+        // Other parties: every 6 h. Ours: every run, but when the list page is unchanged, every second run.
+        const interval = !meta.ours ? OTHER_PARTY_INTERVAL_MINUTES : listChanged ? 0 : UNCHANGED_LIST_BATCH_INTERVAL_MINUTES
+        if (interval > 0 && minutesSince(before.fetched_at, now()) < interval) {
           unchangedSources.push(url)
           continue
         }
@@ -292,8 +453,14 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
         const pageUrl = batchQueue.shift()!
         if (seenBatch.has(pageUrl)) continue
         seenBatch.add(pageUrl)
-        const page = await get(pageUrl)
+        const page = await get(pageUrl, pageUrl === url && before?.content_hash ? before : null)
         pages += 1
+        if (page.status === 304) {
+          // Not modified (only when the server sends ETag/Last-Modified): keep the rows we have.
+          await db.prepare('UPDATE rik_pages SET fetched_at = ? WHERE url = ?').bind(stamp, pageUrl).run()
+          unchangedSources.push(url)
+          break
+        }
         if (page.status !== 200) throw new Error(`HTTP ${page.status} за ${pageUrl}`)
         const batch = parseRegisterBatch(page.body, pageUrl)
         const party = meta.party || batch.party
@@ -361,7 +528,8 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     const base = source.base_url || defaultElectionBase(source.mir)
     const changedBefore = changed
     try {
-      const reps = await readRegister(source.mir, base, 'representative', ourKeys, stamp)
+      const published = source.last_good_health === 'ok' || source.last_good_health === 'empty'
+      const reps = await readRegister(source.mir, base, 'representative', ourKeys, stamp, published)
       if (reps.state !== 'unrecognised') await saveEntries(source.mir, 'representative', reps.rows, reps.unchangedSources, stamp)
       let advPages = 0
       if (source.mir !== ABROAD_MIR && reps.state !== 'unrecognised') {
@@ -370,14 +538,14 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
           advPages = adv.pages
           if (adv.state !== 'unrecognised') await saveEntries(source.mir, 'advocate', adv.rows, adv.unchangedSources, stamp)
         } catch (error) {
-          if (error instanceof BudgetSpent) throw error
+          if (error instanceof BudgetSpent || error instanceof BlockedBySite) throw error
           // Застъпници are secondary; a broken advocates page must not fail the РИК.
         }
       }
       try {
         await readContacts(source, stamp)
       } catch (error) {
-        if (error instanceof BudgetSpent) throw error
+        if (error instanceof BudgetSpent || error instanceof BlockedBySite) throw error
       }
       const ourEntries = reps.rows.filter((row) => row.ours).length
       const otherMatches = reps.rows.filter((row) => !row.ours).length
@@ -387,6 +555,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
           `UPDATE rik_sources SET health = ?, last_success_at = CASE WHEN ? = 'unrecognised' THEN last_success_at ELSE ? END,
              last_change_at = CASE WHEN ? > 0 THEN ? ELSE last_change_at END,
              last_error = ?, failures = CASE WHEN ? = 'unrecognised' THEN failures + 1 ELSE 0 END,
+             last_good_health = CASE WHEN ? = 'unrecognised' THEN last_good_health ELSE ? END, blocked_until = NULL,
              pages = ?, batches = ?, our_entries = ?, other_matches = ?, updated_at = ? WHERE mir = ?`,
         )
         .bind(
@@ -396,6 +565,8 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
           changed - changedBefore,
           stamp,
           health === 'unrecognised' ? 'Страницата не прилича на регистър (сменен адрес или оформление).' : '',
+          health,
+          health,
           health,
           reps.pages + advPages,
           reps.batches,
@@ -411,10 +582,27 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
         await db.prepare('UPDATE rik_sources SET last_attempt_at = ? WHERE mir = ?').bind(source.last_attempt_at, source.mir).run()
         throw error
       }
-      const message = (error instanceof Error ? error.message : String(error)).slice(0, 300)
+      if (error instanceof BlockedBySite) {
+        // Not a failure of the register: nothing is parsed, failures and data stay, people and tasks
+        // of this РИК are frozen (rematch), and the host is left alone for a while.
+        const wait = Math.max(error.info.retryAfterMs ?? 0, BLOCK_BACKOFF_MINUTES * 60_000)
+        await db
+          .prepare(`UPDATE rik_sources SET health = 'blocked', last_error = ?, blocked_until = ?, updated_at = ? WHERE mir = ?`)
+          .bind(errorText(error), new Date(now().getTime() + wait).toISOString(), stamp, source.mir)
+          .run()
+        blocked.push(source.mir)
+        return false
+      }
+      const message = errorText(error)
+      const backoff = error instanceof RetryLater ? new Date(now().getTime() + error.retryAfterMs).toISOString() : null
+      // Entries, pages and last_success_at are left as they were: the last good read keeps counting.
+      // First failed run → warning; ERROR_AFTER_FAILURES in a row → error.
       await db
-        .prepare(`UPDATE rik_sources SET health = 'error', last_error = ?, failures = failures + 1, updated_at = ? WHERE mir = ?`)
-        .bind(message, stamp, source.mir)
+        .prepare(
+          `UPDATE rik_sources SET health = CASE WHEN failures + 1 >= ? THEN 'error' ELSE 'warning' END,
+             last_error = ?, failures = failures + 1, blocked_until = ?, updated_at = ? WHERE mir = ?`,
+        )
+        .bind(ERROR_AFTER_FAILURES, message, backoff, stamp, source.mir)
         .run()
       // Too many subrequests: stop this run, the next one carries on.
       if (/too many subrequests/i.test(message)) throw new BudgetSpent(message)
@@ -452,59 +640,96 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
         missingSince: row.missing_since,
       }),
     )
-    const sources = ((await db.prepare('SELECT mir, health, failures, last_error FROM rik_sources').all<{ mir: string; health: RikSourceHealth['health']; failures: number; last_error: string }>()).results ?? []).map(
-      (row): RikSourceHealth => ({ mir: row.mir, health: row.health, failures: Number(row.failures), lastError: row.last_error }),
+    const sources = ((await db
+      .prepare('SELECT mir, health, failures, last_error, last_good_health FROM rik_sources')
+      .all<{ mir: string; health: RikSourceHealth['health']; failures: number; last_error: string; last_good_health: string | null }>()).results ?? []).map(
+      (row): RikSourceHealth => ({ mir: row.mir, health: row.health, failures: Number(row.failures), lastError: row.last_error, lastGoodHealth: row.last_good_health ?? '' }),
     )
-    const { results, tasks } = matchAll(people, entries, sources, now(), MANUAL_CHECK_AFTER_FAILURES)
-    await writeResults(db, results, tasks, stamp)
+    // A РИК blocked by the site is frozen: its people keep their status and tasks as they were.
+    const frozen = new Set(sources.filter((source) => source.health === 'blocked').map((source) => source.mir))
+    const { results, tasks } = matchAll(
+      people.filter((person) => !frozen.has(person.mir)),
+      entries,
+      sources,
+      now(),
+      MANUAL_CHECK_AFTER_FAILURES,
+    )
+    await writeResults(db, results, tasks.filter((one) => !frozen.has(one.mir)), stamp, [...frozen])
     const statuses: Record<string, number> = {}
-    for (const result of results) statuses[result.status] = (statuses[result.status] ?? 0) + 1
+    for (const row of (await db.prepare('SELECT status, COUNT(*) AS n FROM rik_status GROUP BY status').all<{ status: string; n: number }>()).results ?? []) {
+      statuses[row.status] = Number(row.n)
+    }
     const taskCounts: Record<string, number> = {}
-    for (const one of tasks) taskCounts[one.type] = (taskCounts[one.type] ?? 0) + 1
+    for (const row of (await db.prepare('SELECT type, COUNT(*) AS n FROM rik_tasks WHERE active = 1 GROUP BY type').all<{ type: string; n: number }>()).results ?? []) {
+      taskCounts[row.type] = Number(row.n)
+    }
     return { statuses, tasks: taskCounts }
   }
 
   async function run(): Promise<SyncSummary> {
+    const startedAt = now()
+    const started = startedAt.toISOString()
+    const runId = options.runId ?? (await startRikRun(db, options.trigger, startedAt))
     await ensureRikTables(db)
-    const runId = crypto.randomUUID()
-    const started = now().toISOString()
-    await db.prepare('INSERT INTO rik_runs (id, trigger, started_at) VALUES (?, ?, ?)').bind(runId, options.trigger, started).run()
+    const timeLimit = options.timeLimitMs ?? RUN_TIME_LIMIT_MS
     const synced: string[] = []
     const skipped: string[] = []
     let errors = 0
     let note = ''
     try {
-      await refreshIndex(started)
-      const sources = (await db.prepare('SELECT mir, name, base_url, contacts_url, contacts_at, health, last_attempt_at, failures, last_error FROM rik_sources ORDER BY COALESCE(last_attempt_at, \'\') ASC, mir ASC').all<SourceRow>()).results ?? []
-      const people = await loadPeople(db)
-      const ourKeys = new Set(people.map((person) => person.nameKey).filter(Boolean))
-      for (const source of sources) {
-        if (options.mirs?.length && !options.mirs.includes(source.mir)) continue
-        if (!options.force && minutesSince(source.last_attempt_at, now()) < MIN_INTERVAL_MINUTES) {
-          skipped.push(source.mir)
-          continue
+      try {
+        await refreshIndex(started)
+        const sources = (await db.prepare('SELECT mir, name, base_url, contacts_url, contacts_at, health, last_attempt_at, failures, last_error, last_good_health, blocked_until FROM rik_sources ORDER BY COALESCE(last_attempt_at, \'\') ASC, mir ASC').all<SourceRow>()).results ?? []
+        const people = await loadPeople(db)
+        const ourKeys = new Set(people.map((person) => person.nameKey).filter(Boolean))
+        for (const source of sources) {
+          if (options.mirs?.length && !options.mirs.includes(source.mir)) continue
+          if (!options.force && minutesSince(source.last_attempt_at, now()) < MIN_INTERVAL_MINUTES) {
+            skipped.push(source.mir)
+            continue
+          }
+          if (!options.force && source.blocked_until && Date.parse(source.blocked_until) > now().getTime()) {
+            // The site blocked us or asked us to come back later: leave this host alone until then.
+            skipped.push(source.mir)
+            continue
+          }
+          if (blocked.length >= MAX_BLOCKED_PER_RUN) {
+            note = `Сайтът блокира ${blocked.length} РИК подред; спряхме това пускане, за да не натоварваме.`
+            skipped.push(source.mir)
+            continue
+          }
+          if (now().getTime() - startedAt.getTime() >= timeLimit) {
+            // Out of time for this invocation: these РИК have the oldest attempt, so they go first next run.
+            note = 'Времето за това пускане свърши; останалите РИК са първи в следващото.'
+            skipped.push(source.mir)
+            continue
+          }
+          const ok = await syncOne(source, ourKeys)
+          if (ok) synced.push(source.mir)
+          else errors += 1
         }
-        const ok = await syncOne(source, ourKeys)
-        if (ok) synced.push(source.mir)
-        else errors += 1
+      } catch (error) {
+        if (!(error instanceof BudgetSpent)) throw error
+        note = 'Лимитът заявки за това пускане свърши; останалите РИК са в следващото.'
       }
+      const counts = await rematch()
+      const status: RikRunStatus = errors > 0 || note ? 'partial' : 'ok'
+      await db
+        .prepare('UPDATE rik_runs SET finished_at = ?, fetched = ?, changed = ?, errors = ?, note = ?, status = ? WHERE id = ?')
+        .bind(now().toISOString(), fetched, changed, errors, note || JSON.stringify({ ...counts, retries, blocked }), status, runId)
+        .run()
+      return { runId, fetched, changed, errors, synced, skipped, budgetLeft: budget, retries, blocked, status, ...counts }
     } catch (error) {
-      if (!(error instanceof BudgetSpent)) throw error
-      note = 'Лимитът заявки за това пускане свърши; останалите РИК са в следващото.'
+      await failRikRun(db, runId, now(), error, { fetched, changed, errors }).catch(() => {})
+      throw error
     }
-    const counts = await rematch()
-    await db
-      .prepare('UPDATE rik_runs SET finished_at = ?, fetched = ?, changed = ?, errors = ?, note = ? WHERE id = ?')
-      .bind(now().toISOString(), fetched, changed, errors, note || JSON.stringify(counts), runId)
-      .run()
-    return { runId, fetched, changed, errors, synced, skipped, budgetLeft: budget, ...counts }
   }
 
   return { run, rematch }
 }
 
 /** Upserts statuses and tasks. A task whose cause is gone becomes inactive; done/undo stays. */
-export async function writeResults(db: SignupD1, results: PersonResult[], tasks: DerivedTask[], stamp: string) {
+export async function writeResults(db: SignupD1, results: PersonResult[], tasks: DerivedTask[], stamp: string, frozenMirs: string[] = []) {
   const statements: ReturnType<SignupD1['prepare']>[] = []
   for (const result of results) {
     statements.push(
@@ -533,6 +758,8 @@ export async function writeResults(db: SignupD1, results: PersonResult[], tasks:
   }
   await chunked(db, statements)
   // Causes that went away. People no longer holding a number drop out of rik_status.
-  await db.prepare('UPDATE rik_tasks SET active = 0, updated_at = ? WHERE active = 1 AND updated_at < ?').bind(stamp, stamp).run()
-  await db.prepare('DELETE FROM rik_status WHERE checked_at < ?').bind(stamp).run()
+  // Frozen МИР (blocked by the site) are left exactly as they were.
+  const keep = frozenMirs.length ? ` AND COALESCE(mir, '') NOT IN (${frozenMirs.map(() => '?').join(', ')})` : ''
+  await db.prepare(`UPDATE rik_tasks SET active = 0, updated_at = ? WHERE active = 1 AND updated_at < ?${keep}`).bind(stamp, stamp, ...frozenMirs).run()
+  await db.prepare(`DELETE FROM rik_status WHERE checked_at < ?${keep}`).bind(stamp, ...frozenMirs).run()
 }

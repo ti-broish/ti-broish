@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SignupD1 } from '../db-core'
+import { runScheduledRikSync } from './scheduled'
 import { createRikSync, type Fetcher } from './sync'
+
+vi.mock('cloudflare:workers', () => ({ env: {} }))
+const noSleep = async () => {}
 
 /**
  * The whole sync against a fake web and an in-memory SQLite standing in for D1.
@@ -119,7 +123,7 @@ describe.skipIf(!sqlite)('РИК sync end to end (fake web, in-memory D1)', () =
     pages.set('https://rik24.cik.bg/pvr2026/registers/register_p', { status: 503, body: '' })
     const web = fakeWeb(pages)
     const sync = (extra: Partial<Parameters<typeof createRikSync>[1]> = {}) =>
-      createRikSync(db, { trigger: 'cron', now: () => new Date(clock), fetcher: web.fetcher, pauseMs: 0, ...extra }).run()
+      createRikSync(db, { trigger: 'cron', now: () => new Date(clock), fetcher: web.fetcher, pauseMs: 0, sleep: noSleep, ...extra }).run()
 
     const first = await sync()
     expect(first.errors).toBe(1)
@@ -132,7 +136,8 @@ describe.skipIf(!sqlite)('РИК sync end to end (fake web, in-memory D1)', () =
     const source = (mir: string) => raw.prepare('SELECT health, failures, pages, batches, our_entries, phones FROM rik_sources WHERE mir = ?').get(mir) as Record<string, unknown>
     expect(source('23')).toMatchObject({ health: 'ok', batches: 3, our_entries: 6 })
     expect(String(source('23').phones)).not.toBe('')
-    expect(source('24')).toMatchObject({ health: 'error', failures: 1 })
+    // One failed run (503 even after the retries) is a warning, not yet an error.
+    expect(source('24')).toMatchObject({ health: 'warning', failures: 1 })
     expect(source('32')).toMatchObject({ health: 'not_published' })
     expect(source('01')).toMatchObject({ health: 'empty' })
     expect((raw.prepare('SELECT COUNT(*) AS n FROM rik_sources').get() as { n: number }).n).toBe(32)
@@ -149,6 +154,7 @@ describe.skipIf(!sqlite)('РИК sync end to end (fake web, in-memory D1)', () =
     expect(second.changed).toBe(0)
     expect(entries()).toHaveLength(6)
     expect(second.tasks).toEqual({ remove_person: 2, call_rik: 1, fix_data: 1, check_rik: 1 })
+    expect(source('24')).toMatchObject({ health: 'error', failures: 2 })
     // The other party's batch is not re-read within 6 h, its matched row stays.
     expect(web.calls.filter((url) => url === `${BASE23}?id=12`)).toHaveLength(1)
     expect(entries().every((row) => row.missing_since == null)).toBe(true)
@@ -197,7 +203,7 @@ describe.skipIf(!sqlite)('РИК sync end to end (fake web, in-memory D1)', () =
     const clock = Date.parse('2026-10-22T09:00:00.000Z')
     seed(raw, clock)
     const web = fakeWeb(new Map())
-    const run = await createRikSync(d1(raw), { trigger: 'cron', now: () => new Date(clock), fetcher: web.fetcher, pauseMs: 0, budget: 7 }).run()
+    const run = await createRikSync(d1(raw), { trigger: 'cron', now: () => new Date(clock), fetcher: web.fetcher, pauseMs: 0, sleep: noSleep, budget: 7 }).run()
     expect(run.fetched).toBe(7)
     expect(run.synced.length).toBeGreaterThan(0)
     expect(run.synced.length).toBeLessThan(32)
@@ -205,5 +211,224 @@ describe.skipIf(!sqlite)('РИК sync end to end (fake web, in-memory D1)', () =
     expect(note.note).toContain('Лимитът')
     const never = raw.prepare("SELECT COUNT(*) AS n FROM rik_sources WHERE last_attempt_at IS NULL").get() as { n: number }
     expect(never.n).toBe(32 - run.synced.length)
+  })
+})
+
+const BASE24 = 'https://rik24.cik.bg/pvr2026/registers/register_p'
+const CHALLENGE = fixture('cf-challenge-403.html')
+
+describe.skipIf(!sqlite)('РИК sync resilience (retries, warning/error, blocks, run rows)', () => {
+  function setup() {
+    const raw = new sqlite!.DatabaseSync(':memory:')
+    const clock = { now: Date.parse('2026-10-22T09:00:00.000Z') }
+    seed(raw, clock.now)
+    const pages = new Map<string, { status: number; body: string }>()
+    pages.set(BASE24, { status: 200, body: listPage([[21, OURS]]) })
+    pages.set(`${BASE24}?id=21`, { status: 200, body: batchPage(OURS, [['Ина Иванова Петрова', '601/19.10.2026']]) })
+    const web = fakeWeb(pages)
+    const sleeps: number[] = []
+    const sleep = async (ms: number) => void sleeps.push(ms)
+    const db = d1(raw)
+    const sync = (extra: Partial<Parameters<typeof createRikSync>[1]> = {}) =>
+      createRikSync(db, { trigger: 'cron', now: () => new Date(clock.now), fetcher: web.fetcher, pauseMs: 0, sleep, ...extra }).run()
+    const source = (mir: string) => raw.prepare('SELECT health, failures, last_error, last_good_health, blocked_until FROM rik_sources WHERE mir = ?').get(mir) as Record<string, unknown>
+    const status = (id: string) => raw.prepare('SELECT status, checked_at FROM rik_status WHERE person_id = ?').get(id) as { status: string; checked_at: string } | undefined
+    const run = (id: string) => raw.prepare('SELECT status, note, finished_at, fetched, errors FROM rik_runs WHERE id = ?').get(id) as Record<string, unknown>
+    return { raw, clock, pages, web, sleeps, db, sync, source, status, run }
+  }
+
+  it('retries 5xx (520) and network errors with 1 s / 3 s / 8 s backoff, then reads the page', async () => {
+    const t = setup()
+    let failures = 0
+    const flaky: Fetcher = async (url, init) => {
+      if (url === BASE24 && failures < 2) {
+        failures += 1
+        return new Response('<html>origin error</html>', { status: 520 })
+      }
+      if (url === `${BASE24}?id=21` && failures === 2) {
+        failures += 1
+        throw new TypeError('Network connection lost.')
+      }
+      return t.web.fetcher(url, init)
+    }
+    const summary = await t.sync({ fetcher: flaky })
+    expect(summary.retries).toBe(3)
+    expect(t.sleeps).toEqual([1000, 3000, 1000])
+    expect(summary.errors).toBe(0)
+    expect(t.source('24')).toMatchObject({ health: 'ok', failures: 0, last_good_health: 'ok' })
+    expect(t.status('pp-1')?.status).toBe('registered')
+    expect(t.run(summary.runId)).toMatchObject({ status: 'ok' })
+  })
+
+  it('a failing РИК is a warning on the first failed run and an error after two, and keeps its last good data', async () => {
+    const t = setup()
+    await t.sync()
+    expect(t.status('pp-1')?.status).toBe('registered')
+    const entries = () => t.raw.prepare("SELECT name, missing_since FROM rik_entries WHERE mir = '24'").all() as Array<{ missing_since: string | null }>
+    expect(entries()).toHaveLength(1)
+
+    t.pages.set(BASE24, { status: 520, body: '' })
+    t.clock.now += 60 * 60_000
+    t.sleeps.length = 0
+    const first = await t.sync()
+    expect(t.sleeps).toEqual([1000, 3000, 8000])
+    expect(first.errors).toBe(1)
+    expect(t.source('24')).toMatchObject({ health: 'warning', failures: 1, last_good_health: 'ok' })
+    expect(String(t.source('24').last_error)).toContain('HTTP 520')
+    expect(first.status).toBe('partial')
+    // Last good data still counts: the entry is kept, not missing, and the person stays registered.
+    expect(entries()).toEqual([expect.objectContaining({ missing_since: null })])
+    expect(t.status('pp-1')?.status).toBe('registered')
+    expect(first.tasks.check_rik ?? 0).toBe(0)
+
+    t.clock.now += 60 * 60_000
+    const second = await t.sync()
+    expect(t.source('24')).toMatchObject({ health: 'error', failures: 2 })
+    expect(second.tasks.check_rik).toBe(1)
+    expect(entries()).toEqual([expect.objectContaining({ missing_since: null })])
+
+    // Back to normal: health and failures reset.
+    t.pages.set(BASE24, { status: 200, body: listPage([[21, OURS]]) })
+    t.clock.now += 60 * 60_000
+    await t.sync()
+    expect(t.source('24')).toMatchObject({ health: 'ok', failures: 0 })
+  })
+
+  it('a warning with no good read yet counts as „РИК не се чете“', async () => {
+    const t = setup()
+    t.pages.set(BASE24, { status: 503, body: '' })
+    await t.sync()
+    expect(t.source('24')).toMatchObject({ health: 'warning', last_good_health: '' })
+    expect(t.status('pp-1')?.status).toBe('rik_unavailable')
+  })
+
+  it('a challenge page is „blocked“: never parsed, data and tasks untouched, the host is left alone next run', async () => {
+    const t = setup()
+    const BASE23 = 'https://rik23.cik.bg/pvr2026/registers/register_p'
+    t.pages.set(BASE23, { status: 200, body: listPage([[11, OURS]]) })
+    t.pages.set(`${BASE23}?id=11`, { status: 200, body: batchPage(OURS, [['Иван Петров Иванов', '501/19.10.2026']]) })
+    await t.sync()
+    const tasks23 = () => t.raw.prepare("SELECT id, active, updated_at FROM rik_tasks WHERE mir = '23' ORDER BY id").all()
+    const status23 = () => t.raw.prepare("SELECT person_id, status, checked_at FROM rik_status WHERE mir = '23' ORDER BY person_id").all()
+    const entries23 = () => t.raw.prepare("SELECT id, missing_since, last_seen_at FROM rik_entries WHERE mir = '23' ORDER BY id").all()
+    const before = JSON.stringify([tasks23(), status23(), entries23()])
+    expect(t.status('a')?.status).toBe('registered')
+    expect((tasks23() as unknown[]).length).toBeGreaterThan(0)
+
+    // Cloudflare's managed challenge (real page, sanitised): 403 + cf-mitigated.
+    const challenge: Fetcher = async (url, init) =>
+      url.startsWith('https://rik23.') ? new Response(CHALLENGE, { status: 403, headers: { 'cf-mitigated': 'challenge', 'content-type': 'text/html' } }) : t.web.fetcher(url, init)
+    t.clock.now += 60 * 60_000
+    t.sleeps.length = 0
+    const blockedRun = await t.sync({ fetcher: challenge })
+    expect(blockedRun.blocked).toEqual(['23'])
+    expect(t.sleeps).toEqual([]) // a block is not retried
+    expect(t.source('23')).toMatchObject({ health: 'blocked', failures: 0, last_good_health: 'ok' })
+    expect(String(t.source('23').last_error)).toContain('Блокиран от сайта')
+    expect(Date.parse(String(t.source('23').blocked_until))).toBe(t.clock.now + 100 * 60_000)
+    // Only one request went to the blocked host (no advocates, no contacts after the block).
+    expect(t.web.calls.filter((url) => url.startsWith('https://rik23.')).length).toBeGreaterThan(0)
+    expect(JSON.stringify([tasks23(), status23(), entries23()])).toBe(before)
+
+    // The next hourly run leaves the host alone; the one after reads it again.
+    const calls = () => t.web.calls.filter((url) => url.startsWith('https://rik23.')).length
+    let hits = 0
+    const counting: Fetcher = async (url, init) => {
+      if (url.startsWith('https://rik23.')) hits += 1
+      return t.web.fetcher(url, init)
+    }
+    t.clock.now += 60 * 60_000
+    const skipped = await t.sync({ fetcher: counting })
+    expect(hits).toBe(0)
+    expect(skipped.skipped).toContain('23')
+    expect(JSON.stringify([tasks23(), status23(), entries23()])).toBe(before)
+    t.clock.now += 60 * 60_000
+    await t.sync({ fetcher: counting })
+    expect(hits).toBeGreaterThan(0)
+    expect(calls()).toBeGreaterThan(0)
+    expect(t.source('23')).toMatchObject({ health: 'ok', blocked_until: null })
+  })
+
+  it('a 200 interstitial is blocked too, never read as an empty register', async () => {
+    const t = setup()
+    await t.sync()
+    const interstitial: Fetcher = async (url, init) => (url === BASE24 ? new Response(CHALLENGE, { status: 200 }) : t.web.fetcher(url, init))
+    t.clock.now += 60 * 60_000
+    await t.sync({ fetcher: interstitial })
+    expect(t.source('24')).toMatchObject({ health: 'blocked', last_good_health: 'ok' })
+    expect(t.status('pp-1')?.status).toBe('registered')
+    const entry = t.raw.prepare("SELECT missing_since FROM rik_entries WHERE mir = '24'").get() as { missing_since: string | null }
+    expect(entry.missing_since).toBeNull()
+  })
+
+  it('stops after a few blocked РИК in one run instead of knocking on every host', async () => {
+    const t = setup()
+    const everywhere: Fetcher = async (url) => (url.includes('www.cik.bg') ? t.web.fetcher(url) : new Response('', { status: 429, headers: { 'retry-after': '7200' } }))
+    const summary = await t.sync({ fetcher: everywhere })
+    expect(summary.blocked).toHaveLength(3)
+    expect(summary.fetched).toBe(4) // the index + one request to each of the 3 blocked hosts
+    const row = t.run(summary.runId)
+    expect(String(row.note)).toContain('блокира')
+    // Retry-After (2 h) is longer than the default back-off, so it wins.
+    const first = t.raw.prepare("SELECT blocked_until FROM rik_sources WHERE health = 'blocked' LIMIT 1").get() as { blocked_until: string }
+    expect(Date.parse(first.blocked_until)).toBe(t.clock.now + 7200_000)
+  })
+
+  it('a run that throws still leaves its rik_runs row, marked failed with the error', async () => {
+    const t = setup()
+    const broken: SignupD1 = {
+      ...t.db,
+      prepare: (sql: string) => {
+        if (/FROM signups/.test(sql)) throw new Error('D1_ERROR: boom')
+        return t.db.prepare(sql)
+      },
+    }
+    await expect(createRikSync(broken, { trigger: 'manual', fetcher: t.web.fetcher, pauseMs: 0, sleep: noSleep }).run()).rejects.toThrow('boom')
+    const rows = t.raw.prepare('SELECT status, note, finished_at FROM rik_runs').all() as Array<{ status: string; note: string; finished_at: string | null }>
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ status: 'failed' })
+    expect(rows[0]!.note).toContain('D1_ERROR: boom')
+    expect(rows[0]!.finished_at).not.toBeNull()
+  })
+
+  it('the cron waits out a busy D1 (long-running export), writes its row first and marks it failed if the run throws', async () => {
+    const t = setup()
+    let refusals = 2
+    const busy: SignupD1 = {
+      ...t.db,
+      prepare: (sql: string) => {
+        if (refusals > 0) {
+          refusals -= 1
+          throw new Error('D1_ERROR: Currently processing a long-running export.')
+        }
+        return t.db.prepare(sql)
+      },
+    }
+    const sleeps: number[] = []
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    await runScheduledRikSync('7 * * * *', {
+      db: busy,
+      ready: async () => {
+        throw new Error('D1_ERROR: schema step failed')
+      },
+      sleep: async (ms) => void sleeps.push(ms),
+      d1RetryDelaysMs: [5, 15],
+    })
+    expect(sleeps.slice(0, 2)).toEqual([5, 15])
+    const rows = t.raw.prepare('SELECT trigger, status, note FROM rik_runs').all() as Array<{ trigger: string; status: string; note: string }>
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ trigger: 'cron', status: 'failed' })
+    expect(rows[0]!.note).toContain('schema step failed')
+  })
+
+  it('the cron records a normal run end to end', async () => {
+    const t = setup()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    await runScheduledRikSync('7 * * * *', { db: t.db, ready: async () => t.db, now: () => new Date(t.clock.now), sync: { fetcher: t.web.fetcher, pauseMs: 0, sleep: noSleep, now: () => new Date(t.clock.now) } })
+    const rows = t.raw.prepare('SELECT status, fetched, finished_at FROM rik_runs').all() as Array<{ status: string; fetched: number; finished_at: string | null }>
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.status).toBe('ok')
+    expect(rows[0]!.fetched).toBeGreaterThan(0)
   })
 })

@@ -172,7 +172,6 @@ export function designationSectionAttributes(fields: DesignationSectionFields, a
 export type DesignationBrevoContact = {
   personId: string
   email: string
-  /** Signed link; '' for someone not signed yet: then only the section goes and DOCUMENT_URL is left alone. */
   url: string
   /** Section attributes sent in the same update (see designationSectionAttributes). */
   section?: BrevoAttrs
@@ -219,13 +218,8 @@ export async function pushDesignationLink(opts: {
   fetchImpl?: typeof fetch
 }): Promise<DesignationBrevoResult> {
   const fetchImpl = opts.fetchImpl ?? fetch
-  const url = opts.contact.url.trim()
-  // Not signed yet: never send an empty DOCUMENT_URL (a blank would wipe a stored link), only the section.
-  const link: BrevoAttrs = url ? { [opts.attribute.trim().toUpperCase()]: url } : {}
+  const link = { [opts.attribute.trim().toUpperCase()]: opts.contact.url }
   const section = opts.contact.section ?? {}
-  if (!url && Object.keys(section).length === 0) {
-    return { personId: opts.contact.personId, ok: false, error: 'няма подписан линк и няма секционни данни за Brevo' }
-  }
   const withSection: BrevoAttrs = { ...section, ...link }
   const hasSection = Object.keys(section).length > 0
   const listIds = opts.listId ? [opts.listId] : []
@@ -233,7 +227,7 @@ export async function pushDesignationLink(opts: {
   const put = (attributes: BrevoAttrs) => updateBrevoContactAttribute(opts.apiKey, email, attributes, fetchImpl, listIds)
   const create = (attributes: BrevoAttrs) => createBrevoContact(opts.apiKey, email, attributes, listIds, fetchImpl)
   // A 400 on the section attributes must not cost the signed link: retry with the link alone.
-  const sectionRefused = (error: unknown) => Boolean(url) && hasSection && error instanceof BrevoContactError && error.status === 400
+  const sectionRefused = (error: unknown) => hasSection && error instanceof BrevoContactError && error.status === 400
   const warningOf = (error: unknown) => `секционните атрибути не минаха: ${describe(error)}`
   try {
     await put(withSection)
@@ -330,7 +324,7 @@ export async function syncDesignationLinks(opts: {
   await Promise.all(Array.from({ length: Math.min(opts.concurrency ?? 4, opts.contacts.length) }, worker))
   let check: DesignationBrevoCheck | undefined
   if (opts.verify !== false) {
-    const firstOk = opts.contacts.find((contact, i) => results[i]?.ok && contact.url.trim())
+    const firstOk = opts.contacts.find((_, i) => results[i]?.ok)
     if (firstOk) {
       check = await checkDesignationLink({ apiKey: opts.apiKey, attribute, contact: firstOk, fetchImpl })
       if (!check.ok) {

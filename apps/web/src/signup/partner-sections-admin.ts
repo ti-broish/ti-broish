@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { egnLast4 } from './egn-reveal'
 import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { fetchApiJson } from './distribute-plan'
@@ -64,6 +65,7 @@ export const adminPartnerSections = createServerFn({ method: 'POST' }).handler(a
           `SELECT p.id, TRIM(p.first_name || ' ' || p.last_name) AS name, COALESCE(p.designation_mir, '') AS mir, p.designation_number AS number,
                   p.municipality_name AS municipality, COALESCE(p.section_draft, '') AS draft, COALESCE(p.section_published, '') AS published,
                   COALESCE(p.section_draft_locked, 0) AS locked, COALESCE(p.section_draft_source, '') AS source,
+                  p.egn AS egn,
                   d.r AS draft_r, d.level AS draft_level, q.r AS published_r, q.level AS published_level
            FROM partner_people p
            LEFT JOIN priority_sections d ON d.section_code = p.section_draft
@@ -80,6 +82,7 @@ export const adminPartnerSections = createServerFn({ method: 'POST' }).handler(a
           published: string
           locked: number
           source: string
+          egn: string | null
           draft_r: number | null
           draft_level: string | null
           published_r: number | null
@@ -99,6 +102,8 @@ export const adminPartnerSections = createServerFn({ method: 'POST' }).handler(a
     source: row.source,
     draftPriority: info(row.draft_r, row.draft_level),
     publishedPriority: info(row.published_r, row.published_level),
+    // Only the last four digits leave the server; „Покажи ЕГН“ asks for the rest.
+    egnLast4: egnLast4(row.egn),
   }))
   return {
     ok: true as const,

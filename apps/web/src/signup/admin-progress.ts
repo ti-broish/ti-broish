@@ -297,6 +297,8 @@ export interface AdminPerson {
   draftSection: string
   publishedSection: string
   hasEgn: boolean
+  /** Last four digits only; the full ЕГН comes from „Покажи ЕГН“ (admins, audited). */
+  egnLast4: string
   notes: string
   callRequestedAt: string
   callMessage: string
@@ -322,6 +324,7 @@ export function buildAdminPerson(
     draftSection: string
     publishedSection: string
     hasEgn: boolean
+    egnLast4?: string
     staffNote: string
     staffCalledAt: string
     staffCalledBy: string
@@ -372,6 +375,7 @@ export function buildAdminPerson(
     draftSection: extra.draftSection,
     publishedSection: extra.publishedSection,
     hasEgn: extra.hasEgn,
+    egnLast4: extra.egnLast4 ?? '',
     notes: profile.notes,
     callRequestedAt: profile.callRequestedAt ?? '',
     callMessage: profile.callMessage,

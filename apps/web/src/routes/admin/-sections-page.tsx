@@ -284,7 +284,7 @@ export function SectionsPage() {
         reload={(notice) => loadReserved(notice)}
       />
       <MobileTeamsPanel canEdit={canEdit} setMessage={setMessage} />
-      <PartnerSectionsPanel canEdit={canEdit} canPublish={canPublish} setMessage={setMessage} />
+      <PartnerSectionsPanel canEdit={canEdit} canPublish={canPublish} canRevealEgn={access.permissions.revealEgn} setMessage={setMessage} />
       <form
         className="flex flex-wrap items-end gap-2"
         onSubmit={(event) => {

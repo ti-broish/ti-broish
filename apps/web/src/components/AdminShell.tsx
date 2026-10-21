@@ -13,6 +13,7 @@ export interface AdminPermissions {
   exportInternal: boolean
   publish: boolean
   invite: boolean
+  revealEgn: boolean
 }
 
 export interface AdminMember {

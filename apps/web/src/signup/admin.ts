@@ -15,6 +15,7 @@ import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { travelLabelOf } from './admin-assign'
 import { NOTES_SQL, notesFromRow } from './admin-notes'
 import { PERSON_SQL_BASE } from './admin-person-sql'
+import { egnLast4 } from './egn-reveal'
 import { reservedCode, reservedMessage } from './reserved-sections'
 import { reservedMap } from './reserved-sections-db'
 import {
@@ -1105,6 +1106,7 @@ function personExtra(
     draftSection: row.draft_section,
     publishedSection: row.published_section ?? '',
     hasEgn: Boolean(row.egn?.replace(/\D/g, '')),
+    egnLast4: egnLast4(row.egn),
     staffNote,
     staffCalledAt,
     staffCalledBy,

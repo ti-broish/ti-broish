@@ -148,7 +148,7 @@ test.describe('staff admin', () => {
     await page.getByRole('row', { name: STAFF_EMAIL }).getByRole('link', { name: 'Мария Георгиева Петрова', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Мария Георгиева Петрова', exact: true })).toBeVisible()
     await expect(page.getByText('Завършил записването.')).toBeVisible()
-    await expect(page.getByText('ЕГН е въведено')).toBeVisible()
+    await expect(page.getByTestId('egn-masked')).toHaveText('••••••0002')
     await page.getByRole('radio', { name: 'Мобилен екип' }).check()
     await page.getByRole('checkbox', { name: '1 ноември, балотаж' }).uncheck()
     await page.getByLabel('Бележка от екипа').fill('Обадихме се, ще дойде и на двата дни.')

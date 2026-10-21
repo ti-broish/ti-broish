@@ -152,6 +152,20 @@ export interface SignedUploadMatch {
   unmatched: UnmatchedUpload[]
   duplicates: DuplicateUpload[]
   notPdf: NotPdfUpload[]
+  /** macOS/Windows junk inside a ZIP or folder (__MACOSX, ._*, .DS_Store): skipped, never an error. */
+  ignored: number
+}
+
+/** A selected file that never reached matching: unreadable (a dropped folder) or a broken ZIP. */
+export interface UploadProblem {
+  fileName: string
+  reason: string
+}
+
+export interface ExpandedUploads {
+  files: IncomingUploadFile[]
+  problems: UploadProblem[]
+  ignored: number
 }
 
 export interface BulkManifestRow {
@@ -354,12 +368,32 @@ export function parseDesignationFilenameParts(normalized: string): {
   return { style: 'legacy', mir: null, number, section: sectionFromFilename(normalized) }
 }
 
-function findPersonForFile(normalized: string, people: DesignationFilePerson[]) {
+interface PeopleIndex {
+  exact: Map<string, DesignationFilePerson>
+  legacy: Map<string, DesignationFilePerson>
+  people: DesignationFilePerson[]
+}
+
+/** Expected names once per person, not once per person per file (thousands of people × a ZIP of 100). */
+function indexPeople(people: DesignationFilePerson[]): PeopleIndex {
+  const exact = new Map<string, DesignationFilePerson>()
+  const legacy = new Map<string, DesignationFilePerson>()
+  for (const person of people) {
+    const key = expectedNormalized(person).toLowerCase()
+    if (!exact.has(key)) exact.set(key, person)
+    const legacyKey = legacyExpectedNormalized(person).toLowerCase()
+    if (!legacy.has(legacyKey)) legacy.set(legacyKey, person)
+  }
+  return { exact, legacy, people }
+}
+
+function findPersonForFile(normalized: string, index: PeopleIndex) {
   const lower = normalized.toLowerCase()
-  const exact = people.filter((person) => expectedNormalized(person).toLowerCase() === lower)
-  if (exact.length >= 1) return exact[0]
-  const legacyExact = people.filter((person) => legacyExpectedNormalized(person).toLowerCase() === lower)
-  if (legacyExact.length >= 1) return legacyExact[0]
+  const exact = index.exact.get(lower)
+  if (exact) return exact
+  const legacyExact = index.legacy.get(lower)
+  if (legacyExact) return legacyExact
+  const people = index.people
   const parts = parseDesignationFilenameParts(normalized)
   if (!parts) return null
   if (parts.style === 'new') {
@@ -376,9 +410,17 @@ function findPersonForFile(normalized: string, people: DesignationFilePerson[]) 
   return matched.length === 1 ? matched[0] : null
 }
 
-export function matchSignedFiles(files: IncomingUploadFile[], people: DesignationFilePerson[]): SignedUploadMatch {
-  const result: SignedUploadMatch = { matched: [], unmatched: [], duplicates: [], notPdf: [] }
+export function matchSignedFiles(
+  files: IncomingUploadFile[],
+  people: DesignationFilePerson[],
+  extra: { problems?: UploadProblem[]; ignored?: number } = {},
+): SignedUploadMatch {
+  const result: SignedUploadMatch = { matched: [], unmatched: [], duplicates: [], notPdf: [], ignored: extra.ignored ?? 0 }
   const byPerson = new Map<string, MatchedUpload[]>()
+  const index = indexPeople(people)
+  for (const problem of extra.problems ?? []) {
+    result.notPdf.push({ kind: 'not-pdf', fileName: problem.fileName, reason: problem.reason })
+  }
 
   for (const file of files) {
     const fileName = file.name
@@ -395,14 +437,16 @@ export function matchSignedFiles(files: IncomingUploadFile[], people: Designatio
       result.unmatched.push({ kind: 'unmatched', fileName, reason: 'празно име' })
       continue
     }
-    const person = findPersonForFile(normalized, people)
+    const person = findPersonForFile(normalized, index)
     if (!person) {
       const parts = parseDesignationFilenameParts(normalized)
-      let reason = 'името не съвпада с очаквания файл'
+      let reason = 'името не започва с МИР_номер_ (напр. 23_501_…_signed.pdf)'
       if (parts?.style === 'new') {
         reason = people.some((row) => row.number === parts.number)
           ? 'номерът съвпада, но МИР в името е друг'
-          : 'няма човек с този номер'
+          : people.some((row) => mirFromSection(row.section) === parts.mir)
+            ? 'няма човек с този номер в този МИР (или не е в текущия филтър)'
+            : 'няма човек с този номер (провери филтъра по МИР/търсенето)'
       } else if (parts) {
         reason =
           parts.section && people.some((row) => row.number === parts.number)
@@ -446,28 +490,121 @@ export function matchSignedFiles(files: IncomingUploadFile[], people: Designatio
   return result
 }
 
-export function expandUploadFiles(files: IncomingUploadFile[]): IncomingUploadFile[] {
-  const out: IncomingUploadFile[] = []
-  for (const file of files) {
-    const looksZip = /\.zip$/i.test(dropDirectory(file.name)) || isZipBytes(file.bytes)
-    if (!looksZip) {
-      out.push(file)
-      continue
-    }
+/** Nested ZIPs (a ZIP of ZIPs) are opened this deep; anything deeper is reported, not silently dropped. */
+const MAX_ZIP_DEPTH = 3
+
+const JUNK_BASENAMES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini', '.localized', 'icon\r'])
+
+/**
+ * macOS Finder („Compress“), Windows Explorer and others mark junk alongside the real files:
+ * `__MACOSX/` AppleDouble copies, `._name` resource forks, `.DS_Store`, `Thumbs.db`.
+ */
+export function isJunkUploadPath(path: string) {
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (parts.some((part) => part === '__MACOSX')) return true
+  const base = parts[parts.length - 1] ?? ''
+  if (!base) return true
+  if (base.startsWith('._')) return true
+  return JUNK_BASENAMES.has(base.toLowerCase())
+}
+
+const utf8Strict = typeof TextDecoder === 'undefined' ? null : new TextDecoder('utf-8', { fatal: true })
+
+/**
+ * fflate decodes an entry name as Latin-1 unless the ZIP sets the UTF-8 flag (bit 11). macOS Archive
+ * Utility and many Windows tools write UTF-8 names without that flag, so Cyrillic arrives as mojibake
+ * („ÐÐ²Ð°Ð½“). Latin-1 is byte-for-byte, so turn it back into bytes and decode as UTF-8 when that is
+ * valid; otherwise keep the name as it came. NFC folds macOS decomposed „й“ (и + ˘).
+ */
+export function decodeZipEntryName(name: string) {
+  let restored = name
+  if (utf8Strict && /[\u0080-\u00ff]/.test(name) && !/[^\u0000-\u00ff]/.test(name)) {
+    const bytes = new Uint8Array(name.length)
+    for (let i = 0; i < name.length; i += 1) bytes[i] = name.charCodeAt(i)
     try {
-      const unzipped = unzipSync(file.bytes)
-      for (const [path, bytes] of Object.entries(unzipped)) {
-        if (!bytes) continue
-        if (path.endsWith('/')) continue
-        const base = dropDirectory(path)
-        if (!base || base === '.DS_Store' || path.includes('__MACOSX')) continue
-        out.push({ name: path, bytes })
-      }
+      restored = utf8Strict.decode(bytes)
     } catch {
-      out.push(file)
+      restored = name
     }
   }
+  return restored.normalize('NFC')
+}
+
+function looksLikeZip(file: IncomingUploadFile) {
+  return /\.zip$/i.test(dropDirectory(file.name)) || isZipBytes(file.bytes)
+}
+
+/**
+ * Open every ZIP (also a ZIP inside a ZIP, and PDFs inside any folder depth), drop junk entries,
+ * and report the ones that cannot be opened instead of passing them on as „not a PDF“.
+ */
+export function expandUploadFilesDetailed(files: IncomingUploadFile[]): ExpandedUploads {
+  const out: ExpandedUploads = { files: [], problems: [], ignored: 0 }
+  const visit = (file: IncomingUploadFile, depth: number) => {
+    if (isJunkUploadPath(file.name)) {
+      out.ignored += 1
+      return
+    }
+    if (!looksLikeZip(file)) {
+      out.files.push({ name: file.name.normalize('NFC'), bytes: file.bytes })
+      return
+    }
+    if (depth >= MAX_ZIP_DEPTH) {
+      out.problems.push({ fileName: file.name, reason: `ZIP в ZIP повече от ${MAX_ZIP_DEPTH} нива: разархивирай го` })
+      return
+    }
+    let unzipped: Record<string, Uint8Array>
+    try {
+      unzipped = unzipSync(file.bytes)
+    } catch (error) {
+      const detail = error instanceof Error && error.message ? ` (${error.message})` : ''
+      out.problems.push({ fileName: file.name, reason: `ZIP архивът не се отваря${detail}` })
+      return
+    }
+    const prefix = depth === 0 ? '' : `${file.name}/`
+    for (const [rawPath, bytes] of Object.entries(unzipped)) {
+      const path = decodeZipEntryName(rawPath)
+      if (path.endsWith('/')) continue
+      if (!bytes) continue
+      if (isJunkUploadPath(path)) {
+        out.ignored += 1
+        continue
+      }
+      visit({ name: `${prefix}${path}`, bytes }, depth + 1)
+    }
+  }
+  for (const file of files) visit(file, 0)
   return out
+}
+
+export function expandUploadFiles(files: IncomingUploadFile[]): IncomingUploadFile[] {
+  return expandUploadFilesDetailed(files).files
+}
+
+/**
+ * Why „Качи подписани“ is disabled, in words, so the button is never silently grey.
+ * Empty string means it can be pressed.
+ */
+export function signedUploadBlockReason(input: {
+  canExport: boolean
+  canUploadDrive: boolean
+  busy: boolean
+  reading: boolean
+  preview: SignedUploadMatch | null
+}) {
+  if (!input.canExport) return 'Нужно е право за експорт (редактор или админ).'
+  if (!input.canUploadDrive) return 'Drive не е настроен. Виж реда за здраве по-горе.'
+  if (input.reading) return 'Четем файловете…'
+  if (input.busy) return ''
+  const preview = input.preview
+  if (!preview) return 'Избери PDF-и, ZIP или папка (или ги пусни тук).'
+  if (preview.matched.length > 0) return ''
+  const bits: string[] = []
+  if (preview.unmatched.length) bits.push(`${preview.unmatched.length} без съвпадение`)
+  if (preview.duplicates.length) bits.push(`${preview.duplicates.length} с дубликати`)
+  if (preview.notPdf.length) bits.push(`${preview.notPdf.length} не са PDF или не се четат`)
+  if (bits.length === 0) return 'В избраното няма PDF файлове.'
+  return `Няма файл за качване: ${bits.join(', ')}. Причината за всеки е в таблицата.`
 }
 
 export function serializeBulkManifestCsv(rows: BulkManifestRow[]): string {

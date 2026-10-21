@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { zipSync } from 'fflate'
 import { MOBILE_DRAFTS_TABLE } from '../src/signup/mobile-teams-sql'
 import { PRIORITY_SECTIONS_TABLE } from '../src/signup/priority-sections-sql'
 
@@ -589,6 +590,54 @@ test.describe('staff admin', () => {
     expect(uploads).toEqual(['e2e-ivanov'])
     // The upload itself syncs DOCUMENT_URL on the server; no second Brevo round trip from the page.
     expect(brevoCalls).toEqual([])
+  })
+
+  test('Пълномощни reads a Finder ZIP of a folder, a dropped folder and a folder pick, and says why the button is off', async ({ page }) => {
+    const uploads: string[] = []
+    await mockPalnomoshtniServerFns(page, { missingHealth: false, uploads })
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/admin/palnomoshtni')
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    const upload = page.getByRole('region', { name: 'Качване на подписани' })
+    await expect(upload.getByTestId('upload-block-reason')).toHaveText('Избери PDF-и, ZIP или папка (или ги пусни тук).')
+
+    const pdf = Buffer.from('%PDF-1.4 test')
+    const junk = Buffer.from([0, 5, 22, 7, 0, 2, 0, 0])
+    const zip = Buffer.from(
+      zipSync({
+        'Signed/signed/0002_234600102_Ivanov_signed.pdf': pdf,
+        'Signed/signed/.DS_Store': junk,
+        '__MACOSX/Signed/signed/._0002_234600102_Ivanov_signed.pdf': junk,
+      }),
+    )
+    await page.getByLabel('Подписани PDF или ZIP').setInputFiles({ name: 'Signed.zip', mimeType: 'application/x-zip-compressed', buffer: zip })
+    await expect(upload.getByText('Съвпаднали 1, без съвпадение 0, дубликати 0, не PDF 0, пропуснати системни файлове 2')).toBeVisible()
+    await expect(upload.getByRole('button', { name: 'Качи 1 подписани' })).toBeEnabled()
+    await expect(upload.getByTestId('upload-block-reason')).toHaveCount(0)
+
+    await page.getByLabel('Подписани PDF или ZIP').setInputFiles({ name: '0001_999999999_Nobody_signed.pdf', mimeType: 'application/pdf', buffer: pdf })
+    await expect(upload.getByRole('button', { name: 'Качи 0 подписани' })).toBeDisabled()
+    await expect(upload.getByTestId('upload-block-reason')).toContainText('Няма файл за качване: 1 без съвпадение')
+
+    // Drag and drop onto the card (the browser hands a folder over as entries; plain files fall back to the list).
+    const transfer = await page.evaluateHandle((bytes) => {
+      const data = new DataTransfer()
+      data.items.add(new File([new Uint8Array(bytes)], '0002_234600102_Ivanov_signed.pdf', { type: 'application/pdf' }))
+      return data
+    }, [...pdf])
+    await upload.dispatchEvent('drop', { dataTransfer: transfer })
+    await expect(upload.getByRole('button', { name: 'Качи 1 подписани' })).toBeEnabled()
+
+    const dir = join(tmpdir(), `tb-signed-folder-${Date.now()}`)
+    mkdirSync(join(dir, 'signed'), { recursive: true })
+    writeFileSync(join(dir, 'signed', '0002_234600102_Ivanov_signed.pdf'), pdf)
+    writeFileSync(join(dir, '.DS_Store'), junk)
+    await page.getByLabel('Или папка с PDF-и').setInputFiles(dir)
+    await expect(upload.getByText(/Съвпаднали 1, без съвпадение 0, дубликати 0, не PDF 0, пропуснати системни файлове 1/)).toBeVisible()
+    await upload.getByRole('button', { name: 'Качи 1 подписани' }).click()
+    await expect(upload.getByRole('status')).toContainText('Качени 1 от 1')
+    expect(uploads).toEqual(['e2e-ivanov'])
   })
 
   test('Пълномощни shows the Brevo sync result after an upload (the button is not silent)', async ({ page }) => {

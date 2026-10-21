@@ -10,8 +10,9 @@ import {
 } from '../../signup/designation-bulk'
 import {
   DESIGNATION_ZIP_BATCH_LIMIT,
-  expandUploadFiles,
+  expandUploadFilesDetailed,
   matchSignedFiles,
+  signedUploadBlockReason,
   toFilePerson,
   zipBatchPlan,
   type DesignationCounts,
@@ -20,6 +21,7 @@ import {
   type DesignationPersonView,
   type MatchedUpload,
   type SignedUploadMatch,
+  type UploadProblem,
 } from '../../signup/designation-files'
 import {
   brevoCountsLine,
@@ -58,6 +60,8 @@ function PalnomoshtniPage() {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState<SignedUploadMatch | null>(null)
+  const [reading, setReading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
   const [uploadTone, setUploadTone] = useState<BrevoStatus['tone']>('busy')
   const [brevoStatus, setBrevoStatus] = useState<BrevoStatus | null>(null)
@@ -100,7 +104,33 @@ function PalnomoshtniPage() {
   )
   const signedCount = counts?.signed ?? 0
   const batches = zipBatchPlan(zipEligible, DESIGNATION_ZIP_BATCH_LIMIT)
-  const uploadDisabledReason = !canExport ? EXPORT_REASON : !canUploadDrive ? 'Drive не е настроен. Виж реда за здраве по-горе.' : ''
+  const uploadBlockReason = signedUploadBlockReason({ canExport, canUploadDrive, busy, reading, preview })
+
+  const takeIncoming = (incoming: Promise<ReadIncoming>) => {
+    setReading(true)
+    setUploadProgress('')
+    setUploadRows([])
+    void incoming
+      .then(({ files, problems }) => {
+        if (files.length === 0 && problems.length === 0) {
+          setPreview(null)
+          return
+        }
+        const expanded = expandUploadFilesDetailed(files)
+        setPreview(
+          matchSignedFiles(expanded.files, numberedPeople, {
+            problems: [...problems, ...expanded.problems],
+            ignored: expanded.ignored,
+          }),
+        )
+      })
+      .catch((error) => {
+        setPreview(null)
+        setUploadTone('error')
+        setUploadProgress(error instanceof Error ? `Файловете не се прочетоха: ${error.message}` : 'Файловете не се прочетоха.')
+      })
+      .finally(() => setReading(false))
+  }
 
   return (
     <div className="grid gap-6">
@@ -216,43 +246,76 @@ function PalnomoshtniPage() {
         )}
       </section>
 
-      <section aria-labelledby="palnomoshtni-upload" className="grid gap-3 rounded-2xl border-2 border-[#2b062f] bg-[#f6f1f7] p-4">
+      <section
+        aria-labelledby="palnomoshtni-upload"
+        className={`grid gap-3 rounded-2xl border-2 bg-[#f6f1f7] p-4 ${dragOver ? 'border-dashed border-[#8f1d6b]' : 'border-[#2b062f]'}`}
+        onDragOver={(event) => {
+          if (!canExport || busy) return
+          event.preventDefault()
+          setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(event) => {
+          if (!canExport || busy) return
+          event.preventDefault()
+          setDragOver(false)
+          takeIncoming(readDropped(event.dataTransfer))
+        }}
+      >
         <h2 id="palnomoshtni-upload" className="text-lg font-black text-[#1a1020]">
           Качване на подписани
         </h2>
         <p className="text-sm text-[#333]">
-          Избери PDF-и или ZIP. Имената се съпоставят по файла ({'МИР_номер_Име_Презиме_Фамилия_signed.pdf'}; старият ASCII формат също се приема) без ЕГН. Дубликатите не се качват, докато не махнеш излишните.
+          Избери PDF-и, ZIP или цяла папка (или ги пусни тук). ZIP може да има папки вътре и дори ZIP в ZIP; __MACOSX и .DS_Store се пропускат. Имената се съпоставят по файла ({'МИР_номер_Име_Презиме_Фамилия_signed.pdf'}; старият ASCII формат също се приема) без ЕГН. Дубликатите не се качват, докато не махнеш излишните.
         </p>
-        <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="palnomoshtni-files">
-          Подписани PDF или ZIP
-          <input
-            id="palnomoshtni-files"
-            className={adminInput}
-            type="file"
-            accept=".pdf,.zip,application/pdf,application/zip"
-            multiple
-            disabled={!canExport || busy}
-            onChange={(event) => {
-              const list = event.target.files
-              if (!list || list.length === 0) {
-                setPreview(null)
-                return
-              }
-              void readIncoming(list).then((files) => {
-                setPreview(matchSignedFiles(expandUploadFiles(files), numberedPeople))
-                setUploadProgress('')
-                setUploadRows([])
-              })
-            }}
-          />
-        </label>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="palnomoshtni-files">
+            Подписани PDF или ZIP
+            <input
+              id="palnomoshtni-files"
+              className={adminInput}
+              type="file"
+              accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed"
+              multiple
+              disabled={!canExport || busy}
+              onChange={(event) => {
+                const list = event.target.files
+                if (!list || list.length === 0) {
+                  setPreview(null)
+                  return
+                }
+                takeIncoming(readIncoming([...list]))
+              }}
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="palnomoshtni-folder">
+            Или папка с PDF-и
+            <input
+              id="palnomoshtni-folder"
+              className={adminInput}
+              type="file"
+              multiple
+              disabled={!canExport || busy}
+              {...({ webkitdirectory: '' } as Record<string, string>)}
+              onChange={(event) => {
+                const list = event.target.files
+                if (!list || list.length === 0) {
+                  setPreview(null)
+                  return
+                }
+                takeIncoming(readIncoming([...list]))
+              }}
+            />
+          </label>
+        </div>
         {preview ? <UploadPreview preview={preview} /> : null}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             className={adminGhost}
-            disabled={!canExport || !canUploadDrive || busy || !preview || preview.matched.length === 0}
-            title={uploadDisabledReason || undefined}
+            disabled={Boolean(uploadBlockReason) || busy || !preview || preview.matched.length === 0}
+            title={uploadBlockReason || undefined}
+            aria-describedby={uploadBlockReason ? 'palnomoshtni-upload-block' : undefined}
             onClick={() => {
               if (!preview) return
               setBusy(true)
@@ -296,7 +359,11 @@ function PalnomoshtniPage() {
           >
             {preview ? `Качи ${preview.matched.length} подписани` : 'Качи подписани'}
           </button>
-          {uploadDisabledReason ? <p className="text-sm text-[#8f1d1d]">{uploadDisabledReason}</p> : null}
+          {uploadBlockReason ? (
+            <p id="palnomoshtni-upload-block" data-testid="upload-block-reason" className="text-sm font-bold text-[#8f1d1d]">
+              {uploadBlockReason}
+            </p>
+          ) : null}
         </div>
         {uploadProgress ? (
           <p role="status" aria-live="polite" className={`text-sm font-bold ${toneClass(uploadTone)}`}>
@@ -501,6 +568,7 @@ function UploadPreview({ preview }: { preview: SignedUploadMatch }) {
       <p className="text-sm font-bold text-[#1a1020]">
         Съвпаднали {preview.matched.length}, без съвпадение {preview.unmatched.length}, дубликати {preview.duplicates.length}, не PDF{' '}
         {preview.notPdf.length}
+        {preview.ignored ? `, пропуснати системни файлове ${preview.ignored}` : ''}
       </p>
       <div className="overflow-auto">
         <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
@@ -555,12 +623,61 @@ function formatWhen(value: string | null) {
   return new Intl.DateTimeFormat('bg-BG', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Sofia' }).format(date)
 }
 
-async function readIncoming(list: FileList) {
-  const files: Array<{ name: string; bytes: Uint8Array }> = []
-  for (const file of list) {
-    files.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) })
+type ReadIncoming = { files: Array<{ name: string; bytes: Uint8Array }>; problems: UploadProblem[] }
+
+const UNREADABLE_REASON = 'не се чете: ако е папка, избери „Или папка с PDF-и“ или я пусни тук; иначе я компресирай в ZIP'
+
+/** One unreadable item (a folder dropped on the file input reads as a File that throws) must not hide the rest. */
+async function readIncoming(list: Array<File & { webkitRelativePath?: string }>): Promise<ReadIncoming> {
+  const settled = await Promise.allSettled(list.map(async (file) => new Uint8Array(await file.arrayBuffer())))
+  const out: ReadIncoming = { files: [], problems: [] }
+  settled.forEach((result, index) => {
+    const file = list[index]!
+    const name = file.webkitRelativePath || file.name
+    if (result.status === 'fulfilled') out.files.push({ name, bytes: result.value })
+    else out.problems.push({ fileName: name, reason: UNREADABLE_REASON })
+  })
+  return out
+}
+
+type FsEntry = {
+  isFile: boolean
+  isDirectory: boolean
+  name: string
+  fullPath: string
+  file?: (ok: (file: File) => void, fail: (error: unknown) => void) => void
+  createReader?: () => { readEntries: (ok: (entries: FsEntry[]) => void, fail: (error: unknown) => void) => void }
+}
+
+/** Drag and drop keeps folders: walk them (any depth) so a dropped „Signed“ folder works like its ZIP. */
+async function readDropped(transfer: DataTransfer): Promise<ReadIncoming> {
+  const items = [...transfer.items].filter((item) => item.kind === 'file')
+  const entries = items
+    .map((item) => (typeof item.webkitGetAsEntry === 'function' ? (item.webkitGetAsEntry() as unknown as FsEntry | null) : null))
+    .filter((entry): entry is FsEntry => Boolean(entry))
+  if (entries.length === 0) return readIncoming([...transfer.files])
+  const out: ReadIncoming = { files: [], problems: [] }
+  const walk = async (entry: FsEntry): Promise<void> => {
+    const path = entry.fullPath.replace(/^\//, '') || entry.name
+    if (entry.isDirectory && entry.createReader) {
+      const reader = entry.createReader()
+      for (;;) {
+        const batch = await new Promise<FsEntry[]>((ok, fail) => reader.readEntries(ok, fail))
+        if (batch.length === 0) break
+        for (const child of batch) await walk(child)
+      }
+      return
+    }
+    if (!entry.file) return
+    try {
+      const file = await new Promise<File>((ok, fail) => entry.file!(ok, fail))
+      out.files.push({ name: path, bytes: new Uint8Array(await file.arrayBuffer()) })
+    } catch {
+      out.problems.push({ fileName: path, reason: UNREADABLE_REASON })
+    }
   }
-  return files
+  for (const entry of entries) await walk(entry)
+  return out
 }
 
 type UploadResultRow = { personId: string; fileName: string; number: number; name: string; drive: string; brevo: string; ok: boolean }

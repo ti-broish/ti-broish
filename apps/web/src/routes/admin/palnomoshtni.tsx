@@ -70,6 +70,7 @@ function PalnomoshtniPage() {
   const [signScope, setSignScope] = useState<SignScope>('new')
   const [scopeCounts, setScopeCounts] = useState<SignScopeCounts | null>(null)
   const [partnerScopeCounts, setPartnerScopeCounts] = useState<SignScopeCounts | null>(null)
+  const [volunteerScopeCounts, setVolunteerScopeCounts] = useState<SignScopeCounts | null>(null)
   const [healthLine, setHealthLine] = useState('Проверяваме Drive и Brevo…')
   const [canUploadDrive, setCanUploadDrive] = useState(false)
   const [message, setMessage] = useState('')
@@ -98,6 +99,7 @@ function PalnomoshtniPage() {
       setZipEligible(result.zipEligible)
       setScopeCounts('scopeCounts' in result && result.scopeCounts ? result.scopeCounts : null)
       setPartnerScopeCounts('partnerScopeCounts' in result && result.partnerScopeCounts ? result.partnerScopeCounts : null)
+      setVolunteerScopeCounts('volunteerScopeCounts' in result && result.volunteerScopeCounts ? result.volunteerScopeCounts : null)
     })
   }, [mir, q])
 
@@ -128,6 +130,11 @@ function PalnomoshtniPage() {
     ? signScopeBatches(signScope, scopeCount, DESIGNATION_ZIP_BATCH_LIMIT)
     : zipBatchPlan(zipEligible, DESIGNATION_ZIP_BATCH_LIMIT)
   const scopeParam = scopeCounts ? `&scope=${signScope}` : ''
+  // „N доброволци + M „И аз““ for one scope in this МИР filter (the ZIP holds both).
+  const scopeSplit = (option: SignScope) =>
+    scopeCounts && volunteerScopeCounts
+      ? `${volunteerScopeCounts[option]} доброволци + ${scopeCounts[option] - volunteerScopeCounts[option]} „${IAZ_LABEL}“`
+      : ''
   const partnerScopeCount = partnerScopeCounts ? partnerScopeCounts[signScope] : (partnerCounts?.numbered ?? 0)
   const partnerBatches = partnerScopeCounts
     ? signScopeBatches(signScope, partnerScopeCount, DESIGNATION_ZIP_BATCH_LIMIT)
@@ -198,11 +205,27 @@ function PalnomoshtniPage() {
             Състояние
           </h2>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Stat label="Публикувани секции" value={counts.published} />
-            <Stat label="Номерирани" value={counts.numbered} />
-            <Stat label="Генерирани" value={counts.generated} />
-            <Stat label="Подписани" value={counts.signed} />
-            <Stat label="Липсващи" value={counts.missing} />
+            <Stat label="Общо (секция или „И аз“)" value={counts.published} partner={counts.partner?.published} testId="stat-published" />
+            <Stat label="Номерирани" value={counts.numbered} partner={counts.partner?.numbered} testId="stat-numbered" />
+            <Stat label="Генерирани" value={counts.generated} partner={counts.partner?.generated} testId="stat-generated" />
+            <Stat label="Подписани" value={counts.signed} partner={counts.partner?.signed} testId="stat-signed" />
+            <Stat label="Без подписано пълномощно" value={counts.missing} partner={counts.partner?.missing} testId="missing-count">
+              {counts.missingSteps ? (
+                <ul className="grid gap-0.5 text-sm text-[#333]" data-testid="missing-steps">
+                  <MissingStep label="без номер" value={counts.missingSteps.noNumber} partner={counts.partner?.missingSteps?.noNumber} />
+                  <MissingStep
+                    label="номерирани, неизтеглени за подпис"
+                    value={counts.missingSteps.notDownloaded}
+                    partner={counts.partner?.missingSteps?.notDownloaded}
+                  />
+                  <MissingStep
+                    label="изтеглени, чакат подпис"
+                    value={counts.missingSteps.awaitingSignature}
+                    partner={counts.partner?.missingSteps?.awaitingSignature}
+                  />
+                </ul>
+              ) : null}
+            </Stat>
           </div>
           {counts.duplicates ? (
             <p className="text-sm font-bold text-[#8f1d1d]" data-testid="duplicate-count">
@@ -212,11 +235,10 @@ function PalnomoshtniPage() {
           ) : null}
           {partnerCounts && partnerCounts.total > 0 ? (
             <p className="text-sm text-[#333]" data-testid="partner-counts">
-              Отделно, „{IAZ_LABEL}“ (не са записани доброволци и не отиват в Brevo): {partnerCounts.total} души, номерирани{' '}
-              {partnerCounts.numbered}, подписани {partnerCounts.signed}
-              {partnerCounts.withdrawn ? `, оттеглени ${partnerCounts.withdrawn}` : ''}
-              {partnerCounts.covered ? `, покрити от доброволец ${partnerCounts.covered}` : ''}
-              {partnerCounts.noMir ? `, без МИР ${partnerCounts.noMir} (избери МИР в таблицата, за да получат номер)` : ''}.
+              „{IAZ_LABEL}“ не са записани доброволци и не отиват в Brevo (броят им е в „от тях „{IAZ_LABEL}““ горе)
+              {partnerCounts.withdrawn ? `; оттеглени ${partnerCounts.withdrawn} (не се броят)` : ''}
+              {partnerCounts.covered ? `; покрити от доброволец ${partnerCounts.covered}` : ''}
+              {partnerCounts.noMir ? `; без МИР ${partnerCounts.noMir} (избери МИР в таблицата, за да получат номер)` : ''}.
               {partnerScopeCounts ? ` За подпис („${SIGN_SCOPE_LABELS[signScope]}“): ${partnerScopeCount}.` : ''}
               {canExport && partnerBatches.length > 0
                 ? partnerBatches.map((batch) => (
@@ -274,7 +296,7 @@ function PalnomoshtniPage() {
                       checked={signScope === option}
                       onChange={() => setSignScope(option)}
                     />
-                    {SIGN_SCOPE_LABELS[option]} ({scopeCounts[option]})
+                    {SIGN_SCOPE_LABELS[option]} ({scopeCounts[option]}{scopeSplit(option) ? `: ${scopeSplit(option)}` : ''})
                   </label>
                 ))}
               </div>
@@ -284,10 +306,10 @@ function PalnomoshtniPage() {
               </p>
             </fieldset>
           ) : null}
-          <p className="text-sm font-bold text-[#1a1020]">
+          <p className="text-sm font-bold text-[#1a1020]" data-testid="zip-batch-line">
             ZIP партиди: {batches.length || 0}
             {scopeCount
-              ? ` · ${scopeCount} ${scopeCounts ? `„${SIGN_SCOPE_LABELS[signScope]}“` : 'номерирани'} в този филтър, по ${DESIGNATION_ZIP_BATCH_LIMIT}`
+              ? ` · ${scopeCount} ${scopeCounts ? `„${SIGN_SCOPE_LABELS[signScope]}“` : 'номерирани'}${scopeSplit(signScope) ? ` (${scopeSplit(signScope)})` : ''} в този филтър, по ${DESIGNATION_ZIP_BATCH_LIMIT}`
               : ''}
           </p>
           <div className="flex flex-wrap gap-2">
@@ -732,12 +754,27 @@ function PartnerMirSelect({
   )
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value, partner, testId, children }: { label: string; value: number; partner?: number; testId?: string; children?: ReactNode }) {
   return (
-    <div className="grid gap-1 rounded-2xl border-2 border-[#2b062f] bg-white p-4">
+    <div className="grid content-start gap-1 rounded-2xl border-2 border-[#2b062f] bg-white p-4" data-testid={testId}>
       <span className="text-sm font-bold">{label}</span>
       <span className="text-3xl font-black text-[#2b062f]">{value}</span>
+      {partner != null ? (
+        <span className="text-xs text-[#333]" data-testid={testId ? `${testId}-partner` : undefined}>
+          от тях „{IAZ_LABEL}“: {partner}
+        </span>
+      ) : null}
+      {children}
     </div>
+  )
+}
+
+function MissingStep({ label, value, partner }: { label: string; value: number; partner?: number }) {
+  return (
+    <li>
+      {label}: {value}
+      {partner ? <span className="text-xs"> (от тях „{IAZ_LABEL}“: {partner})</span> : null}
+    </li>
   )
 }
 

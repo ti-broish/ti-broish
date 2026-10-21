@@ -610,6 +610,19 @@ test.describe('staff admin', () => {
     await page.goto('/admin/palnomoshtni')
     await expect(page.getByRole('heading', { name: 'Пълномощни' })).toBeVisible()
     await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
+    const missing = page.getByTestId('missing-count')
+    await expect(missing).toContainText('Без подписано пълномощно')
+    await expect(missing).not.toContainText('Липсващи')
+    await expect(page.getByTestId('missing-count-partner')).toHaveText('от тях „И аз“: 2')
+    await expect(page.getByTestId('stat-published')).toContainText('4')
+    await expect(page.getByTestId('stat-published-partner')).toHaveText('от тях „И аз“: 2')
+    const steps = page.getByTestId('missing-steps')
+    await expect(steps).toContainText('без номер: 1 (от тях „И аз“: 1)')
+    await expect(steps).toContainText('номерирани, неизтеглени за подпис: 2 (от тях „И аз“: 1)')
+    await expect(steps).toContainText('изтеглени, чакат подпис: 1')
+    // „Само новите“ = everyone numbered, unsigned and never downloaded = the second step.
+    await expect(page.getByTestId('zip-batch-line')).toContainText('2 „Само новите“ (1 доброволци + 1 „И аз“)')
+    await expect(page.getByTestId('sign-scope')).toContainText('Без подписан файл (3: 2 доброволци + 1 „И аз“)')
     // Names in „Хора“ open the admin profile, like Записани and Секции.
     await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' }).getByRole('link', { name: 'Мария Георгиева Петрова' })).toHaveAttribute('href', '/admin/signups/e2e-maria')
     const pdf = Buffer.from('%PDF-1.4 test')
@@ -881,11 +894,30 @@ async function mockPalnomoshtniServerFns(
       return reply({
         ok: true,
         counts: opts.signed
-          ? { published: 2, numbered: 2, generated: 2, signed: 2, missing: 0 }
-          : { published: 2, numbered: 2, generated: 1, signed: 0, missing: 2 },
+          ? {
+              published: 3,
+              numbered: 3,
+              generated: 3,
+              signed: 3,
+              missing: 0,
+              missingSteps: { noNumber: 0, notDownloaded: 0, awaitingSignature: 0 },
+              partner: { published: 1, numbered: 1, generated: 1, signed: 1, missing: 0, missingSteps: { noNumber: 0, notDownloaded: 0, awaitingSignature: 0 } },
+            }
+          : {
+              published: 4,
+              numbered: 3,
+              generated: 1,
+              signed: 0,
+              missing: 4,
+              missingSteps: { noNumber: 1, notDownloaded: 2, awaitingSignature: 1 },
+              partner: { published: 2, numbered: 1, generated: 0, signed: 0, missing: 2, missingSteps: { noNumber: 1, notDownloaded: 1, awaitingSignature: 0 } },
+            },
         people: MOCK_PALNOMOSHTNI_PEOPLE,
         mirs: [{ code: '23', label: '23 София-град', count: 2 }],
         zipEligible: 2,
+        scopeCounts: opts.signed ? { new: 0, unsigned: 0, all: 3 } : { new: 2, unsigned: 3, all: 3 },
+        volunteerScopeCounts: opts.signed ? { new: 0, unsigned: 0, all: 2 } : { new: 1, unsigned: 2, all: 2 },
+        partnerScopeCounts: opts.signed ? { new: 0, unsigned: 0, all: 1 } : { new: 1, unsigned: 1, all: 1 },
         zipBatchLimit: 100,
       })
     }

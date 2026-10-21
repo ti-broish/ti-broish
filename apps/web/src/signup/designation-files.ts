@@ -92,14 +92,66 @@ export interface DesignationPartnerCounts {
   covered?: number
 }
 
-export interface DesignationCounts {
+/** The „Състояние“ numbers for one group of people. */
+export interface DesignationCountsPart {
   published: number
   numbered: number
   generated: number
   signed: number
+  /** Without a signed пълномощно (= the three `missingSteps`). */
   missing: number
+  /** Where the `missing` people are; the three always add up to `missing`. */
+  missingSteps?: DesignationMissingSteps
+}
+
+/**
+ * Everyone who can get an пълномощно: published volunteers plus active „И аз“ partner people,
+ * without withdrawn rows and ЕГН duplicates (the same people the signing ZIP scopes count).
+ */
+export interface DesignationCounts extends DesignationCountsPart {
+  /** The „И аз“ (external organisations) part of every number above. */
+  partner?: DesignationCountsPart
   /** Rows whose ЕГН already holds another number (badge „Дубликат“). */
   duplicates?: number
+}
+
+/**
+ * People without a signed пълномощно, by step. „Downloaded for signing“ is
+ * designation_signing_generated_at, the same marker the „Само новите“ ZIP scope uses.
+ */
+export interface DesignationMissingSteps {
+  /** No number yet. */
+  noNumber: number
+  /** Numbered, never in a ZIP for signing. */
+  notDownloaded: number
+  /** In a ZIP for signing, no signed file yet. */
+  awaitingSignature: number
+}
+
+type CountedPerson = { number: number | null; generatedAt: string | null; signingGeneratedAt: string | null; signedAt: string | null }
+
+export function designationCountsPart(people: ReadonlyArray<CountedPerson>): DesignationCountsPart {
+  return {
+    published: people.length,
+    numbered: people.filter((row) => row.number != null).length,
+    generated: people.filter((row) => row.generatedAt).length,
+    signed: people.filter((row) => row.signedAt).length,
+    missing: people.filter((row) => !row.signedAt).length,
+    missingSteps: designationMissingSteps(people),
+  }
+}
+
+export function designationMissingSteps(
+  people: ReadonlyArray<{ number: number | null; signingGeneratedAt: string | null; signedAt: string | null }>,
+): DesignationMissingSteps {
+  const steps: DesignationMissingSteps = { noNumber: 0, notDownloaded: 0, awaitingSignature: 0 }
+  for (const person of people) {
+    if (person.signedAt) continue
+    if (person.number == null) steps.noNumber += 1
+    else if (!person.signingGeneratedAt) steps.notDownloaded += 1
+    else steps.awaitingSignature += 1
+  }
+  return steps
 }
 
 export interface DesignationMirOption {

@@ -13,6 +13,7 @@ import { SIGNING_GENERATED_COLUMNS } from './designation-sign-scope'
 import { PARTNER_PEOPLE_INDEXES, PARTNER_PEOPLE_TABLE, PARTNER_SECTION_COLUMNS, PARTNER_SECTION_GUARDS, PARTNER_WITHDRAWAL_COLUMNS } from './partner-people-sql'
 import { RESERVED_SECTION_GUARDS } from './reserved-sections-sql'
 import { MOBILE_DRAFTS_GUARDS, MOBILE_DRAFTS_TABLE } from './mobile-teams-sql'
+import { SIGNUP_SCHEMA_META_KEY, schemaFingerprint } from './schema-version'
 
 export const SESSION_COOKIE = 'tb_session'
 
@@ -229,6 +230,47 @@ export async function signupDatabase() {
 }
 
 async function ensureSignupSchema(db: SignupD1) {
+  if (!(await schemaIsCurrent(db))) {
+    await applySignupSchema(db)
+    await db
+      .prepare(`INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+      .bind(SIGNUP_SCHEMA_META_KEY, signupSchemaVersion())
+      .run()
+  }
+  await afterSignupSchema(db)
+}
+
+let cachedSchemaVersion: string | null = null
+
+/**
+ * The fingerprint covers every SQL constant below. Bump this when applySignupSchema or
+ * migrateCompanionColumns change in code only (new steps, new order), so the DDL pass reruns.
+ */
+const SCHEMA_CODE_REVISION = 'schema-code-1'
+
+/** Changes whenever any statement the DDL pass runs changes, so a deploy with new DDL reruns it. */
+export function signupSchemaVersion() {
+  return (cachedSchemaVersion ??= schemaFingerprint([
+    SCHEMA_CODE_REVISION, SIGNUPS, BASE_INDEXES, ADD_COLUMNS, COMPANIONS, TAKEN, ABROAD_PRIORITY,
+    PRIORITY_SECTIONS_TABLE, PRIORITY_SECTIONS_INDEXES, PARTNER_PEOPLE_TABLE, PARTNER_PEOPLE_INDEXES,
+    PARTNER_SECTION_COLUMNS, SIGNED_WAVE_COLUMNS, SIGNING_GENERATED_COLUMNS, PARTNER_WITHDRAWAL_COLUMNS,
+    STAFF, AUDIT, INDEXES, RESERVED_SECTION_GUARDS, MOBILE_DRAFTS_TABLE, MOBILE_DRAFTS_GUARDS, PARTNER_SECTION_GUARDS,
+    DESIGNATION_NUMBER_UNIQUE_INDEX_SQL, DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_HIGH_WATER_SEED,
+  ]))
+}
+
+/** One round trip: is the stored DDL fingerprint the one this build would apply? */
+async function schemaIsCurrent(db: SignupD1) {
+  try {
+    await db.prepare('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)').run()
+    const row = await db.prepare('SELECT value FROM app_meta WHERE key = ?').bind(SIGNUP_SCHEMA_META_KEY).first<{ value: string }>()
+    return row?.value === signupSchemaVersion()
+  } catch {
+    return false
+  }
+}
+
+async function applySignupSchema(db: SignupD1) {
   await db.prepare(SIGNUPS).run()
   for (const sql of BASE_INDEXES) await db.prepare(sql).run()
   let addedReceiptColumn = false
@@ -283,6 +325,9 @@ async function ensureSignupSchema(db: SignupD1) {
       console.warn('designation high-water', error instanceof Error ? error.message : error)
     }
   }
+}
+
+async function afterSignupSchema(db: SignupD1) {
   const now = new Date().toISOString()
   for (const email of parseAdminEmails((env as unknown as { ADMIN_EMAILS?: string }).ADMIN_EMAILS)) {
     await db.prepare(`INSERT INTO staff (email, role, invited_by, created_at) VALUES (?, 'admin', 'env', ?) ON CONFLICT(email) DO NOTHING`).bind(email, now).run()

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AssignedSectionMap } from '../components/AssignedSectionMap'
 import { loadAssignedSectionPlace } from '../signup/assigned-section-load'
 import type { AssignedSectionPlace } from '../signup/assigned-section-place'
+import { OwnDesignationCard, useOwnDesignation } from '../components/OwnDesignationCard'
 import { ProfileSummary } from '../components/ProfileSummary'
 import { PageIntro } from '../components/SiteChrome'
 import { ShareSignup } from '../components/ShareSignup'
@@ -163,6 +164,7 @@ function ProfilePage() {
   const [synced, setSynced] = useState(false)
   const [unsentCompanionLinks, setUnsentCompanionLinks] = useState<{ email: string; link: string }[]>([])
   const skipSave = useRef(true)
+  const designation = useOwnDesignation(ready && Boolean(profile.email))
   useEffect(() => {
     if (!profile.emailConfirmed) return
     const code = ensureReferralCode(profile)
@@ -231,6 +233,7 @@ function ProfilePage() {
 
   return (
     <div className="grid gap-8">
+      {designation ? <OwnDesignationCard designation={designation} /> : null}
       <PageIntro title={`${profile.firstName}, това е профилът ти`} />
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid gap-8">
@@ -249,7 +252,11 @@ function ProfilePage() {
           </div>
           <section className="grid gap-3 border-t border-[var(--line)] pt-6">
             <h2 className="text-xl font-black text-[#444]">Материали</h2>
-            <p className="leading-7">Прочети ги преди изборния ден. Дигиталното пълномощно идва след секцията, в изборната седмица.</p>
+            <p className="leading-7">
+              {designation
+                ? 'Прочети ги преди изборния ден.'
+                : 'Прочети ги преди изборния ден. Дигиталното пълномощно идва след секцията, в изборната седмица.'}
+            </p>
             <Link to="/instructions" className="font-bold">
               Инструкции за секцията
             </Link>

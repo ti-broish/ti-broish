@@ -5,7 +5,7 @@ import { PERSON_REACH_COLUMNS, personReachFrom, publishBlocked, validateAssignme
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 import { reservedCode, reservedMessage } from './reserved-sections'
-import { reservedOrgOf } from './reserved-sections-db'
+import { mobileTargetOrgOf, reservedOrgOf } from './reserved-sections-db'
 import { isReservedAbort } from './reserved-sections-sql'
 import { isSectionHeldAbort } from './partner-people-sql'
 import { withPickedIds } from './section-state'
@@ -56,7 +56,7 @@ export const adminDraft = createServerFn({ method: 'POST' })
       .first<{ id: string; email: string; mir: string; region: string; radius: string; distant_region_codes: string; travel_municipalities: string } & DesignationColumns>()
     if (!person) return { ok: false as const, message: 'Няма такова записване.' }
     // Reserved by another organisation: refuse, do not save a draft that could never be published.
-    const reservedBy = section ? await reservedOrgOf(db, section) : null
+    const reservedBy = section ? ((await reservedOrgOf(db, section)) ?? (await mobileTargetOrgOf(db, section, person.id))) : null
     if (reservedBy) return { ok: false as const, reserved: reservedBy, message: reservedMessage(reservedCode(section) || section, reservedBy) }
     const warnings = section ? await assignmentWarnings(db, section, person.id, personReachFrom(person), designationOf(person)) : []
     try {
@@ -176,7 +176,7 @@ async function assignmentWarnings(
   reach: PersonReach,
   designation?: { mir: string | null; number: number | string | null },
 ): Promise<AssignWarning[]> {
-  const takenOrg = await reservedOrgOf(db, section)
+  const takenOrg = (await reservedOrgOf(db, section)) ?? (await mobileTargetOrgOf(db, section, personId))
   const duplicate = await findDuplicateOwner(db, section, personId)
   return validateAssignment({
     section,

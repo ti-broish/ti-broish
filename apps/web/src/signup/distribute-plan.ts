@@ -15,7 +15,7 @@ import {
   type DistributeSection,
 } from './distribute'
 import type { SignupD1 } from './db-core'
-import { partnerHeldCodes } from './reserved-sections-db'
+import { mobileTargetCodes, partnerHeldCodes } from './reserved-sections-db'
 import { IMPORT_REGIONS } from './partner-import-regions.data'
 import { mentionsWholeMir } from './mobile-teams'
 
@@ -301,6 +301,9 @@ async function blockedSections(db: Database, keepDrafts: boolean) {
   for (const row of taken.results ?? []) blocked.add(normalizeSection(row.section_code))
   // „И аз“ partner people: their draft or published section is theirs, whatever the mode.
   for (const code of await partnerHeldCodes(db)) blocked.add(code)
+  // Mobile-team targets: never a section volunteer on them. Keeping drafts keeps every area as it is;
+  // a full rerun re-plans the automatic areas after the sections, so only hand-saved areas hold then.
+  for (const code of await mobileTargetCodes(db, !keepDrafts)) blocked.add(code)
   const used = await db
     .prepare(
       `SELECT COALESCE(draft_section, '') AS draft_section,

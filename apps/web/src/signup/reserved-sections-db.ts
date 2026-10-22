@@ -13,6 +13,40 @@ export async function reservedOrgOf(db: SignupD1, section: string) {
   return (await partnerHeldCodes(db)).has(code) ? PARTNER_RESERVATION_ORG : null
 }
 
+/** Shown as the „organisation“ when a section is a target of a mobile team's area. */
+export const MOBILE_TARGET_ORG = 'мобилен екип'
+
+/**
+ * A section another person's mobile-team area targets (mobile_drafts.targets), or null. A mobile
+ * team never doubles up on a section volunteer: such a section is refused like a reservation.
+ * The person's own area does not count (a mobile volunteer's section may be one of their targets).
+ */
+export async function mobileTargetOrgOf(db: Pick<SignupD1, 'prepare'>, section: string, personId: string) {
+  const code = reservedCode(section)
+  if (!code) return null
+  try {
+    const row = await db
+      .prepare(`SELECT 1 AS x FROM mobile_drafts m, json_each(m.targets) j WHERE json_extract(j.value, '$.code') = ? AND m.signup_id != ? LIMIT 1`)
+      .bind(code, personId)
+      .first<{ x: number }>()
+    return row ? MOBILE_TARGET_ORG : null
+  } catch {
+    return null
+  }
+}
+
+/** Mobile-team target codes; with manualOnly, only areas saved by hand (automatic areas are re-planned). */
+export async function mobileTargetCodes(db: Pick<SignupD1, 'prepare'>, manualOnly: boolean) {
+  try {
+    const result = await db
+      .prepare(`SELECT json_extract(j.value, '$.code') AS code FROM mobile_drafts m, json_each(m.targets) j${manualOnly ? " WHERE m.source = 'manual'" : ''}`)
+      .all<{ code: string }>()
+    return new Set((result.results ?? []).map((row) => reservedCode(String(row.code ?? ''))).filter(Boolean))
+  } catch {
+    return new Set<string>()
+  }
+}
+
 /**
  * Sections a „И аз“ partner person holds as a draft or published. To every signup path they
  * count as reserved by „И аз“ (one person per section). Empty before the columns exist.

@@ -50,20 +50,18 @@ export function inScope(row: Pick<PartnerPendingRow, 'id' | 'draft'>, scope: Par
 /** What a publish would do now: how many would go out, and how many a МИР mismatch stops. */
 export async function previewPartnerPublish(db: Pick<SignupD1, 'prepare'>, scope: PartnerPublishScope = {}) {
   const rows = await pendingPartnerDrafts(db, scope)
-  const mismatched = rows.filter((row) => designationMirMismatch({ designationMir: row.mir, designationNumber: row.number, section: row.draft })).length
-  return { pending: rows.length - mismatched, mismatched }
+  // A МИР mismatch is only a warning: every pending draft goes out.
+  return { pending: rows.length, mismatched: 0 }
 }
 
 export async function publishPartnerDrafts(db: Database, scope: PartnerPublishScope = {}, now = new Date().toISOString()) {
   const rows = await pendingPartnerDrafts(db, scope)
   let published = 0
   const blocked: Array<{ id: string; section: string; reason: string }> = []
+  const warnings: Array<{ id: string; section: string; reason: string }> = []
   for (const row of rows) {
+    // Outside the пълномощно's МИР: published anyway, with a warning (staff decide).
     const mismatch = designationMirMismatch({ designationMir: row.mir, designationNumber: row.number, section: row.draft })
-    if (mismatch) {
-      blocked.push({ id: row.id, section: row.draft, reason: designationMirMessage(mismatch) })
-      continue
-    }
     const holder = await partnerHolderOf(db, row.draft, row.id)
     if (holder) {
       blocked.push({ id: row.id, section: row.draft, reason: holder })
@@ -72,19 +70,20 @@ export async function publishPartnerDrafts(db: Database, scope: PartnerPublishSc
     try {
       await db.batch(publishStatements(db, row, now))
       published += 1
+      if (mismatch) warnings.push({ id: row.id, section: row.draft, reason: designationMirMessage(mismatch) })
     } catch (error) {
       if (!isSectionHeldAbort(error)) throw error
       blocked.push({ id: row.id, section: row.draft, reason: 'заета' })
     }
   }
-  return { published, blocked }
+  return { published, blocked, warnings }
 }
 
-export function describePartnerPublish(result: { published: number; blocked: Array<{ reason: string }> }) {
+export function describePartnerPublish(result: { published: number; blocked: Array<{ reason: string }>; warnings?: Array<{ reason: string }> }) {
   const mismatched = result.blocked.filter((row) => row.reason.startsWith('Секция извън МИР')).length
   const taken = result.blocked.length - mismatched
   const stopped = [taken ? `${taken} заета секция` : '', mismatched ? `${mismatched} секция извън МИР на пълномощното` : ''].filter(Boolean).join(', ')
-  return `Публикувани ${result.published}${stopped ? `, спрени ${result.blocked.length} (${stopped})` : ''}. Секциите са резервирани като „${PARTNER_RESERVATION_ORG}“. Без писма и без Brevo.`
+  return `Публикувани ${result.published}${stopped ? `, спрени ${result.blocked.length} (${stopped})` : ''}. Секциите са резервирани като „${PARTNER_RESERVATION_ORG}“. Без писма и без Brevo.${result.warnings?.length ? ` ${result.warnings.map((row) => row.reason).join(' ')}` : ''}`
 }
 
 /** Who else holds this code, in words, or ''. */

@@ -6,7 +6,7 @@ vi.mock('cloudflare:workers', () => ({ env: {} }))
 vi.mock('@tanstack/react-start/server', () => ({ getCookie: () => '' }))
 
 import { designationLock, distributeSections, wholeReachMirs, type DistributePerson, type DistributeSection } from './distribute'
-import { DESIGNATION_MIR_MISMATCH, designationMirMismatch, sectionMirOf } from './designation-mir-guard'
+import { designationMirMismatch, sectionMirOf } from './designation-mir-guard'
 import { publishBlocked, validateAssignment } from './admin-assign'
 import { partnerCanTravel, partnerDistributePerson, type PartnerSectionPerson } from './partner-sections'
 import { describePublishPreview, publishConfirmLabel } from './publish-preview'
@@ -116,7 +116,7 @@ describe('admin guard: „Секция извън МИР на пълномощн
     expect(sectionMirOf('32 00 21 010')).toBe('32')
   })
 
-  it('blocks publishing a volunteer draft outside the пълномощно МИР', () => {
+  it('warns (does not block) on a volunteer draft outside the пълномощно МИР', () => {
     const warnings = validateAssignment({
       section: '254620045',
       personId: 'a',
@@ -125,8 +125,8 @@ describe('admin guard: „Секция извън МИР на пълномощн
       duplicate: null,
       designation: { mir: '24', number: 507 },
     })
-    expect(warnings.find((row) => row.code === 'designation_mir')?.message).toContain(DESIGNATION_MIR_MISMATCH)
-    expect(publishBlocked(warnings)).toBe(true)
+    expect(warnings.find((row) => row.code === 'designation_mir')?.message).toBe('Внимание: секция 254620045 е в МИР 25, а пълномощното е за МИР 24.')
+    expect(publishBlocked(warnings)).toBe(false)
     expect(publishBlocked(validateAssignment({ section: '244620045', personId: 'a', personMir: '24', takenOrg: null, duplicate: null, designation: { mir: '24', number: 507 } }))).toBe(false)
   })
 })

@@ -183,7 +183,7 @@ test.describe('partner import („И аз“) for пълномощни only', ()
       await expect(todor.getByRole('button', { name: 'Запази', exact: true })).toHaveCount(1)
       await expect(todor.getByRole('button', { name: 'Предложи' })).toHaveCount(0)
       await todor.getByRole('button', { name: 'Публикувай' }).click()
-      await expect(page.getByText(/Публикувани 1\..*Без писма и без Brevo/)).toBeVisible()
+      await expect(page.getByText(/Публикувани 1\..*Без писма и без Brevo/).first()).toBeVisible()
       const [published] = d1(`SELECT section_published AS code FROM partner_people WHERE email = 'iaz.one-e2e@example.com'`) as Array<{ code: string }>
       expect(published!.code).toMatch(/^\d{9}$/)
       expect(d1(`SELECT organisation FROM taken_sections WHERE section_code = '${published!.code}'`)[0]).toMatchObject({ organisation: 'И аз' })
@@ -207,7 +207,7 @@ test.describe('partner import („И аз“) for пълномощни only', ()
       // After the reload the server-rendered button can be clicked before hydration, and that click does nothing. Retry it.
       await expect(async () => {
         await published1.getByRole('button', { name: 'Махни публикуването' }).click({ timeout: 5_000 })
-        await expect(page.getByText(/вече не е публикувана и не е резервирана/)).toBeVisible({ timeout: 5_000 })
+        await expect(page.getByText(/вече не е публикувана и не е резервирана/).first()).toBeVisible({ timeout: 5_000 })
       }).toPass({ timeout: 40_000 })
       expect(d1(`SELECT COUNT(*) AS n FROM taken_sections WHERE section_code = '${published!.code}'`)[0]).toMatchObject({ n: 0 })
     } finally {

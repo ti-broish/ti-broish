@@ -2,8 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { expect, test } from '@playwright/test'
 
 // Bulk „Публикувай черновите в този изглед“ on /admin/sections also publishes „И аз“ partner drafts
-// (the partner path: section_published + „И аз“ reservation, no email, no Brevo), and refuses a
-// draft outside the пълномощно's МИР („Секция извън МИР на пълномощното“).
+// (the partner path: section_published + „И аз“ reservation, no email, no Brevo). A draft outside the
+// пълномощно's МИР keeps its badge but is published too: the МИР check only warns on manual publishing.
 const WEB_DIR = new URL('.', import.meta.url).pathname.replace(/e2e\/$/, '')
 const STAFF = { id: 'e2e-pubp-staff', email: 'pubp.staff-e2e@example.com', session: 'e2e-pubp-staff-session' }
 const VOL = { id: 'e2e-pubp-vol', email: 'pubp.vol-e2e@example.com', section: '300100901' }
@@ -23,7 +23,7 @@ test.describe('Секции: bulk publish includes „И аз“ and guards the 
     cleanup()
   })
 
-  test('the confirmation counts volunteers and „И аз“; the mismatched partner stays a draft', async ({ page }) => {
+  test('the confirmation counts volunteers and „И аз“; the mismatched partner is published with a warning', async ({ page }) => {
     test.setTimeout(120_000)
     seed()
     await page.context().addCookies([{ name: 'tb_session', value: STAFF.session, url: 'http://127.0.0.1:3000', httpOnly: true, sameSite: 'Lax' }])
@@ -40,19 +40,19 @@ test.describe('Секции: bulk publish includes „И аз“ and guards the 
 
     await expect(async () => {
       await page.getByTestId('publish-view').click()
-      await expect(page.getByText('Ще публикуваме 1 доброволец и 1 от „И аз“ (без имейл, без Brevo). Спрени: 1 със секция извън МИР на пълномощното.')).toBeVisible({ timeout: 5_000 })
+      await expect(page.getByText('Ще публикуваме 1 доброволец и 2 от „И аз“ (без имейл, без Brevo).')).toBeVisible({ timeout: 5_000 })
     }).toPass({ timeout: 40_000 })
-    await expect(page.getByTestId('publish-view')).toHaveText('Да, публикувай 1 доброволец и 1 от „И аз“ (без имейл)')
+    await expect(page.getByTestId('publish-view')).toHaveText('Да, публикувай 1 доброволец и 2 от „И аз“ (без имейл)')
     await expect(async () => {
       if ((await page.getByTestId('publish-view').textContent())?.startsWith('Да,')) await page.getByTestId('publish-view').click()
-      await expect(page.getByText(/„И аз“: публикувани 1, спрени 1/)).toBeVisible({ timeout: 5_000 })
+      await expect(page.getByText(/„И аз“: публикувани 2\./)).toBeVisible({ timeout: 5_000 })
     }).toPass({ timeout: 40_000 })
 
     expect(d1(`SELECT published_section FROM signups WHERE id = '${VOL.id}'`)[0]).toMatchObject({ published_section: VOL.section })
     expect(d1(`SELECT section_published FROM partner_people WHERE id = '${OK.id}'`)[0]).toMatchObject({ section_published: OK.section })
     expect(d1(`SELECT organisation FROM taken_sections WHERE section_code = '${OK.section}'`)[0]).toMatchObject({ organisation: 'И аз' })
-    expect(d1(`SELECT section_published FROM partner_people WHERE id = '${OUT.id}'`)[0]).toMatchObject({ section_published: null })
-    expect(d1(`SELECT COUNT(*) AS n FROM taken_sections WHERE section_code = '${OUT.section}'`)[0]).toMatchObject({ n: 0 })
+    expect(d1(`SELECT section_published FROM partner_people WHERE id = '${OUT.id}'`)[0]).toMatchObject({ section_published: OUT.section })
+    expect(d1(`SELECT organisation FROM taken_sections WHERE section_code = '${OUT.section}'`)[0]).toMatchObject({ organisation: 'И аз' })
   })
 })
 

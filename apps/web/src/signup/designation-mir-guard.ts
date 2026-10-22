@@ -1,7 +1,8 @@
 /**
  * A пълномощно is valid only in its МИР. A numbered person (volunteer or „И аз“) whose draft or
  * published section is in another МИР (the first 2 digits of the section) gets a warning badge on
- * every admin row, and publishing that section is refused on the server.
+ * every admin row and in the save/publish result. Only a warning for manual saves and publishing
+ * (staff decide); the automatic allocator keeps the hard МИР rule.
  */
 export const DESIGNATION_MIR_MISMATCH = 'Секция извън МИР на пълномощното'
 
@@ -38,5 +39,5 @@ export function designationMirMismatch(input: {
 }
 
 export function designationMirMessage(mismatch: DesignationMirMismatch) {
-  return `${DESIGNATION_MIR_MISMATCH}: секцията е в МИР ${mismatch.sectionMir}, пълномощното е за МИР ${mismatch.designationMir}. Не може да се публикува.`
+  return `Внимание: секция ${mismatch.section} е в МИР ${mismatch.sectionMir}, а пълномощното е за МИР ${mismatch.designationMir}.`
 }

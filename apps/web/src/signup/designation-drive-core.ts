@@ -110,14 +110,22 @@ export function parseServiceAccountJson(raw: string): { client_email: string; pr
 
 export function createDriveClient(auth: DriveAuth, fetchImpl: typeof fetch = fetch): DriveAdminClient {
   let cached: { token: string; expMs: number } | null = null
+  // Parallel downloads share one token fetch (the client lives for one request).
+  let pending: Promise<string> | null = null
 
   async function token() {
     const now = Date.now()
     if (cached && now < cached.expMs) return cached.token
-    const got = await fetchAccessToken(auth, fetchImpl)
-    const ttlMs = Math.max(30, (got.expiresIn ?? 3600) - 60) * 1000
-    cached = { token: got.accessToken, expMs: now + ttlMs }
-    return cached.token
+    pending ??= fetchAccessToken(auth, fetchImpl)
+      .then((got) => {
+        const ttlMs = Math.max(30, (got.expiresIn ?? 3600) - 60) * 1000
+        cached = { token: got.accessToken, expMs: now + ttlMs }
+        return cached.token
+      })
+      .finally(() => {
+        pending = null
+      })
+    return pending
   }
 
   return {

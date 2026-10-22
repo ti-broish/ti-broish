@@ -178,6 +178,27 @@ export function rikFolder(mir: string) {
 export const MISSING_PDFS_FILENAME = 'ЛИПСВАЩИ_PDF.txt'
 
 /**
+ * Drive downloads in flight at once for the signed ZIP. One at a time, „all“ (~270 PDFs on
+ * 22.10.2026) took minutes and the browser was given up at 30–90 s.
+ */
+export const SIGNED_PDF_FETCH_WINDOW = 6
+
+/** Runs `fn` over `items` at most `window` ahead of the reader, which takes results in order. */
+export function orderedPrefetch<T, R>(items: readonly T[], window: number, fn: (item: T) => Promise<R>) {
+  const started: Promise<R>[] = []
+  let next = 0
+  return (index: number): Promise<R> => {
+    while (next < items.length && next < index + Math.max(1, window)) {
+      const job = fn(items[next]!)
+      job.catch(() => {})
+      started[next] = job
+      next += 1
+    }
+    return started[index]!
+  }
+}
+
+/**
  * Writes the wave ZIP: per РИК a table and (unless tablesOnly) the signed PDFs fetched from
  * Drive. A PDF that cannot be fetched is listed in ЛИПСВАЩИ_PDF.txt (file names only, no
  * ЕГН); the tables are always complete.
@@ -195,8 +216,13 @@ export async function writeSignedWaveZip(
   const title = rikTableTitle(input.committeeFullName)
   const missing: string[] = []
   const mirs = [...new Set(input.people.map((person) => person.mir))].sort()
+  const membersOf = new Map(mirs.map((mir) => [mir, input.people.filter((person) => person.mir === mir).sort((a, b) => a.number - b.number)]))
+  const fetchPdf = input.fetchPdf
+  const downloads = input.tablesOnly || !fetchPdf ? [] : mirs.flatMap((mir) => membersOf.get(mir)!.filter((person) => person.driveFileId))
+  const takePdf = orderedPrefetch(downloads, SIGNED_PDF_FETCH_WINDOW, (person) => fetchPdf!(person.driveFileId))
+  let taken = 0
   for (const mir of mirs) {
-    const members = input.people.filter((person) => person.mir === mir).sort((a, b) => a.number - b.number)
+    const members = membersOf.get(mir)!
     const folder = rikFolder(mir)
     const rows = sortRikRows(members.map((person) => rikRowFor(person, input.numberPrefix)))
     await add(`${folder}/${rikTableFilename(mir)}`, buildRikTableXlsx({ title, rows }))
@@ -213,12 +239,14 @@ export async function writeSignedWaveZip(
     if (input.tablesOnly) continue
     for (const person of members) {
       const name = signedPdfName(person)
-      if (!input.fetchPdf || !person.driveFileId) {
+      if (!fetchPdf || !person.driveFileId) {
         missing.push(`${folder}/${name}`)
         continue
       }
+      const pdf = takePdf(taken)
+      taken += 1
       try {
-        await add(`${folder}/${name}`, await input.fetchPdf(person.driveFileId))
+        await add(`${folder}/${name}`, await pdf)
       } catch {
         missing.push(`${folder}/${name}`)
       }

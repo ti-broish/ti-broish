@@ -40,7 +40,8 @@ test.describe('signed пълномощно on /profil', () => {
     await expect(card).toContainText('№ 941')
     await expect(card).toContainText('МИР23')
     await expect(card).toContainText(SECTION)
-    await expect(card).toContainText('В изборния ден го носи заедно със значката')
+    await expect(card).toContainText('не е нужно да го печаташ')
+    await expect(card.getByRole('link', { name: 'Отпечатай значката' })).toHaveAttribute('href', '/znachka')
     const button = card.getByRole('link', { name: 'Изтегли подписаното пълномощно (PDF)' })
     await expect(button).toHaveAttribute('href', PDF_PATH)
     // Above everything else, the page title included.

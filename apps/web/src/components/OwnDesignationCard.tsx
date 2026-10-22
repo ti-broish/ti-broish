@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { loadOwnDesignation } from '../signup/own-designation-load'
 import type { OwnDesignation } from '../signup/own-designation'
@@ -104,8 +105,15 @@ export function OwnDesignationCard({ designation }: { designation: OwnDesignatio
             <span>Изтегли подписаното пълномощно (PDF)</span>
           </a>
           <p className="text-sm leading-6 text-white/85">
-            Свали го на телефона и, ако можеш, го отпечатай. В изборния ден го носи заедно със значката: без пълномощно и отличителен знак представителят не може да бъде в секцията.
+            Пълномощното е достатъчно да е на телефона ти, не е нужно да го печаташ. В изборния ден трябва да имаш отпечатана значката (отличителен знак).
           </p>
+          <Link
+            to="/znachka"
+            className="flex min-h-12 items-center justify-center rounded-[20px] border-2 border-white/70 px-5 text-center text-lg font-bold text-white no-underline hover:bg-white/10"
+            style={{ color: '#fff' }}
+          >
+            Отпечатай значката
+          </Link>
         </div>
       </div>
     </section>

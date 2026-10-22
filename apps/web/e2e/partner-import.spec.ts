@@ -183,7 +183,7 @@ test.describe('partner import („И аз“) for пълномощни only', ()
       await expect(todor.getByRole('button', { name: 'Запази', exact: true })).toHaveCount(1)
       await expect(todor.getByRole('button', { name: 'Предложи' })).toHaveCount(0)
       await todor.getByRole('button', { name: 'Публикувай' }).click()
-      await expect(page.getByText(/Публикувани 1\..*Без писма и без Brevo/)).toBeVisible()
+      await expect(page.getByText(/Публикувани 1\..*Без писма и без Brevo/).first()).toBeVisible()
       const [published] = d1(`SELECT section_published AS code FROM partner_people WHERE email = 'iaz.one-e2e@example.com'`) as Array<{ code: string }>
       expect(published!.code).toMatch(/^\d{9}$/)
       expect(d1(`SELECT organisation FROM taken_sections WHERE section_code = '${published!.code}'`)[0]).toMatchObject({ organisation: 'И аз' })

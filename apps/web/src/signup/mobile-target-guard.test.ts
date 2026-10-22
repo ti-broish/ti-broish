@@ -23,6 +23,19 @@ function d1(raw: Db) {
  * targets of automatic mobile areas; nothing on that path looked at mobile_drafts.
  */
 describe.skipIf(!mod)('mobile-team targets hold their sections', () => {
+  it('the country allocator blocks every current mobile target (254611071 in МИР 25 was drafted to a volunteer)', async () => {
+    const raw = new mod!.DatabaseSync(':memory:')
+    raw.exec(MOBILE_DRAFTS_TABLE)
+    raw.exec('CREATE TABLE taken_sections (section_code TEXT PRIMARY KEY, organisation TEXT)')
+    raw.exec('CREATE TABLE signups (id TEXT PRIMARY KEY, withdrawn INTEGER, draft_section TEXT, published_section TEXT, draft_locked INTEGER)')
+    raw
+      .prepare(`INSERT INTO mobile_drafts (signup_id, team_key, mir_code, municipality_code, area_key, area_label, targets, source, created_by, created_at, updated_at) VALUES ('m', 'm', '25', '', '', '', ?, 'auto', 't', 't', 't')`)
+      .run(JSON.stringify([{ code: '254611071' }]))
+    const { blockedSectionsForTest } = await import('./distribute-plan')
+    expect(await blockedSectionsForTest(d1(raw), false)).toContain('254611071')
+    expect(await blockedSectionsForTest(d1(raw), true)).toContain('254611071')
+  })
+
   const db = () => {
     const raw = new mod!.DatabaseSync(':memory:')
     raw.exec(MOBILE_DRAFTS_TABLE)
@@ -46,7 +59,7 @@ describe.skipIf(!mod)('mobile-team targets hold their sections', () => {
     expect(await mobileTargetOrgOf(db(), '040400005', 'mob-auto')).toBeNull()
   })
 
-  it('the allocator blocks every target when drafts are kept, only hand-saved areas on a full rerun', async () => {
+  it('every current target is listed for the allocator; manualOnly narrows to hand-saved areas', async () => {
     const one = db()
     expect([...(await mobileTargetCodes(one, false))].sort()).toEqual(['040400005', '040400007', '254611006'])
     expect([...(await mobileTargetCodes(one, true))]).toEqual(['254611006'])

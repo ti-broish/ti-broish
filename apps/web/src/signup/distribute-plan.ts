@@ -295,15 +295,18 @@ async function loadPeople(db: Database, keepDrafts: boolean) {
   return { candidates, anchors, knownEmails, kept, wholeMir }
 }
 
+/** Exported for tests. */
+export const blockedSectionsForTest = (db: Database, keepDrafts: boolean) => blockedSections(db, keepDrafts)
+
 async function blockedSections(db: Database, keepDrafts: boolean) {
   const blocked = new Set<string>()
   const taken = await db.prepare('SELECT section_code FROM taken_sections').all<{ section_code: string }>()
   for (const row of taken.results ?? []) blocked.add(normalizeSection(row.section_code))
   // „И аз“ partner people: their draft or published section is theirs, whatever the mode.
   for (const code of await partnerHeldCodes(db)) blocked.add(code)
-  // Mobile-team targets: never a section volunteer on them. Keeping drafts keeps every area as it is;
-  // a full rerun re-plans the automatic areas after the sections, so only hand-saved areas hold then.
-  for (const code of await mobileTargetCodes(db, !keepDrafts)) blocked.add(code)
+  // Current mobile-team targets (automatic and hand-saved areas): never a section volunteer on them,
+  // in either mode. A section someone already holds (published, or a kept draft) is theirs anyway.
+  for (const code of await mobileTargetCodes(db, false)) blocked.add(code)
   const used = await db
     .prepare(
       `SELECT COALESCE(draft_section, '') AS draft_section,

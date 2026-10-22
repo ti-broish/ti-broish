@@ -109,6 +109,8 @@ export const RIK_TABLES = [
  * rik_runs.status: running | ok | partial | failed | missed.
  * rik_sources.blocked_until: the host answered with a challenge/403/429; leave it alone until then.
  * rik_pages.etag / last_modified: validators for conditional requests (when the server sends them).
+ * rik_sources.submitted_at: when our пълномощни actually went to this РИК; the „call the РИК“ clock
+ * starts no earlier than this (set by hand, e.g. after a batch is re-sent).
  */
 export const RIK_COLUMNS: Array<[string, string, string]> = [
   ['rik_sources', 'last_good_health', "TEXT NOT NULL DEFAULT ''"],
@@ -116,6 +118,7 @@ export const RIK_COLUMNS: Array<[string, string, string]> = [
   ['rik_sources', 'blocked_until', 'TEXT'],
   ['rik_pages', 'etag', "TEXT NOT NULL DEFAULT ''"],
   ['rik_pages', 'last_modified', "TEXT NOT NULL DEFAULT ''"],
+  ['rik_sources', 'submitted_at', 'TEXT'],
 ]
 
 export const RIK_INDEXES = [

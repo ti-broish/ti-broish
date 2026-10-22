@@ -17,8 +17,12 @@ export const REGISTER_PATHS = {
 
 export type RegisterKind = keyof typeof REGISTER_PATHS
 
-/** How long a signed пълномощно may stay unpublished before the РИК gets a call. */
-export const STALE_AFTER_HOURS = 36
+/**
+ * How long a signed пълномощно may stay unpublished before the РИК gets a call. Counted from the
+ * later of the first signed upload and the МИР's rik_sources.submitted_at (when the batch actually
+ * went to that РИК).
+ */
+export const STALE_AFTER_HOURS = 24
 /** Each РИК is fetched at most this often; under the hourly cron (:07) that means every run (50 min leaves slack for run jitter). */
 export const MIN_INTERVAL_MINUTES = 50
 /** Other parties' batch pages change rarely; re-read them at most this often. */

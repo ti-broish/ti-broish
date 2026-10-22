@@ -13,7 +13,7 @@ import { editDistance } from './normalize'
 
 export type RikStatus =
   | 'registered' // published by the РИК of their МИР under our committee, name and number match
-  | 'pending' // not published yet, still within STALE_AFTER_HOURS of signing
+  | 'pending' // not published yet, still within STALE_AFTER_HOURS of submission
   | 'stale' // not published long after the signed пълномощно went out
   | 'not_signed' // has a number but no signed пълномощно yet: nothing to look for
   | 'name_mismatch' // our number is published under a differently written name
@@ -91,6 +91,11 @@ export interface RikSourceHealth {
   lastError: string
   /** Health of the last successful read; '' when it never succeeded. */
   lastGoodHealth?: string
+  /**
+   * When our пълномощни actually went to this РИК (ISO, rik_sources.submitted_at); null when not set.
+   * The „call the РИК“ clock starts at the later of this and the person's signedAt.
+   */
+  submittedAt?: string | null
 }
 
 const GOOD_HEALTH = new Set(['ok', 'empty', 'not_published'])
@@ -124,6 +129,15 @@ export interface DerivedTask {
   type: RikTaskType
   reason: string
   detail: string
+}
+
+/** Where the „not published“ clock starts: the later of the signed upload and the МИР's submission. */
+export function clockStart(signedAt: string, submittedAt: string | null | undefined) {
+  if (!submittedAt) return signedAt
+  const signed = Date.parse(signedAt)
+  const submitted = Date.parse(submittedAt)
+  if (!Number.isFinite(submitted)) return signedAt
+  return Number.isFinite(signed) && signed >= submitted ? signedAt : submittedAt
 }
 
 function hoursBetween(fromIso: string, to: Date) {
@@ -265,7 +279,7 @@ export function classifyPerson(
   if (health.health !== 'ok') {
     return { result: result('pending', { detail: `РИК ${person.mir} още не е публикувал регистъра.` }), tasks }
   }
-  if (hoursBetween(person.signedAt, now) >= STALE_AFTER_HOURS) {
+  if (hoursBetween(clockStart(person.signedAt, health.submittedAt), now) >= STALE_AFTER_HOURS) {
     tasks.push(
       task(person, 'call_rik', 'not_published', `Подписаното пълномощно № ${person.number} е подадено преди повече от ${STALE_AFTER_HOURS} ч., а РИК ${person.mir} още не го е публикувал.`),
     )

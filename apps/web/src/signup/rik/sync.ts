@@ -641,9 +641,16 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
       }),
     )
     const sources = ((await db
-      .prepare('SELECT mir, health, failures, last_error, last_good_health FROM rik_sources')
-      .all<{ mir: string; health: RikSourceHealth['health']; failures: number; last_error: string; last_good_health: string | null }>()).results ?? []).map(
-      (row): RikSourceHealth => ({ mir: row.mir, health: row.health, failures: Number(row.failures), lastError: row.last_error, lastGoodHealth: row.last_good_health ?? '' }),
+      .prepare('SELECT mir, health, failures, last_error, last_good_health, submitted_at FROM rik_sources')
+      .all<{ mir: string; health: RikSourceHealth['health']; failures: number; last_error: string; last_good_health: string | null; submitted_at: string | null }>()).results ?? []).map(
+      (row): RikSourceHealth => ({
+        mir: row.mir,
+        health: row.health,
+        failures: Number(row.failures),
+        lastError: row.last_error,
+        lastGoodHealth: row.last_good_health ?? '',
+        submittedAt: row.submitted_at || null,
+      }),
     )
     // A РИК blocked by the site is frozen: its people keep their status and tasks as they were.
     const frozen = new Set(sources.filter((source) => source.health === 'blocked').map((source) => source.mir))

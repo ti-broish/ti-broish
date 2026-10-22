@@ -5,6 +5,7 @@ import { nameKey } from './normalize'
 const NOW = new Date('2026-10-22T12:00:00.000Z')
 const RECENT = '2026-10-22T06:00:00.000Z' // 6 h before NOW
 const OLD = '2026-10-20T06:00:00.000Z' // 54 h before NOW
+const DAY_AGO = '2026-10-21T11:00:00.000Z' // 25 h before NOW: stale under 24 h, pending under the old 36 h
 
 function person(id: string, name: string, patch: Partial<RikPerson> = {}): RikPerson {
   return { id, source: 'signup', mir: '23', number: 501, issuedOn: '19.10.2026', nameKey: nameKey(name), withdrawn: false, signedAt: RECENT, ...patch }
@@ -49,13 +50,30 @@ describe('classification mirrors last election’s sheet', () => {
     expect(results[0]!.detail).toContain('20.10.2026')
   })
 
-  it('pending inside 36 h, stale after → call РИК', () => {
+  it('pending inside 24 h, stale after → call РИК', () => {
     const fresh = run([person('a', 'Иван Петров Иванов')], [])
     expect(fresh.results[0]!.status).toBe('pending')
     expect(fresh.tasks).toEqual([])
-    const stale = run([person('a', 'Иван Петров Иванов', { signedAt: OLD })], [])
+    const stale = run([person('a', 'Иван Петров Иванов', { signedAt: DAY_AGO })], [])
     expect(stale.results[0]!.status).toBe('stale')
     expect(stale.tasks).toEqual([expect.objectContaining({ id: 'a:call_rik:not_published', type: 'call_rik', mir: '23' })])
+    expect(stale.tasks[0]!.detail).toContain('24 ч.')
+  })
+
+  it('the clock starts at the МИР’s submitted_at when that is later than the signed upload', () => {
+    const submitted = (submittedAt: string | null) => [{ ...ok('23'), submittedAt }]
+    const reset = run([person('a', 'Иван Петров Иванов', { signedAt: OLD })], [], submitted('2026-10-22T06:41:00.000Z'))
+    expect(reset.results[0]!.status).toBe('pending')
+    expect(reset.tasks).toEqual([])
+    // An older submission does not hold back the person's own clock.
+    const older = run([person('a', 'Иван Петров Иванов', { signedAt: DAY_AGO })], [], submitted('2026-10-19T00:00:00.000Z'))
+    expect(older.results[0]!.status).toBe('stale')
+    // 24 h after the submission the call comes.
+    const later = matchAll([person('a', 'Иван Петров Иванов', { signedAt: OLD })], [], submitted('2026-10-22T06:41:00.000Z'), new Date('2026-10-23T06:41:00.000Z'), 2)
+    expect(later.results[0]!.status).toBe('stale')
+    // A registered person is untouched by it.
+    const registered = run([person('a', 'Иван Петров Иванов', { signedAt: OLD })], [entry('Иван Петров Иванов')], submitted('2026-10-22T06:41:00.000Z'))
+    expect(registered.results[0]!.status).toBe('registered')
   })
 
   it('a РИК that has published nothing yet: waiting, no call per person', () => {

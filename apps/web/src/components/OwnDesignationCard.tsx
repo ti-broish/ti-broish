@@ -1,10 +1,12 @@
-import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { loadOwnDesignation } from '../signup/own-designation-load'
 import type { OwnDesignation } from '../signup/own-designation'
+import type { AssignedSectionPlace } from '../signup/assigned-section-place'
 
 /** Same-origin route: the server finds the file by the session, never by an id in the URL. */
 export const OWN_DESIGNATION_PDF_PATH = '/profil/palnomoshtno.pdf'
+/** The same badge (отличителен знак) as „Свали образеца“ on /znachka. */
+export const BADGE_PDF_PATH = '/oznachenie-predstavitel.pdf'
 
 /** The session's own пълномощно, loaded once the profile has an e-mail. null until loaded and when there is none. */
 export function useOwnDesignation(enabled: boolean) {
@@ -38,6 +40,26 @@ function Fact({ label, value, mono }: { label: string; value: string; mono?: boo
   )
 }
 
+/** „Секция 987“ = the last 3 digits; the full code stays as small text. */
+export function shortSectionNumber(section: string) {
+  return section.slice(-3)
+}
+
+/** Settlement and address from the same lookup as the profile map; the code alone when it knows neither. */
+function SectionWhere({ section, place }: { section: string; place: AssignedSectionPlace | null }) {
+  const known = place && place.section === section ? place : null
+  return (
+    <div className="grid gap-1 rounded-2xl bg-white/10 px-4 py-3" aria-label="Секция">
+      <p className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <span className="text-2xl font-black text-white">Секция {shortSectionNumber(section)}</span>
+        <span className="text-sm tabular-nums tracking-wide text-white/65">{section}</span>
+      </p>
+      {known?.settlement ? <p className="font-bold leading-6 text-white">{known.settlement}</p> : null}
+      {known?.address ? <p className="text-sm leading-6 text-white/85">{known.address}</p> : null}
+    </div>
+  )
+}
+
 function DownloadIcon() {
   return (
     <svg className="h-7 w-7 flex-none" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -48,7 +70,7 @@ function DownloadIcon() {
   )
 }
 
-export function OwnDesignationCard({ designation }: { designation: OwnDesignation }) {
+export function OwnDesignationCard({ designation, place = null }: { designation: OwnDesignation; place?: AssignedSectionPlace | null }) {
   if (designation.state === 'resigning') {
     return (
       <section
@@ -84,36 +106,33 @@ export function OwnDesignationCard({ designation }: { designation: OwnDesignatio
               Твоето пълномощно
             </h2>
           </div>
-          <dl className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          {designation.section ? <SectionWhere section={designation.section} place={place} /> : null}
+          <dl className="flex flex-wrap gap-2">
             <Fact label="Номер" value={`№ ${designation.number}`} mono />
             {designation.mir ? <Fact label="МИР" value={designation.mir} mono /> : null}
-            {designation.section ? (
-              <div className="col-span-2 sm:col-span-1">
-                <Fact label="Секция" value={designation.section} mono />
-              </div>
-            ) : null}
           </dl>
         </div>
         <div className="grid gap-3">
           <a
             href={OWN_DESIGNATION_PDF_PATH}
             download
-            className="brand-button min-h-16 gap-3 text-left text-[18px] leading-snug no-underline shadow-[0_6px_0_rgba(0,0,0,0.25)] sm:text-[20px]"
+            className="brand-button min-h-16 gap-3 text-center text-[20px] leading-snug no-underline shadow-[0_6px_0_rgba(0,0,0,0.25)] sm:text-[20px]"
             style={{ color: 'var(--purple)' }}
           >
             <DownloadIcon />
-            <span>Изтегли подписаното пълномощно (PDF)</span>
+            <span>Изтегли пълномощно</span>
           </a>
           <p className="text-sm leading-6 text-white/85">
-            Пълномощното е достатъчно да е на телефона ти, не е нужно да го печаташ. В изборния ден трябва да имаш отпечатана значката (отличителен знак).
+            Достатъчно е да е на телефона. Отпечатай само значката.
           </p>
-          <Link
-            to="/znachka"
+          <a
+            href={BADGE_PDF_PATH}
+            download
             className="flex min-h-12 items-center justify-center rounded-[20px] border-2 border-white/70 px-5 text-center text-lg font-bold text-white no-underline hover:bg-white/10"
             style={{ color: '#fff' }}
           >
-            Отпечатай значката
-          </Link>
+            Изтегли значка
+          </a>
         </div>
       </div>
     </section>

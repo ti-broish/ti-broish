@@ -39,10 +39,11 @@ test.describe('signed пълномощно on /profil', () => {
     await expect(card.getByRole('heading', { name: 'Твоето пълномощно' })).toBeVisible()
     await expect(card).toContainText('№ 941')
     await expect(card).toContainText('МИР23')
+    await expect(card).toContainText('Секция 987')
     await expect(card).toContainText(SECTION)
-    await expect(card).toContainText('не е нужно да го печаташ')
-    await expect(card.getByRole('link', { name: 'Отпечатай значката' })).toHaveAttribute('href', '/znachka')
-    const button = card.getByRole('link', { name: 'Изтегли подписаното пълномощно (PDF)' })
+    await expect(card).toContainText('Достатъчно е да е на телефона. Отпечатай само значката.')
+    await expect(card.getByRole('link', { name: 'Изтегли значка' })).toHaveAttribute('href', '/oznachenie-predstavitel.pdf')
+    const button = card.getByRole('link', { name: 'Изтегли пълномощно' })
     await expect(button).toHaveAttribute('href', PDF_PATH)
     // Above everything else, the page title included.
     const title = page.getByRole('heading', { level: 1 })
@@ -77,7 +78,7 @@ test.describe('signed пълномощно on /profil', () => {
     await expect(card).toBeVisible({ timeout: 30_000 })
     await expect(card).toHaveAttribute('data-state', 'resigning')
     await expect(card).toContainText('Подписва се')
-    await expect(page.getByRole('link', { name: 'Изтегли подписаното пълномощно (PDF)' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Изтегли пълномощно' })).toHaveCount(0)
     expect((await page.request.get(PDF_PATH)).status()).toBe(404)
   })
 

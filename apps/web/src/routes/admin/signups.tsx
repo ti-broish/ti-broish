@@ -26,6 +26,7 @@ import { ReservedBadge, reservedOrgFor, useReservedIndex } from './-reserved-bad
 import { MobileBadge, useMobileIndex } from './-mobile-teams'
 import { ProcessedToggle, WithdrawnCountsContext } from './-withdrawal-processed'
 import { WITHDRAWN_PROCESSED_OPTIONS, withdrawnCountsLine, type WithdrawnCounts } from '../../signup/admin-unregister'
+import { IAZ_ROW_BORDER, IAZ_ROW_TINT, IazBadge } from './-iaz-row'
 
 export const Route = createFileRoute('/admin/signups')({
   validateSearch: (search: Record<string, unknown>): SignupSearch => parseSignupSearch(search),
@@ -43,17 +44,42 @@ const views = [
   ['withdrawn', 'Отписани'],
 ] as const
 
+const sources = [
+  ['', 'Всички източници'],
+  ['tb', 'Ти Броиш'],
+  ['iaz', '„И аз“'],
+] as const
+
+/** „И аз“ row (partner_people): not a signup, no bulk actions, never in Brevo. */
+function isIaz(person: RosterFields) {
+  return person.source === 'iaz'
+}
+
+function PersonLink({ person, className }: { person: RosterFields; className: string }) {
+  if (isIaz(person)) {
+    return (
+      <span className="grid justify-items-start gap-1">
+        <Link to="/admin/iaz/$personId" params={{ personId: person.id }} className={className}>
+          {personName(person) || '—'}
+        </Link>
+        <IazBadge />
+      </span>
+    )
+  }
+  return (
+    <Link to="/admin/signups/$personId" params={{ personId: person.id }} className={className}>
+      {personName(person) || '—'}
+    </Link>
+  )
+}
+
 const columnHelper = createColumnHelper<RosterFields>()
 
 const columns = [
   columnHelper.accessor((row) => personName(row), {
     id: 'name',
     header: 'Човек',
-    cell: (info) => (
-      <Link to="/admin/signups/$personId" params={{ personId: info.row.original.id }} className="font-bold text-[#2b062f] underline">
-        {info.getValue() || '—'}
-      </Link>
-    ),
+    cell: (info) => <PersonLink person={info.row.original} className="font-bold text-[#2b062f] underline" />,
   }),
   columnHelper.accessor('email', {
     id: 'email',
@@ -78,7 +104,7 @@ const columns = [
   columnHelper.accessor('role', {
     id: 'role',
     header: 'Роля',
-    cell: (info) => roleText(info.getValue()),
+    cell: (info) => (isIaz(info.row.original) ? 'Пълномощно („И аз“)' : roleText(info.getValue())),
   }),
   columnHelper.display({
     id: 'section',
@@ -106,6 +132,8 @@ function SignupsPage() {
   const access = useAdminAccess()
   const [people, setPeople] = useState<RosterFields[]>([])
   const [total, setTotal] = useState(0)
+  const [signupTotal, setSignupTotal] = useState(0)
+  const [partnerTotal, setPartnerTotal] = useState(0)
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [message, setMessage] = useState('')
   const [links, setLinks] = useState<{ email: string; link: string }[]>([])
@@ -137,13 +165,13 @@ function SignupsPage() {
     setSelected(new Set())
     setWholeView(false)
     setBulkNote('')
-  }, [search.view, search.mir, search.q, search.processed])
+  }, [search.view, search.mir, search.q, search.processed, search.source])
 
   useEffect(() => {
     let cancelled = false
     setPhase('loading')
     void adminRoster({
-      data: { view: search.view, mir: search.mir, q: search.q, page: search.page, sort: search.sort, dir: search.dir, limit: 50, processed: search.processed },
+      data: { view: search.view, mir: search.mir, q: search.q, page: search.page, sort: search.sort, dir: search.dir, limit: 50, processed: search.processed, partners: true, source: search.source ?? '' },
     })
       .then((result) => {
         if (cancelled) return
@@ -152,12 +180,16 @@ function SignupsPage() {
           setMessage(result.message)
           setPeople([])
           setTotal(0)
+          setSignupTotal(0)
+          setPartnerTotal(0)
           return
         }
         setPhase('ready')
         setMessage('')
         setPeople(result.people)
         setTotal(result.total)
+        setSignupTotal(result.signupTotal)
+        setPartnerTotal(result.partnerTotal)
         setWithdrawn(result.withdrawnCounts)
       })
       .catch(() => {
@@ -168,21 +200,23 @@ function SignupsPage() {
     return () => {
       cancelled = true
     }
-  }, [search.view, search.mir, search.q, search.page, search.sort, search.dir, search.processed, reloadKey])
+  }, [search.view, search.mir, search.q, search.page, search.sort, search.dir, search.processed, search.source, reloadKey])
 
-  const pageAll = people.length > 0 && (wholeView || people.every((person) => selected.has(person.id)))
+  // Bulk actions are for our signups only: „И аз“ rows are never selected or sent anywhere.
+  const signupPeople = people.filter((person) => !isIaz(person))
+  const pageAll = signupPeople.length > 0 && (wholeView || signupPeople.every((person) => selected.has(person.id)))
   const select = access.permissions.edit
     ? {
         pageAll,
         checked: (id: string) => wholeView || selected.has(id),
         onPage: (on: boolean) => {
           setWholeView(false)
-          setSelected(on ? new Set(people.map((person) => person.id)) : new Set())
+          setSelected(on ? new Set(signupPeople.map((person) => person.id)) : new Set())
         },
         onRow: (id: string, on: boolean) => {
           if (wholeView && !on) {
             setWholeView(false)
-            setSelected(new Set(people.map((person) => person.id).filter((item) => item !== id)))
+            setSelected(new Set(signupPeople.map((person) => person.id).filter((item) => item !== id)))
             return
           }
           setSelected((current) => toggleSelected(current, id, on))
@@ -225,7 +259,7 @@ function SignupsPage() {
     <div className="grid gap-5">
       <AdminHeading
         title="Записвания"
-        lede="Завършилите са изпратили записването. Започналите са отворили формата, но не са стигнали до края. Маркирай редове, за да отбележиш обаждане за избраните или за целия филтър, без да отваряш всеки човек."
+        lede="Завършилите са изпратили записването. Започналите са отворили формата, но не са стигнали до края. Хората от „И аз“ са в синьо, с етикет „И аз“: внесени са само за пълномощно, не получават писма и не отиват в Brevo. Ако някой от тях има и недовършено записване при нас, е на един ред. Маркирай редове, за да отбележиш обаждане за избраните или за целия филтър, без да отваряш всеки човек."
       />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <label className="grid min-w-0 flex-1 gap-1 text-sm font-bold text-[#1a1020]" htmlFor="signup-search">
@@ -278,6 +312,24 @@ function SignupsPage() {
           </button>
         ))}
       </div>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Източник">
+        {sources.map(([id, label]) => {
+          const on = (search.source ?? '') === id
+          return (
+            <button
+              key={id || 'all'}
+              type="button"
+              className={on ? adminChipOn : adminGhost}
+              aria-pressed={on}
+              onClick={() => {
+                void navigate({ search: (prev) => ({ ...prev, source: id || undefined, page: 1 }) })
+              }}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
       {search.view === 'withdrawn' ? (
         <div className="grid gap-2">
           <div className="flex flex-wrap gap-2" role="group" aria-label="Обработени">
@@ -306,13 +358,15 @@ function SignupsPage() {
         </div>
       ) : null}
       <p className="text-sm font-bold text-[#1a1020]" role="status">
-        {phase === 'loading' && people.length === 0 ? 'Зареждаме записаните…' : `${total} в този изглед. Показани ${from}–${to}.`}
+        {phase === 'loading' && people.length === 0
+          ? 'Зареждаме записаните…'
+          : `${total} в този изглед${partnerTotal > 0 ? ` (${signupTotal} записани при нас и ${partnerTotal} от „И аз“)` : ''}. Показани ${from}–${to}.`}
       </p>
-      {canEdit && (people.length > 0 || wholeView) ? (
+      {canEdit && (signupPeople.length > 0 || wholeView) ? (
         <div className="grid gap-2">
           <BulkCallbackBar
-            total={total}
-            visibleCount={people.length}
+            total={signupTotal}
+            visibleCount={signupPeople.length}
             selectedCount={selected.size}
             wholeView={wholeView}
             onWholeView={() => setWholeView((current) => !current)}
@@ -330,8 +384,8 @@ function SignupsPage() {
           />
           {search.view !== 'withdrawn' ? (
             <BulkUnregisterBar
-              total={total}
-              visibleCount={people.length}
+              total={signupTotal}
+              visibleCount={signupPeople.length}
               selectedCount={selected.size}
               wholeView={wholeView}
               onWholeView={() => setWholeView((current) => !current)}
@@ -396,7 +450,11 @@ function SignupsPage() {
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="border-b border-[#cfc3d2] align-top">
+              <tr
+                key={row.id}
+                className={`border-b border-[#cfc3d2] align-top ${isIaz(row.original) ? `${IAZ_ROW_TINT} ${IAZ_ROW_BORDER}` : ''}`}
+                data-source={isIaz(row.original) ? 'iaz' : 'tb'}
+              >
                 {row.getVisibleCells().map((cell) => (
                   <td key={cell.id} className="py-3 pr-3">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -536,13 +594,30 @@ function rosterColumns(select: RowSelect | null) {
               onChange={(event) => select.onPage(event.target.checked)}
             />
           ),
-          cell: ({ row }) => (
-            <SelectPerson name={personName(row.original)} checked={select.checked(row.original.id)} onChange={(on) => select.onRow(row.original.id, on)} />
-          ),
+          cell: ({ row }) =>
+            isIaz(row.original) ? (
+              <IazNoSelect name={personName(row.original)} />
+            ) : (
+              <SelectPerson name={personName(row.original)} checked={select.checked(row.original.id)} onChange={(on) => select.onRow(row.original.id, on)} />
+            ),
         }),
       ]
     : []
   return [...leading, ...columns]
+}
+
+function IazNoSelect({ name }: { name: string }) {
+  return (
+    <input
+      type="checkbox"
+      className="h-5 w-5"
+      checked={false}
+      disabled
+      aria-label={`${name || 'Човекът'} е от „И аз“: без групови действия`}
+      title="„И аз“: без групови действия и без Brevo"
+      readOnly
+    />
+  )
 }
 
 interface RowSelect {
@@ -557,18 +632,22 @@ function PeopleCards({ people, select }: { people: RosterFields[]; select: RowSe
   return (
     <ul className="grid gap-3 md:hidden">
       {people.map((person) => (
-        <li key={person.id} className="grid gap-1 rounded-2xl border-2 border-[#2b062f] p-4 text-sm text-[#1a1020]">
-          {select ? <SelectPerson name={personName(person)} checked={select.checked(person.id)} onChange={(on) => select.onRow(person.id, on)} /> : null}
-          <Link to="/admin/signups/$personId" params={{ personId: person.id }} className="text-base font-black text-[#2b062f] underline">
-            {personName(person) || '—'}
-          </Link>
+        <li
+          key={person.id}
+          className={`grid gap-1 rounded-2xl border-2 border-[#2b062f] p-4 text-sm text-[#1a1020] ${isIaz(person) ? `${IAZ_ROW_TINT} ${IAZ_ROW_BORDER}` : ''}`}
+          data-source={isIaz(person) ? 'iaz' : 'tb'}
+        >
+          {select ? (
+            isIaz(person) ? <IazNoSelect name={personName(person)} /> : <SelectPerson name={personName(person)} checked={select.checked(person.id)} onChange={(on) => select.onRow(person.id, on)} />
+          ) : null}
+          <PersonLink person={person} className="text-base font-black text-[#2b062f] underline" />
           <p>{person.email}</p>
           <p>{person.phone || '—'}</p>
           <p>
             {person.mir || (person.region === '32' ? 'Чужбина' : '—')}
             {[person.town, person.place].filter(Boolean).length ? ` · ${[person.town, person.place].filter(Boolean).join(' · ')}` : ''}
           </p>
-          <p>{roleText(person.role)}</p>
+          <p>{isIaz(person) ? 'Пълномощно („И аз“)' : roleText(person.role)}</p>
           <SectionCell person={person} />
           <NotesCell person={person} />
           <StatusChips person={person} />
@@ -605,7 +684,43 @@ function NotesCell({ person }: { person: RosterFields }) {
   )
 }
 
+function IazStatus({ person }: { person: RosterFields }) {
+  const chips: Array<{ label: string; className: string }> = []
+  if (person.publishedSection) chips.push({ label: 'Публикувана', className: 'bg-[#145744] text-white' })
+  else if (person.draftSection) chips.push({ label: 'Чернова', className: 'bg-[#2b062f] text-white' })
+  else chips.push({ label: 'Без секция', className: 'bg-[#efe8f2] text-[#1a1020]' })
+  if (person.designationNumber) {
+    chips.push({ label: `№ ${person.designationMir || '—'}/${person.designationNumber}`, className: 'border border-[#0f5f73] bg-white text-[#0f5f73]' })
+  }
+  chips.push(
+    person.designationSigned
+      ? { label: 'Подписано', className: 'bg-[#145744] text-white' }
+      : { label: 'Неподписано', className: 'border border-[#7a1f4b] bg-white text-[#7a1f4b]' },
+  )
+  return (
+    <div className="grid gap-1">
+      <div className="flex flex-wrap gap-1">
+        {chips.map((chip) => (
+          <span key={chip.label} className={`inline-flex min-h-7 items-center rounded-full px-2 text-xs font-bold ${chip.className}`}>
+            {chip.label}
+          </span>
+        ))}
+      </div>
+      <p className="text-xs text-[#333]">Без писма и без Brevo.</p>
+      {person.mergedSignupId ? (
+        <p className="text-xs font-bold text-[#1a1020]" data-testid="iaz-merged">
+          Има и недовършено записване при нас:{' '}
+          <Link to="/admin/signups/$personId" params={{ personId: person.mergedSignupId }} className="text-[#2b062f] underline">
+            отвори
+          </Link>
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function StatusChips({ person }: { person: RosterFields }) {
+  if (isIaz(person)) return <IazStatus person={person} />
   const progress = signupProgress(person)
   const chips: Array<{ label: string; className: string }> = [
     {
@@ -629,6 +744,7 @@ function StatusChips({ person }: { person: RosterFields }) {
   }
   if (person.staffCalledAt) chips.push({ label: CALLED_LABEL, className: 'bg-[#1f4d7a] text-white' })
   if (person.imported && !person.emailConfirmed) chips.push({ label: 'Чака имейл', className: 'bg-[#efe8f2] text-[#1a1020]' })
+  if (person.iazOverlap) chips.push({ label: 'Има и в „И аз“', className: 'border border-[#0f5f73] bg-[#e3f1f4] text-[#0f5f73]' })
   return (
     <div className="grid gap-1">
       <div className="flex flex-wrap gap-1">

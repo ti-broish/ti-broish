@@ -3,6 +3,8 @@ import { getCookie } from '@tanstack/react-start/server'
 import { rosterWhere, type RosterView } from './admin-csv'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, chunkIds } from './admin-bulk'
 import { searchClause } from './admin-search'
+import { hidesMergedSignups, MERGED_SIGNUP_SQL } from './partner-roster'
+import { isPartnerPersonId } from './partner-people-sql'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { clipWithdrawNote, parseWithdrawReason, processedMessage, restoreMessage, unregisterMessage, type WithdrawReason } from './admin-unregister'
 import { cleanupWithdrawnBrevo, releaseWithdrawnSections, restoreSignup, setWithdrawalProcessed, withdrawnCounts, withdrawSignup } from './withdrawal'
@@ -157,7 +159,8 @@ export const adminSetWithdrawalProcessed = createServerFn({ method: 'POST' })
 
 export const adminBulkUnregister = createServerFn({ method: 'POST' })
   .validator((input: { reason?: string; note?: string; scope?: string; ids?: unknown; view?: string; mir?: string; q?: string }) => {
-    const picked = callbackIds(Array.isArray(input.ids) ? input.ids : [])
+    // „И аз“ rows are not signups: they are withdrawn from Пълномощни, never from here.
+    const picked = callbackIds((Array.isArray(input.ids) ? input.ids : []).filter((id) => !(typeof id === 'string' && isPartnerPersonId(id))))
     return {
       reason: parseWithdrawReason(input.reason),
       note: clipWithdrawNote(input.note),
@@ -184,9 +187,11 @@ export const adminBulkUnregister = createServerFn({ method: 'POST' })
       const filter = rosterWhere(viewOf(data.view), data.mir)
       if ('error' in filter) return filter
       const search = searchClause(data.q, mode)
+      // Same rows as the list: a signup merged into its „И аз“ row is not on it.
+      const merged = hidesMergedSignups(viewOf(data.view)) ? ` AND NOT ${MERGED_SIGNUP_SQL}` : ''
       const rows = await bound(
         access.db,
-        `SELECT id FROM signups WHERE (${filter.clause}) AND (${search.clause}) AND ${pending} ORDER BY updated_at DESC LIMIT ?`,
+        `SELECT id FROM signups WHERE (${filter.clause}) AND (${search.clause}) AND ${pending}${merged} ORDER BY updated_at DESC LIMIT ?`,
         [...filter.binds, ...search.binds, CALLBACK_FILTER_CAP + 1],
       ).all<{ id: string }>()
       const found = (rows.results ?? []).map((row) => row.id)

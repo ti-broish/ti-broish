@@ -55,6 +55,14 @@ export interface RosterFields {
   /** МИР and number of the пълномощно; a section in another МИР gets „Секция извън МИР на пълномощното“. */
   designationMir?: string
   designationNumber?: string
+  /** „И аз“ row (id „pp-…“): not a signup, never in Brevo or bulk actions. */
+  source?: 'iaz'
+  /** „И аз“ row: the signed пълномощно is uploaded. */
+  designationSigned?: boolean
+  /** „И аз“ row: an unfinished signup of the same person, shown as this one row. */
+  mergedSignupId?: string
+  /** Finished signup that also has an active „И аз“ record. */
+  iazOverlap?: boolean
 }
 
 export interface TakenImport {

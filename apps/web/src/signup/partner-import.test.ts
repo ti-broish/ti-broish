@@ -16,6 +16,8 @@ import {
   partnerMir,
   planPartnerImport,
   planSummary,
+  signupCovers,
+  SIGNUP_OVERLAP_SQL,
   previewRows,
   splitFullName,
   type PartnerRawRow,
@@ -218,6 +220,39 @@ describe('plan', () => {
     const preview = previewRows(plan)
     expect(preview.find((row) => row.line === 5)!.covered).toBe(true)
     expect(planSummary(plan)).toContain('Покрити от доброволец (внасят се, но без номер')
+  })
+
+  it('an unfinished signup (not submitted or not confirmed) with the same ЕГН does not cover: the row is numbered', () => {
+    const plan = planPartnerImport(rows, [], [
+      { id: 'sig-started', withdrawn: 0, submitted: 0, email_confirmed: 1, designation_number: null, email: 'other@example.com', egn: C },
+      { id: 'sig-unconfirmed', withdrawn: 0, submitted: 1, email_confirmed: 0, designation_number: null, email: 'gone@example.com', egn: B },
+    ])
+    expect(plan.counts.covered).toBe(0)
+    const row = plan.rows.find((item) => item.line === 5)!
+    expect(row.coveredBy).toBeUndefined()
+    // Still reported as an overlap, so staff see it.
+    expect(row.signup).toBe('egn')
+    expect(row.reasons.join(' ')).toContain('има записване с това ЕГН')
+    expect(plan.rows.find((item) => item.line === 3)!.coveredBy).toBeUndefined()
+  })
+
+  it('a finished or already numbered signup covers; signupCovers spells the rule out', () => {
+    expect(signupCovers({ id: 'a', email: '', egn: C, withdrawn: 0, submitted: 1, email_confirmed: 1 })).toBe(true)
+    expect(signupCovers({ id: 'a', email: '', egn: C, withdrawn: 0, submitted: 0, email_confirmed: 1, designation_number: 512 })).toBe(true)
+    expect(signupCovers({ id: 'a', email: '', egn: C, withdrawn: 0, submitted: 0, email_confirmed: 1, designation_number: null })).toBe(false)
+    expect(signupCovers({ id: 'a', email: '', egn: C, withdrawn: 0, submitted: 1, email_confirmed: 0 })).toBe(false)
+    expect(signupCovers({ id: 'a', email: '', egn: C, withdrawn: 1, submitted: 1, email_confirmed: 1, designation_number: 5 })).toBe(false)
+    // Older rows without progress columns keep the old behaviour (active covers).
+    expect(signupCovers({ id: 'a', email: '', egn: C, withdrawn: 0 })).toBe(true)
+    const plan = planPartnerImport(rows, [], [{ id: 'sig-numbered', withdrawn: 0, submitted: 0, email_confirmed: 0, designation_number: 507, email: 'x@example.com', egn: C }])
+    expect(plan.rows.find((item) => item.line === 5)!.coveredBy).toBe('sig-numbered')
+  })
+
+  it('the overlap lookup reads the progress columns coverage needs', () => {
+    const sql = SIGNUP_OVERLAP_SQL(1, 1)
+    expect(sql).toContain('submitted')
+    expect(sql).toContain('email_confirmed')
+    expect(sql).toContain('designation_number')
   })
 
   it('is idempotent: the second run of the same file finds everyone already imported', () => {

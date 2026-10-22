@@ -298,3 +298,122 @@ main h1 {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
 }
+
+/* /signal?origin=iaz: co-branded with iaz.bg („Гюров, Кандев и аз“). Colours from iaz.bg CSS:
+   --gk-ink #0e1c41, --gk-accent #ff934c, --gk-accent-hover #f57e2e, --gk-paper #f7f4f1. */
+.partner-iaz {
+  --iaz-ink: #0e1c41;
+  --iaz-accent: #ff934c;
+  --iaz-accent-hover: #f57e2e;
+  --iaz-paper: #f7f4f1;
+  --teal-button: var(--iaz-accent);
+  --teal-hover: var(--iaz-accent-hover);
+  --teal-active: #e2711f;
+  --purple: var(--iaz-ink);
+}
+
+.partner-iaz h1 {
+  color: var(--iaz-ink);
+}
+
+.partner-iaz .brand-button {
+  box-shadow: 0 6px 18px rgb(255 147 76 / 0.35);
+}
+
+.partner-iaz .brand-button:active {
+  box-shadow: inset 0 0 8px rgb(14 28 65 / 0.35);
+}
+
+.partner-iaz input:focus,
+.partner-iaz select:focus,
+.partner-iaz textarea:focus {
+  border-color: var(--iaz-accent);
+  outline: 2px solid rgb(255 147 76 / 0.35);
+  outline-offset: 1px;
+}
+
+.iaz-banner {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 10px;
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgb(255 147 76 / 0.28), transparent 55%),
+    var(--iaz-ink);
+  margin-bottom: 8px;
+  padding: 20px;
+  color: var(--iaz-paper);
+  box-shadow: 0 12px 30px rgb(14 28 65 / 0.25);
+}
+
+.iaz-banner__partner {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgb(247 244 241 / 0.15);
+  color: var(--iaz-paper);
+  text-decoration: none;
+}
+
+.iaz-banner__partner img {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgb(247 244 241 / 0.25);
+}
+
+.iaz-wordmark {
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--iaz-paper);
+}
+
+.iaz-wordmark span,
+.iaz-banner__title span {
+  color: var(--iaz-accent);
+}
+
+.iaz-banner__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--iaz-accent);
+}
+
+.iaz-banner__title {
+  margin: 4px 0 0;
+  text-wrap: balance;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.iaz-banner__text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgb(247 244 241 / 0.85);
+}
+
+.iaz-banner__link {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: var(--iaz-accent);
+  padding: 6px 14px;
+  color: var(--iaz-ink);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.iaz-banner__link:hover {
+  background: var(--iaz-accent-hover);
+  color: var(--iaz-ink);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergePlace, oblastPlace, parseSignalSearch } from './signal-prefill'
+import { mergePlace, oblastPlace, parseSignalSearch, signalOrigin } from './signal-prefill'
 
 describe('parseSignalSearch', () => {
   it('keeps name, email and oblast, trimmed', () => {
@@ -73,5 +73,25 @@ describe('mergePlace', () => {
   it('falls back to the profile without a linked oblast', () => {
     expect(mergePlace(null, varnaTown)).toEqual(varnaTown)
     expect(mergePlace(null, null)).toBeNull()
+  })
+})
+
+describe('signalOrigin', () => {
+  it('keeps a whitelisted partner, in any case and with spaces', () => {
+    expect(signalOrigin('iaz')).toBe('iaz')
+    expect(signalOrigin('  IAZ ')).toBe('iaz')
+  })
+
+  it('ignores unknown, empty and non-string values', () => {
+    expect(signalOrigin('evil')).toBeUndefined()
+    expect(signalOrigin('')).toBeUndefined()
+    expect(signalOrigin(['iaz'])).toBeUndefined()
+    expect(signalOrigin(1)).toBeUndefined()
+    expect(signalOrigin(undefined)).toBeUndefined()
+  })
+
+  it('is part of the route search only when known', () => {
+    expect(parseSignalSearch({ name: 'Мария', origin: 'iaz' })).toEqual({ name: 'Мария', origin: 'iaz' })
+    expect(parseSignalSearch({ origin: 'iaz.bg' })).toEqual({})
   })
 })

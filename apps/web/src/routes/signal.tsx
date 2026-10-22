@@ -1,6 +1,7 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
+import { SignalPartnerBanner, partnerClass } from '../components/SignalPartner'
 import { PhotoField } from '../components/PhotoField'
 import { PlacesPicker } from '../components/PlacesPicker'
 import { loadSignup } from '../signup/db'
@@ -11,9 +12,11 @@ import { rememberReport } from '../signup/report-memory'
 import { VIOLATION_DESCRIPTION_MAX, validateViolation, type PhotoInput } from '../signup/reports-validate'
 import { sendViolation } from '../signup/violation-api'
 import { mergePlace, oblastPlace, parseSignalSearch } from '../signup/signal-prefill'
+import { recordSignalOrigin } from '../signup/signal-origin'
 import { useProfile } from '../signup/store'
 
 // ?name=, ?email= and ?oblast= pre-fill the form (partners link people here). See signup/signal-prefill.ts.
+// ?origin=iaz co-brands the page and is stored with the sent signal (signup/signal-origin.ts).
 export const Route = createFileRoute('/signal')({
   validateSearch: parseSignalSearch,
   component: SignalPage,
@@ -28,7 +31,9 @@ function SignalPage() {
   const search = Route.useSearch()
   const navigate = useNavigate()
   // Read once: the parameters are dropped from the address bar below, the values stay in the form.
-  const link = useRef({ name: search.name ?? '', email: search.email ?? '', place: oblastPlace(search.oblast) })
+  const link = useRef({ name: search.name ?? '', email: search.email ?? '', place: oblastPlace(search.oblast), origin: search.origin })
+  const origin = link.current.origin
+  const theme = partnerClass(origin)
   const [name, setName] = useState(link.current.name)
   const [email, setEmail] = useState(link.current.email)
   const [phone, setPhone] = useState('')
@@ -43,10 +48,11 @@ function SignalPage() {
   )
 
   // Keep a pre-filled name and email out of the address bar, history and later shares of the URL.
+  // ?origin= is not personal and stays, so a reload keeps the partner's branding.
   useEffect(() => {
     if (search.name === undefined && search.email === undefined && search.oblast === undefined) return
-    void navigate({ to: '/signal', search: {}, replace: true })
-  }, [navigate, search.name, search.email, search.oblast])
+    void navigate({ to: '/signal', search: origin ? { origin } : {}, replace: true })
+  }, [navigate, search.name, search.email, search.oblast, origin])
 
   useEffect(() => {
     if (!ready || seeded.current) return
@@ -70,7 +76,8 @@ function SignalPage() {
 
   if (sent) {
     return (
-      <div className="grid gap-4">
+      <div className={`grid gap-4 ${theme}`}>
+        <SignalPartnerBanner origin={origin} />
         <PageIntro title="Сигналът е изпратен" lede="Получихме го. Екипът на Ти броиш го преглежда." />
         <p className="rounded-2xl bg-[#eee] px-4 py-3 leading-7">
           Номер на сигнала: <span className="font-mono font-bold">{sent.id}</span>
@@ -92,7 +99,7 @@ function SignalPage() {
 
   return (
     <form
-      className="grid gap-4"
+      className={`grid gap-4 ${theme}`}
       onSubmit={(event) => {
         event.preventDefault()
         if (name.trim().length < 2 || !validEmail(email) || !validPhone(phone) || description.trim().length < 20 || !placeReady(place)) {
@@ -121,6 +128,7 @@ function SignalPage() {
             title: parsed.payload.description.slice(0, 140),
             photoCount: result.pictures.length,
           })
+          if (origin) void recordSignalOrigin({ data: { violationId: result.id, origin } }).catch(() => undefined)
           setSent({ id: result.id, secret: result.secret })
           setDescription('')
           setPhotos([])
@@ -130,6 +138,7 @@ function SignalPage() {
         })
       }}
     >
+      <SignalPartnerBanner origin={origin} />
       <PageIntro
         title="Подай сигнал"
         lede="Първо кажи на председателя на СИК. Ако нарушението остане, опиши къде, кога и какво се случва. Работи и без профил."

@@ -1,5 +1,7 @@
-// /signal?name=…&email=…&oblast=… pre-fills the public violation form.
+// /signal?name=…&email=…&oblast=…&origin=… pre-fills the public violation form.
 // Partner organisations redirect people here with those GET parameters.
+// ?origin= names the partner (whitelisted below): the page is co-branded and the origin is stored
+// with the sent signal (signal_origins in D1, see signal-origin.ts).
 import type { HomePlace } from './model'
 import { IMPORT_REGIONS } from './partner-import-regions.data'
 import { mapPlace, placeKey } from './partner-import'
@@ -8,6 +10,18 @@ export interface SignalSearch {
   name?: string
   email?: string
   oblast?: string
+  origin?: SignalOrigin
+}
+
+/** Partners that may send people to /signal with ?origin=. Unknown values are ignored. */
+export const SIGNAL_ORIGINS = ['iaz'] as const
+export type SignalOrigin = (typeof SIGNAL_ORIGINS)[number]
+
+/** A known ?origin= value („iaz“, any case, trimmed), or undefined. */
+export function signalOrigin(value: unknown): SignalOrigin | undefined {
+  if (typeof value !== 'string') return undefined
+  const key = value.trim().toLowerCase()
+  return (SIGNAL_ORIGINS as readonly string[]).includes(key) ? (key as SignalOrigin) : undefined
 }
 
 const NAME_MAX = 200
@@ -33,10 +47,12 @@ export function parseSignalSearch(search: Record<string, unknown>): SignalSearch
   const name = text(search.name, NAME_MAX)
   const email = text(search.email, EMAIL_MAX)?.replace(/\s/g, '')
   const oblast = text(search.oblast, OBLAST_MAX)
+  const origin = signalOrigin(search.origin)
   return {
     ...(name ? { name } : {}),
     ...(email ? { email } : {}),
     ...(oblast ? { oblast } : {}),
+    ...(origin ? { origin } : {}),
   }
 }
 

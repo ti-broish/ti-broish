@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { expect, test, type Page } from '@playwright/test'
 import type { HomePlace } from '../src/signup/model'
 import { seedProfile } from './helpers'
@@ -177,4 +178,69 @@ test('linked name and email win over the profile and reach the API with the prof
       type: 'standard',
     },
   ])
+})
+
+const WEB_DIR = new URL('.', import.meta.url).pathname.replace(/e2e\/$/, '')
+
+/** Local D1 through wrangler, retried while another process holds the SQLite lock. */
+function d1(sql: string): Array<Record<string, unknown>> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const output = execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'ti-broish-signup-staging', '--local', '--json', '--command', sql], {
+        cwd: WEB_DIR,
+        stdio: 'pipe',
+      }).toString()
+      const parsed = JSON.parse(output.slice(output.indexOf('['))) as Array<{ results?: Array<Record<string, unknown>> }>
+      return parsed.flatMap((item) => item.results ?? [])
+    } catch (error) {
+      if (attempt >= 5) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500 * attempt)
+    }
+  }
+}
+
+test('origin=iaz co-brands the page with iaz.bg and keeps Ти Броиш', async ({ page }) => {
+  await page.goto(linkTo({ name: 'Мария Петрова', email: 'maria.link@example.com', oblast: '23', origin: 'iaz' }))
+  await page.waitForLoadState('networkidle')
+  const banner = page.getByRole('complementary', { name: 'Партньор: И аз' })
+  await expect(banner).toBeVisible()
+  await expect(banner.getByText('работи заедно с Ти Броиш')).toBeVisible()
+  await expect(banner.getByRole('link', { name: 'iaz.bg' })).toHaveAttribute('href', 'https://iaz.bg/')
+  const logo = banner.locator('img[src="/partners/iaz-logo.svg"]')
+  await expect.poll(() => logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+  // Ти Броиш stays: the site header and its logo are unchanged.
+  await expect(page.locator('header.site-header img[alt="Ти Броиш"]')).toBeVisible()
+  await expect(banner.getByText('Партньор на Ти Броиш')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Изпрати' })).toHaveCSS('background-color', 'rgb(255, 147, 76)')
+  await expect(page.getByLabel('Име', { exact: true })).toHaveValue('Мария Петрова')
+  await expect(page.getByRole('combobox', { name: 'Област', exact: true })).toHaveValue('sofia-merged')
+  // Personal fields leave the address bar; the partner stays so a reload keeps the branding.
+  await expect.poll(() => new URL(page.url()).search).toBe('?origin=iaz')
+  await page.reload()
+  await expect(page.getByRole('complementary', { name: 'Партньор: И аз' })).toBeVisible()
+})
+
+test('an unknown origin is ignored: no partner branding', async ({ page }) => {
+  await page.goto(linkTo({ name: 'Петър', origin: 'someone-else' }))
+  await page.waitForLoadState('networkidle')
+  await expect(page.getByLabel('Име', { exact: true })).toHaveValue('Петър')
+  await expect(page.getByRole('complementary', { name: 'Партньор: И аз' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Изпрати' })).toHaveCSS('background-color', 'rgb(83, 192, 164)')
+  await expect.poll(() => new URL(page.url()).searchParams.has('name')).toBe(false)
+})
+
+test('a signal sent from origin=iaz stores the origin with the API violation id', async ({ page }) => {
+  const id = `01E2EIAZ${Date.now()}`.padEnd(26, '0').slice(0, 26)
+  const seen = await mockApi(page, { status: 201, body: { id, secret: 'secret-1' } })
+  await seedProfile(page, { firstName: 'Иван', lastName: 'Иванов', email: 'ivan@example.com', phone: '0888123456', place: { ...sofia } })
+  await page.goto(linkTo({ origin: 'iaz' }))
+  await page.waitForLoadState('networkidle')
+  await page.getByLabel('Описание на нарушението').fill('Председателят не записа забележката в протокола.')
+  await page.getByRole('button', { name: 'Изпрати' }).click()
+  await expect(page.getByRole('heading', { name: 'Сигналът е изпратен' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Партньор: И аз' })).toBeVisible()
+  // The API payload is unchanged: the origin is ours, not a field the API knows.
+  expect(seen.violations).toHaveLength(1)
+  expect(seen.violations[0]).not.toHaveProperty('origin')
+  await expect.poll(() => d1(`SELECT origin FROM signal_origins WHERE violation_id = '${id}'`), { timeout: 15_000 }).toEqual([{ origin: 'iaz' }])
 })

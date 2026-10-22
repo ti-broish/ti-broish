@@ -165,6 +165,7 @@ function ProfilePage() {
   const [unsentCompanionLinks, setUnsentCompanionLinks] = useState<{ email: string; link: string }[]>([])
   const skipSave = useRef(true)
   const designation = useOwnDesignation(ready && Boolean(profile.email))
+  const designationPlace = useAssignedSectionPlace(designation?.section || null)
   useEffect(() => {
     if (!profile.emailConfirmed) return
     const code = ensureReferralCode(profile)
@@ -233,7 +234,12 @@ function ProfilePage() {
 
   return (
     <div className="grid gap-8">
-      {designation ? <OwnDesignationCard designation={designation} /> : null}
+      {designation ? (
+        <OwnDesignationCard
+          designation={designation}
+          place={designationPlace?.section === designation.section ? designationPlace.place : null}
+        />
+      ) : null}
       <PageIntro title={`${profile.firstName}, това е профилът ти`} />
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid gap-8">

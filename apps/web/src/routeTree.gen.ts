@@ -39,6 +39,7 @@ import { Route as PhotosSplatRouteImport } from './routes/photos.$'
 import { Route as PokanaCodeRouteImport } from './routes/pokana.$code'
 import { Route as PostsIndexRouteImport } from './routes/posts.index'
 import { Route as PostsSlugRouteImport } from './routes/posts.$slug'
+import { Route as ProfilPalnomoshtnoDotpdfRouteImport } from './routes/profil_.palnomoshtno[.]pdf'
 import { Route as RCodeRouteImport } from './routes/r.$code'
 import { Route as AdminPalnomoshtniPodpisaniRouteImport } from './routes/admin/palnomoshtni_.podpisani'
 import { Route as AdminPalnomoshtniUploadRouteImport } from './routes/admin/palnomoshtni_.upload'
@@ -197,6 +198,12 @@ const PostsSlugRoute = PostsSlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => PostsRoute,
 } as any)
+const ProfilPalnomoshtnoDotpdfRoute =
+  ProfilPalnomoshtnoDotpdfRouteImport.update({
+    id: '/profil_/palnomoshtno.pdf',
+    path: '/profil/palnomoshtno.pdf',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const RCodeRoute = RCodeRouteImport.update({
   id: '/r/$code',
   path: '/r/$code',
@@ -263,6 +270,7 @@ export interface FileRoutesByFullPath {
   '/photos/$': typeof PhotosSplatRoute
   '/pokana/$code': typeof PokanaCodeRoute
   '/posts/$slug': typeof PostsSlugRoute
+  '/profil/palnomoshtno.pdf': typeof ProfilPalnomoshtnoDotpdfRoute
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/izprateni/': typeof IzprateniIndexRoute
@@ -300,6 +308,7 @@ export interface FileRoutesByTo {
   '/photos/$': typeof PhotosSplatRoute
   '/pokana/$code': typeof PokanaCodeRoute
   '/posts/$slug': typeof PostsSlugRoute
+  '/profil/palnomoshtno.pdf': typeof ProfilPalnomoshtnoDotpdfRoute
   '/r/$code': typeof RCodeRoute
   '/admin': typeof AdminIndexRoute
   '/izprateni': typeof IzprateniIndexRoute
@@ -340,6 +349,7 @@ export interface FileRoutesById {
   '/photos/$': typeof PhotosSplatRoute
   '/pokana/$code': typeof PokanaCodeRoute
   '/posts/$slug': typeof PostsSlugRoute
+  '/profil_/palnomoshtno.pdf': typeof ProfilPalnomoshtnoDotpdfRoute
   '/r/$code': typeof RCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/izprateni/': typeof IzprateniIndexRoute
@@ -381,6 +391,7 @@ export interface FileRouteTypes {
     | '/photos/$'
     | '/pokana/$code'
     | '/posts/$slug'
+    | '/profil/palnomoshtno.pdf'
     | '/r/$code'
     | '/admin/'
     | '/izprateni/'
@@ -418,6 +429,7 @@ export interface FileRouteTypes {
     | '/photos/$'
     | '/pokana/$code'
     | '/posts/$slug'
+    | '/profil/palnomoshtno.pdf'
     | '/r/$code'
     | '/admin'
     | '/izprateni'
@@ -457,6 +469,7 @@ export interface FileRouteTypes {
     | '/photos/$'
     | '/pokana/$code'
     | '/posts/$slug'
+    | '/profil_/palnomoshtno.pdf'
     | '/r/$code'
     | '/admin/'
     | '/izprateni/'
@@ -490,6 +503,7 @@ export interface RootRouteChildren {
   IzprateniIdRoute: typeof IzprateniIdRoute
   PhotosSplatRoute: typeof PhotosSplatRoute
   PokanaCodeRoute: typeof PokanaCodeRoute
+  ProfilPalnomoshtnoDotpdfRoute: typeof ProfilPalnomoshtnoDotpdfRoute
   RCodeRoute: typeof RCodeRoute
   IzprateniIndexRoute: typeof IzprateniIndexRoute
 }
@@ -706,6 +720,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PostsSlugRouteImport
       parentRoute: typeof PostsRoute
     }
+    '/profil_/palnomoshtno.pdf': {
+      id: '/profil_/palnomoshtno.pdf'
+      path: '/profil/palnomoshtno.pdf'
+      fullPath: '/profil/palnomoshtno.pdf'
+      preLoaderRoute: typeof ProfilPalnomoshtnoDotpdfRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/r/$code': {
       id: '/r/$code'
       path: '/r/$code'
@@ -828,6 +849,7 @@ const rootRouteChildren: RootRouteChildren = {
   IzprateniIdRoute: IzprateniIdRoute,
   PhotosSplatRoute: PhotosSplatRoute,
   PokanaCodeRoute: PokanaCodeRoute,
+  ProfilPalnomoshtnoDotpdfRoute: ProfilPalnomoshtnoDotpdfRoute,
   RCodeRoute: RCodeRoute,
   IzprateniIndexRoute: IzprateniIndexRoute,
 }

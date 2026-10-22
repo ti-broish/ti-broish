@@ -9,7 +9,6 @@ import { mobileTargetOrgOf, reservedOrgOf } from './reserved-sections-db'
 import { isReservedAbort } from './reserved-sections-sql'
 import { isSectionHeldAbort } from './partner-people-sql'
 import { withPickedIds } from './section-state'
-import { designationMirMismatch } from './designation-mir-guard'
 import { describePublishPreview } from './publish-preview'
 import { previewPartnerPublish, publishPartnerDrafts } from './partner-publish'
 
@@ -148,9 +147,8 @@ export const adminPublishPreview = createServerFn({ method: 'POST' })
           { draft_section: string } & DesignationColumns
         >()
       ).results ?? []
-    const mismatched = rows.filter((row) =>
-      designationMirMismatch({ designationMir: row.designation_mir, designationNumber: row.designation_number, section: normalizeSection(row.draft_section) }),
-    ).length
+    // A МИР mismatch is only a warning now: nothing is held back for it.
+    const mismatched = 0
     const partners = await previewPartnerPublish(db, { view: data.view, mir: data.mir })
     return {
       ok: true as const,

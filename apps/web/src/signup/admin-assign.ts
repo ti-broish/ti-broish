@@ -117,7 +117,7 @@ export function validateAssignment(input: {
   const mismatch = input.designation
     ? designationMirMismatch({ designationMir: input.designation.mir, designationNumber: input.designation.number, section })
     : null
-  if (mismatch) warnings.push({ code: 'designation_mir', level: 'block', message: designationMirMessage(mismatch) })
+  if (mismatch) warnings.push({ code: 'designation_mir', level: 'warn', message: designationMirMessage(mismatch) })
 
   // Never blocks: an admin may place someone outside their stated places on purpose. Inside them: no warning.
   const reach = input.reach ?? { mir: input.personMir, region: '', radius: '', distantMirs: [], travelStops: [] }

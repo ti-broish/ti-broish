@@ -174,9 +174,9 @@ export const adminPartnerSave = createServerFn({ method: 'POST' })
     if (!access.ok) return access
     const db = access.db
     const person = await db
-      .prepare(`SELECT id, COALESCE(designation_mir, '') AS mir, COALESCE(section_published, '') AS published FROM partner_people WHERE id = ?`)
+      .prepare(`SELECT id, COALESCE(designation_mir, '') AS mir, designation_number AS number, COALESCE(section_published, '') AS published FROM partner_people WHERE id = ?`)
       .bind(data.id)
-      .first<{ id: string; mir: string; published: string }>()
+      .first<{ id: string; mir: string; number: number | null; published: string }>()
     if (!person) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
     const now = new Date().toISOString()
     if (!data.section.trim()) {
@@ -188,9 +188,9 @@ export const adminPartnerSave = createServerFn({ method: 'POST' })
     }
     const code = code9(data.section)
     if (!code) return { ok: false as const, message: 'Секцията е 9 цифри.' }
-    if (!person.mir || !code.startsWith(person.mir)) {
-      return { ok: false as const, message: `Секция ${code} не е в МИР ${person.mir || '—'}. Пълномощното е за този МИР.` }
-    }
+    // Outside the пълномощно's МИР: saved, with a warning (staff decide). Only the allocator keeps the hard rule.
+    const mismatch = designationMirMismatch({ designationMir: person.mir, designationNumber: person.number, section: code })
+    const mirWarning = mismatch ? ` ${designationMirMessage(mismatch)}` : ''
     const holder = await holderOf(db, code, person.id)
     if (holder) {
       const swap = holder === 'друг човек от „И аз“' ? ' За размяна: на другия „Махни публикуването“ и „Запази“ с празно поле, после тук.' : ''
@@ -205,7 +205,7 @@ export const adminPartnerSave = createServerFn({ method: 'POST' })
       if (isSectionHeldAbort(error)) return { ok: false as const, message: `Секция ${code} вече е заета.` }
       throw error
     }
-    return { ok: true as const, message: `Чернова ${code} е запазена. Натисни „Публикувай“, за да смениш публикуваната секция.` }
+    return { ok: true as const, message: `Чернова ${code} е запазена. Натисни „Публикувай“, за да смениш публикуваната секция.${mirWarning}` }
   })
 
 /**

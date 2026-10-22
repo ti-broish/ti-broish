@@ -192,7 +192,10 @@ export const adminPartnerSave = createServerFn({ method: 'POST' })
       return { ok: false as const, message: `Секция ${code} не е в МИР ${person.mir || '—'}. Пълномощното е за този МИР.` }
     }
     const holder = await holderOf(db, code, person.id)
-    if (holder) return { ok: false as const, message: `Секция ${code} е заета: ${holder}.` }
+    if (holder) {
+      const swap = holder === 'друг човек от „И аз“' ? ' За размяна: на другия „Махни публикуването“ и „Запази“ с празно поле, после тук.' : ''
+      return { ok: false as const, message: `Секция ${code} е заета: ${holder}. Черновата не е сменена.${swap}` }
+    }
     try {
       await db
         .prepare(`UPDATE partner_people SET section_draft = ?, section_draft_locked = 1, section_draft_source = 'manual', section_drafted_at = ?, updated_at = ? WHERE id = ?`)
@@ -202,7 +205,7 @@ export const adminPartnerSave = createServerFn({ method: 'POST' })
       if (isSectionHeldAbort(error)) return { ok: false as const, message: `Секция ${code} вече е заета.` }
       throw error
     }
-    return { ok: true as const, message: `Чернова ${code} е запазена (не е публикувана).` }
+    return { ok: true as const, message: `Чернова ${code} е запазена. Натисни „Публикувай“, за да смениш публикуваната секция.` }
   })
 
 /**

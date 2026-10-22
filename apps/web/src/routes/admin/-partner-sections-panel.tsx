@@ -62,6 +62,8 @@ export function PartnerSectionsPanel({
   const [armed, setArmed] = useState<'draft' | 'publish' | null>(null)
   const [preview, setPreview] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
+  // The outcome of a row's „Запази“/„Публикувай“, shown on that row: the page message sits far below the table.
+  const [notes, setNotes] = useState<Record<string, { ok: boolean; text: string }>>({})
 
   useEffect(() => {
     let live = true
@@ -83,6 +85,16 @@ export function PartnerSectionsPanel({
     setBusy(false)
     if (result.message) setMessage(result.message)
     reload()
+  }
+  /** A row action: its message also stays on the row, and a refused save keeps what was typed. */
+  function afterRow(id: string, result: { ok: boolean; message?: string }) {
+    setNotes((prev) => ({ ...prev, [id]: { ok: result.ok, text: result.message ?? (result.ok ? 'Готово.' : 'Не се запази.') } }))
+    if (result.ok) setValues((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+    after(result)
   }
 
   function distribute(dryRun: boolean) {
@@ -197,12 +209,21 @@ export function PartnerSectionsPanel({
                             onClick={() =>
                               // „Запази“ only saves a manual draft: no publishing, no email.
                               void adminPartnerSave({ data: { id: row.id, section: values[row.id] ?? row.draft } })
-                                .then(after)
-                                .catch(() => after({ ok: false, message: 'Не се запази.' }))
+                                .then((result) => afterRow(row.id, result))
+                                .catch(() => afterRow(row.id, { ok: false, message: 'Не се запази. Опитай пак.' }))
                             }
                           >
                             Запази
                           </button>
+                        </span>
+                      ) : null}
+                      {notes[row.id] ? (
+                        <span
+                          role={notes[row.id].ok ? 'status' : 'alert'}
+                          className={`text-xs font-bold ${notes[row.id].ok ? 'text-[#1a1020]' : 'text-[#8f1d1d]'}`}
+                          data-testid="partner-section-note"
+                        >
+                          {notes[row.id].text}
                         </span>
                       ) : null}
                     </td>
@@ -216,13 +237,13 @@ export function PartnerSectionsPanel({
                         <button
                           type="button"
                           className="text-xs font-bold underline"
-                          onClick={() => void adminPartnerPublish({ data: { ids: [row.id] } }).then(after)}
+                          onClick={() => void adminPartnerPublish({ data: { ids: [row.id] } }).then((result) => afterRow(row.id, result))}
                         >
                           Публикувай
                         </button>
                       ) : null}
                       {canPublish && row.published ? (
-                        <button type="button" className="ml-2 text-xs font-bold text-[#8f1d1d] underline" onClick={() => void adminPartnerUnpublish({ data: { id: row.id } }).then(after)}>
+                        <button type="button" className="ml-2 text-xs font-bold text-[#8f1d1d] underline" onClick={() => void adminPartnerUnpublish({ data: { id: row.id } }).then((result) => afterRow(row.id, result))}>
                           Махни публикуването
                         </button>
                       ) : null}

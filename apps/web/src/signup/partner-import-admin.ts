@@ -21,6 +21,7 @@ import { isPartnerPersonId } from './partner-people-sql'
 import { ELECTION_DISTRICTS } from './designation-config'
 import { PARTNER_WITHDRAW_AUDIT_SQL, PARTNER_WITHDRAW_REASON_MAX, PARTNER_WITHDRAW_SQL } from './designation-audit-sql'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
+import { applyRenameTransition, fullName, namesChanged, renameMessage } from './designation-rename'
 
 // No mail, Brevo or confirm-link code is imported here on purpose: the partner import is silent,
 // and it writes only partner_people, never signups.
@@ -134,6 +135,41 @@ export const adminPartnerWithdraw = createServerFn({ method: 'POST' })
       ok: true as const,
       message: `Пълномощното${which} е оттеглено. Номерът остава зает; файлът в Drive не е пипан. Поискай от РИК да го анулира, ако вече е подадено.`,
     }
+  })
+
+const clipName = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 80)
+
+/**
+ * New names for one „И аз“ person (as on the identity card). Number and МИР stay; an existing
+ * пълномощно goes back for signing, and a РИК correction is opened if it already went out.
+ */
+export const adminPartnerRename = createServerFn({ method: 'POST' })
+  .validator((input: { id: string; firstName: string; middleName: string; lastName: string }) => ({
+    id: String(input?.id ?? ''),
+    firstName: clipName(input?.firstName),
+    middleName: clipName(input?.middleName),
+    lastName: clipName(input?.lastName),
+  }))
+  .handler(async ({ data }) => {
+    if (!isPartnerPersonId(data.id)) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    if (!data.firstName || !data.lastName) return { ok: false as const, message: 'Нужни са име и фамилия.' }
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const row = await access.db
+      .prepare('SELECT first_name, middle_name, last_name FROM partner_people WHERE id = ?')
+      .bind(data.id)
+      .first<{ first_name: string; middle_name: string; last_name: string }>()
+    if (!row) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    const before = { firstName: row.first_name ?? '', middleName: row.middle_name ?? '', lastName: row.last_name ?? '' }
+    const after = { firstName: data.firstName, middleName: data.middleName, lastName: data.lastName }
+    if (!namesChanged(before, after)) return { ok: true as const, message: 'Имената са същите.' }
+    const now = new Date().toISOString()
+    await access.db
+      .prepare('UPDATE partner_people SET first_name = ?, middle_name = ?, last_name = ?, updated_at = ? WHERE id = ?')
+      .bind(after.firstName, after.middleName, after.lastName, now, data.id)
+      .run()
+    const result = await applyRenameTransition(access.db, { table: 'partner_people', id: data.id, before, after, actor: access.email, now })
+    return { ok: true as const, message: `Имената са сменени на „${fullName(after)}“.${renameMessage(result, result.number, result.mir)}` }
   })
 
 async function gate(action: StaffAction): Promise<{ ok: true; db: Database; email: string; role: StaffRole } | Denial> {

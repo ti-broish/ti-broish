@@ -185,3 +185,25 @@ describe('classification mirrors last election’s sheet', () => {
     expect(one.tasks.map((t) => t.id)).toEqual(two.tasks.map((t) => t.id))
   })
 })
+
+describe('renamed after the РИК got the old name', () => {
+  const renamed = () => person('g', 'Гергана Начева-Лазарова', { mir: '02', number: 509, previousNames: ['Гергана Начева Начаева-Лазарова'] })
+
+  it('not in the register yet: „Сменено име“ with a fix_name task', () => {
+    const { results, tasks } = run([renamed()], [], [ok('02')])
+    expect(results[0]).toMatchObject({ status: 'renamed', detail: 'Гергана Начева Начаева-Лазарова' })
+    expect(tasks).toEqual([expect.objectContaining({ id: 'g:fix_name:renamed', type: 'fix_name', mir: '02' })])
+  })
+
+  it('register shows the old name: still renamed, linked to that row, no name-mismatch', () => {
+    const { results, tasks } = run([renamed()], [entry('ГЕРГАНА НАЧЕВА НАЧАЕВА-ЛАЗАРОВА', { mir: '02', number: 509 })], [ok('02')])
+    expect(results[0]).toMatchObject({ status: 'renamed', entryId: expect.any(String) })
+    expect(tasks.map((t) => t.type)).toEqual(['fix_name'])
+  })
+
+  it('register shows the new name: registered and the task is gone', () => {
+    const { results, tasks } = run([renamed()], [entry('Гергана Начева-Лазарова', { mir: '02', number: 509 })], [ok('02')])
+    expect(results[0]!.status).toBe('registered')
+    expect(tasks).toEqual([])
+  })
+})

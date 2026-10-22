@@ -1,6 +1,6 @@
 import { roleLabel } from './admin-progress'
 
-export const AUDIT_FIELDS = ['role', 'days', 'travel', 'staff_note', 'withdrawn', 'restored', 'call_reopened', 'withdrawal_processed', 'egn_revealed'] as const
+export const AUDIT_FIELDS = ['role', 'days', 'travel', 'staff_note', 'withdrawn', 'restored', 'call_reopened', 'withdrawal_processed', 'egn_revealed', 'name', 'designation_resign'] as const
 export type AuditField = (typeof AUDIT_FIELDS)[number]
 
 export interface StaffSnapshot {
@@ -62,6 +62,8 @@ export function auditFieldLabel(field: string) {
   if (field === 'call_reopened') return 'Обаждане'
   if (field === 'withdrawal_processed') return 'Отписан'
   if (field === 'egn_revealed') return 'ЕГН'
+  if (field === 'name') return 'Имена'
+  if (field === 'designation_resign') return 'Пълномощно'
   return ''
 }
 

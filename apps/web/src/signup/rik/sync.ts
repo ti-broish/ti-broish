@@ -17,6 +17,7 @@
  */
 import { partnerDuplicateSql, signupDuplicateSql } from '../designation-duplicates'
 import type { SignupD1 } from '../db-core'
+import { loadRikCorrections } from '../designation-rename'
 import {
   ABROAD_MIR,
   CIK_RIK_INDEX_URL,
@@ -227,6 +228,7 @@ interface PersonRow {
 
 export async function loadPeople(db: SignupD1): Promise<RikPerson[]> {
   const rows = (await db.prepare(RIK_PEOPLE_SQL).all<PersonRow>()).results ?? []
+  const corrections = await loadRikCorrections(db)
   return rows.map((row) => ({
     id: row.id,
     source: row.source,
@@ -237,6 +239,7 @@ export async function loadPeople(db: SignupD1): Promise<RikPerson[]> {
     withdrawn: Number(row.withdrawn) === 1,
     signedAt: row.signed_at || null,
     duplicate: Number(row.duplicate ?? 0) === 1,
+    ...(corrections.get(row.id)?.oldNames.length ? { previousNames: corrections.get(row.id)!.oldNames } : {}),
   }))
 }
 
@@ -688,7 +691,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
         await refreshIndex(started)
         const sources = (await db.prepare('SELECT mir, name, base_url, contacts_url, contacts_at, health, last_attempt_at, failures, last_error, last_good_health, blocked_until FROM rik_sources ORDER BY COALESCE(last_attempt_at, \'\') ASC, mir ASC').all<SourceRow>()).results ?? []
         const people = await loadPeople(db)
-        const ourKeys = new Set(people.map((person) => person.nameKey).filter(Boolean))
+        const ourKeys = new Set(people.flatMap((person) => [person.nameKey, ...(person.previousNames ?? []).map((name) => nameKey(name))]).filter(Boolean))
         for (const source of sources) {
           if (options.mirs?.length && !options.mirs.includes(source.mir)) continue
           if (!options.force && minutesSince(source.last_attempt_at, now()) < MIN_INTERVAL_MINUTES) {

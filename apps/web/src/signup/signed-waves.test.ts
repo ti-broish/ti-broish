@@ -12,6 +12,7 @@ import {
   signedPersonFromRow,
   signedWaves,
   sofiaDateKey,
+  rikCorrectionsFilename,
   writeSignedWaveZip,
   type SignedPerson,
   type SignedRow,
@@ -232,5 +233,22 @@ describe('signed people SQL', () => {
     // A withdrawn row without a twin is out too.
     db.exec("UPDATE partner_people SET withdrawn_at = '2026-10-21T16:30:00Z' WHERE id = 'pp-other'")
     expect(listed()).toEqual(['03/504', '17/501'])
+  })
+})
+
+describe('РИК name corrections in the wave ZIP', () => {
+  it('adds a „Поправки“ table for people the РИК has under an old name', async () => {
+    const people = [person(), person({ id: 's-2', number: 609, firstName: 'Гергана', middleName: '', lastName: 'Начева-Лазарова', correctionFrom: 'Гергана Начева Начаева-Лазарова' })]
+    const bytes = await collectStream(
+      streamZipWriter((add) =>
+        writeSignedWaveZip(add, { people, committeeFullName: 'Комитет', numberPrefix: '', tablesOnly: true, fetchPdf: async () => new Uint8Array() }).then(() => undefined),
+      ),
+    )
+    const files = unzipSync(bytes)
+    const name = `РИК 02/${rikCorrectionsFilename('02')}`
+    expect(Object.keys(files)).toContain(name)
+    const strings = strFromU8(unzipSync(files[name]!)['xl/sharedStrings.xml']!)
+    expect(strings).toContain('Гергана Начева-Лазарова (вместо „Гергана Начева Начаева-Лазарова“)')
+    expect(strings).not.toContain('Тодор')
   })
 })

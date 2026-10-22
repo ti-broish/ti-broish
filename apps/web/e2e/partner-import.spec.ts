@@ -207,7 +207,7 @@ test.describe('partner import („И аз“) for пълномощни only', ()
       // After the reload the server-rendered button can be clicked before hydration, and that click does nothing. Retry it.
       await expect(async () => {
         await published1.getByRole('button', { name: 'Махни публикуването' }).click({ timeout: 5_000 })
-        await expect(page.getByText(/вече не е публикувана и не е резервирана/)).toBeVisible({ timeout: 5_000 })
+        await expect(page.getByText(/вече не е публикувана и не е резервирана/).first()).toBeVisible({ timeout: 5_000 })
       }).toPass({ timeout: 40_000 })
       expect(d1(`SELECT COUNT(*) AS n FROM taken_sections WHERE section_code = '${published!.code}'`)[0]).toMatchObject({ n: 0 })
     } finally {

@@ -15,6 +15,8 @@ export type SignupSearch = {
   dir: 'asc' | 'desc'
   /** Отписани only: „yes“ обработени, „no“ необработени. Absent means всички отписани. */
   processed?: WithdrawnProcessedFilter
+  /** Източник: „tb“ only our signups, „iaz“ only „И аз“ rows. Absent means both. */
+  source?: 'tb' | 'iaz'
 }
 
 export type SectionSearch = {
@@ -105,7 +107,9 @@ export function parseSignupSearch(search: Record<string, unknown>): SignupSearch
   const view = typeof search.view === 'string' && isOneOf(search.view, SIGNUP_VIEWS) ? search.view : 'all'
   const sort = typeof search.sort === 'string' && isOneOf(search.sort, SIGNUP_SORTS) ? search.sort : 'updated'
   const processed = view === 'withdrawn' ? parseWithdrawnProcessed(search.processed) : undefined
+  const source = search.source === 'tb' || search.source === 'iaz' ? search.source : undefined
   return {
+    ...(source ? { source } : {}),
     q: clipText(search.q),
     view,
     mir: clipText(search.mir, 8),
@@ -274,7 +278,7 @@ function nameTokens(value: string) {
   return parts
 }
 
-function nameVariants(token: string) {
+export function nameVariants(token: string) {
   const lower = token.toLocaleLowerCase('bg-BG')
   const upper = token.toLocaleUpperCase('bg-BG')
   const title = lower ? `${lower[0]!.toLocaleUpperCase('bg-BG')}${lower.slice(1)}` : token

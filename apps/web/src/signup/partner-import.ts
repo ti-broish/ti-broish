@@ -80,9 +80,28 @@ export type MapResult = { ok: true; person: PartnerPerson } | { ok: false; line:
 export interface SignupOverlap {
   email: string
   egn: string
-  /** Signup id and withdrawn flag: an active signup with the same ЕГН covers the partner row. */
+  /** Signup id and withdrawn flag: an active, finished signup with the same ЕГН covers the partner row. */
   id?: string
   withdrawn?: number | null
+  /** Finished = submitted and e-mail confirmed. Absent (older callers) counts as finished. */
+  submitted?: number | null
+  email_confirmed?: number | null
+  /** A signup that already holds a пълномощно number covers the row even when unfinished. */
+  designation_number?: number | string | null
+}
+
+/**
+ * Whether a signup covers a partner row with the same ЕГН: active, and either finished (submitted
+ * and confirmed) or already numbered. An unfinished signup (only „Започнал“) never covers: the
+ * partner row keeps its own number, and the list shows both as one merged row.
+ */
+export function signupCovers(row: SignupOverlap) {
+  if (Number(row.withdrawn ?? 0) !== 0) return false
+  const numbered = row.designation_number != null && String(row.designation_number) !== ''
+  if (numbered) return true
+  const submitted = row.submitted == null ? true : Number(row.submitted) === 1
+  const confirmed = row.email_confirmed == null ? true : Number(row.email_confirmed) === 1
+  return submitted && confirmed
 }
 
 export const COVERED_REASON = 'покрит от доброволец'
@@ -520,10 +539,11 @@ export function planPartnerImport(
   const signupEgn = new Set(signups.map((row) => row.egn.replace(/\D/g, '')).filter(Boolean))
   const signupEmail = new Set(signups.map((row) => row.email.trim().toLowerCase()).filter(Boolean))
   // The ЕГН is the person: an active volunteer with it covers the partner row (one пълномощно only).
+  // Only a finished (submitted and confirmed) or already numbered signup covers; see signupCovers.
   const coveringSignup = new Map<string, string>()
   for (const row of signups) {
     const key = row.egn.replace(/\D/g, '')
-    if (key && row.id && Number(row.withdrawn ?? 0) === 0 && !coveringSignup.has(key)) coveringSignup.set(key, row.id)
+    if (key && row.id && signupCovers(row) && !coveringSignup.has(key)) coveringSignup.set(key, row.id)
   }
   for (const [, group] of byEgn) {
     const latest = group.reduce(later)
@@ -575,12 +595,12 @@ export function lookupKeys(rawRows: PartnerRawRow[]) {
 export const IMPORTED_EGNS_SQL = (egnCount: number) =>
   `SELECT egn FROM partner_people WHERE partner = ? AND egn IN (${Array(Math.max(egnCount, 1)).fill('?').join(', ')})`
 
-/** Signups sharing an email or ЕГН. Email, ЕГН, id and withdrawn come back, to report the overlap and mark coverage. */
+/** Signups sharing an email or ЕГН. Email, ЕГН, id, withdrawn and progress come back, to report the overlap and mark coverage. */
 export const SIGNUP_OVERLAP_SQL = (emailCount: number, egnCount: number) => {
   const parts: string[] = []
   if (emailCount) parts.push(`lower(email) IN (${Array(emailCount).fill('?').join(', ')})`)
   if (egnCount) parts.push(`REPLACE(COALESCE(egn, ''), ' ', '') IN (${Array(egnCount).fill('?').join(', ')})`)
-  return `SELECT id, COALESCE(withdrawn, 0) AS withdrawn, lower(COALESCE(email, '')) AS email, REPLACE(COALESCE(egn, ''), ' ', '') AS egn FROM signups WHERE ${parts.join(' OR ') || '1 = 0'}`
+  return `SELECT id, COALESCE(withdrawn, 0) AS withdrawn, COALESCE(submitted, 0) AS submitted, COALESCE(email_confirmed, 0) AS email_confirmed, designation_number, lower(COALESCE(email, '')) AS email, REPLACE(COALESCE(egn, ''), ' ', '') AS egn FROM signups WHERE ${parts.join(' OR ') || '1 = 0'}`
 }
 
 // ---------- statements ----------

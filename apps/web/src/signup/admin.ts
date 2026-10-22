@@ -15,6 +15,21 @@ import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { travelLabelOf } from './admin-assign'
 import { NOTES_SQL, notesFromRow } from './admin-notes'
 import { PERSON_SQL_BASE } from './admin-person-sql'
+import {
+  hidesMergedSignups,
+  MERGED_SIGNUP_SQL,
+  PARTNER_SUMMARY_SQL,
+  partnerCountSql,
+  partnerRowsSql,
+  partnerSearchClause,
+  partnerViewWhere,
+  SIGNUP_HAS_PARTNER_SQL,
+  samePersonSql,
+  unionPageSql,
+  type PartnerRosterRow,
+  type RosterSource,
+} from './partner-roster'
+import { isPartnerPersonId } from './partner-people-sql'
 import { reservedCode, reservedMessage } from './reserved-sections'
 import { reservedMap } from './reserved-sections-db'
 import {
@@ -270,32 +285,43 @@ export interface AdminSummary {
   calls: number
   queue: number
   staff: number
+  /** „И аз“ rows shown on Записвания (already inside total, assigned and unassigned). */
+  partners: number
+  /** Unfinished signups shown as one row with their „И аз“ record (not counted twice). */
+  merged: number
 }
 
 async function summaryOf(db: Database): Promise<AdminSummary> {
+  // Same scopes as the Записвания views: merged signups are counted once, as their „И аз“ row.
   const row = await db
     .prepare(
       `SELECT
-         COUNT(*) AS total,
-         COALESCE(SUM(CASE WHEN COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS finished,
-         COALESCE(SUM(CASE WHEN COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS started,
-         COALESCE(SUM(CASE WHEN COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS assigned,
-         COALESCE(SUM(CASE WHEN COALESCE(published_section, '') = '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS unassigned,
+         COALESCE(SUM(CASE WHEN merged = 0 THEN 1 ELSE 0 END), 0) AS total,
+         COALESCE(SUM(CASE WHEN merged = 0 AND COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS finished,
+         COALESCE(SUM(CASE WHEN merged = 0 AND COALESCE(submitted, 0) = 0 AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS started,
+         COALESCE(SUM(CASE WHEN merged = 0 AND COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS assigned,
+         COALESCE(SUM(CASE WHEN merged = 0 AND COALESCE(published_section, '') = '' AND COALESCE(withdrawn, 0) = 0 THEN 1 ELSE 0 END), 0) AS unassigned,
          COALESCE(SUM(CASE WHEN ${OPEN_CALL_SQL} THEN 1 ELSE 0 END), 0) AS calls,
-         COALESCE(SUM(CASE WHEN ${OPEN_CALL_SQL} AND COALESCE(staff_called_at, '') = '' THEN 1 ELSE 0 END), 0) AS queue
-       FROM signups`,
+         COALESCE(SUM(CASE WHEN ${OPEN_CALL_SQL} AND COALESCE(staff_called_at, '') = '' THEN 1 ELSE 0 END), 0) AS queue,
+         COALESCE(SUM(merged), 0) AS merged
+       FROM (SELECT signups.*, CASE WHEN ${MERGED_SIGNUP_SQL} THEN 1 ELSE 0 END AS merged FROM signups)`,
     )
-    .first<{ total: number; finished: number; started: number; assigned: number; unassigned: number; calls: number; queue: number }>()
+    .first<{ total: number; finished: number; started: number; assigned: number; unassigned: number; calls: number; queue: number; merged: number }>()
+  const partner = await db.prepare(PARTNER_SUMMARY_SQL).first<{ partners: number; assigned: number }>()
   const staff = await db.prepare('SELECT COUNT(*) AS n FROM staff').first<{ n: number }>()
+  const partners = Number(partner?.partners ?? 0)
+  const partnerAssigned = Number(partner?.assigned ?? 0)
   return {
-    total: Number(row?.total ?? 0),
+    total: Number(row?.total ?? 0) + partners,
     finished: Number(row?.finished ?? 0),
     started: Number(row?.started ?? 0),
-    assigned: Number(row?.assigned ?? 0),
-    unassigned: Number(row?.unassigned ?? 0),
+    assigned: Number(row?.assigned ?? 0) + partnerAssigned,
+    unassigned: Number(row?.unassigned ?? 0) + partners - partnerAssigned,
     calls: Number(row?.calls ?? 0),
     queue: Number(row?.queue ?? 0),
     staff: Number(staff?.n ?? 0),
+    partners,
+    merged: Number(row?.merged ?? 0),
   }
 }
 
@@ -317,7 +343,9 @@ function filtered(
     : ''
   const exportGuard = exportKind ? exportWithdrawnGuard(viewOf(view), exportKind) : ''
   const processedGuard = withdrawnProcessedClause(viewOf(view), processed)
-  return { clause: `(${filter.clause}) AND (${search.clause})${published}${exportGuard}${processedGuard}`, binds: [...filter.binds, ...search.binds] }
+  // A signup merged into its „И аз“ row is shown (and counted) as that row, and never exported or sent to Brevo.
+  const mergedGuard = hidesMergedSignups(viewOf(view), Boolean(exportKind)) ? ` AND NOT ${MERGED_SIGNUP_SQL}` : ''
+  return { clause: `(${filter.clause}) AND (${search.clause})${published}${exportGuard}${processedGuard}${mergedGuard}`, binds: [...filter.binds, ...search.binds] }
 }
 
 async function queryPeople(
@@ -335,10 +363,15 @@ async function queryPeople(
   exportKind?: 'brevo' | 'csv',
   sectionState?: SectionState | '',
   processed?: WithdrawnProcessedFilter,
+  partners?: { source: RosterSource },
 ) {
   const run = async (mode: 'fts' | 'like') => {
     const base = filtered(view, mir, q, mode, finishedOnly, publishedOnly, exportKind, processed)
     if ('error' in base) return base
+    // Записвания only: signups and „И аз“ rows in one list. Never for exports or Brevo (exportKind).
+    if (partners && !exportKind && !finishedOnly && !publishedOnly && sectionState === undefined) {
+      return await queryRoster(db, base, viewOf(view), mir, q, limit, offset, withEgn, sort, dir, partners.source)
+    }
     // Секции: counts per state over the same scope and search, then narrow to the picked state.
     const sectionCounts = sectionState === undefined
       ? undefined
@@ -346,7 +379,7 @@ async function queryPeople(
     const filter = sectionState ? { clause: `(${base.clause}) AND (${SECTION_STATE_SQL[sectionState]})`, binds: base.binds } : base
     const total = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${filter.clause}`, filter.binds).first<{ n: number }>()
     const rows = await selectPeople(db, filter.clause, filter.binds, limit, offset, withEgn, rosterOrder(sort, dir))
-    return { total: Number(total?.n ?? 0), rows, sectionCounts }
+    return { total: Number(total?.n ?? 0), rows, sectionCounts, partnerRows: [] as PartnerRosterRow[], order: null as null | Array<{ id: string; kind: number }>, signupTotal: Number(total?.n ?? 0), partnerTotal: 0 }
   }
   try {
     return await run(currentSearchEngine())
@@ -354,6 +387,85 @@ async function queryPeople(
     if (currentSearchEngine() === 'like' || !isFtsError(error)) throw error
     useLikeSearch()
     return await run('like')
+  }
+}
+
+/** Signups (already filtered) and shown „И аз“ rows, paged together in one order. */
+async function queryRoster(
+  db: Database,
+  base: { clause: string; binds: string[] },
+  view: RosterView,
+  mir: string,
+  q: string,
+  limit: number,
+  offset: number,
+  withEgn: boolean,
+  sort: string,
+  dir: string,
+  source: RosterSource,
+) {
+  const signup = source === 'iaz' ? { clause: '1 = 0', binds: [] as string[] } : base
+  const partnerView = source === 'tb' ? null : partnerViewWhere(view, mir)
+  const partnerSearch = partnerSearchClause(q)
+  const partner = partnerView
+    ? { clause: `(${partnerView.clause}) AND (${partnerSearch.clause})`, binds: [...partnerView.binds, ...partnerSearch.binds] }
+    : { clause: '1 = 0', binds: [] as string[] }
+  const signupCount = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${signup.clause}`, signup.binds).first<{ n: number }>()
+  const partnerCount = partnerView ? await bound(db, partnerCountSql(partner.clause), partner.binds).first<{ n: number }>() : { n: 0 }
+  const page = await bound(db, unionPageSql(signup.clause, partner.clause, sort, dir === 'asc' ? 'asc' : 'desc'), [...signup.binds, ...partner.binds, limit, offset])
+    .all<{ id: string; kind: number }>()
+  const order = (page.results ?? []).map((row) => ({ id: String(row.id), kind: Number(row.kind) }))
+  const signupIds = order.filter((row) => row.kind === 0).map((row) => row.id)
+  const partnerIds = order.filter((row) => row.kind === 1).map((row) => row.id)
+  const rows = signupIds.length
+    ? await selectPeople(db, `id IN (${signupIds.map(() => '?').join(', ')})`, signupIds, signupIds.length, 0, withEgn, 'updated_at DESC')
+    : []
+  const partnerRows = partnerIds.length
+    ? ((await bound(db, partnerRowsSql(partnerIds.length, withEgn), partnerIds).all<PartnerRosterRow>()).results ?? [])
+    : []
+  const signupTotal = Number(signupCount?.n ?? 0)
+  const partnerTotal = Number(partnerCount?.n ?? 0)
+  return { total: signupTotal + partnerTotal, rows, sectionCounts: undefined, partnerRows, order, signupTotal, partnerTotal }
+}
+
+/** An „И аз“ row on Записвания. Section, number and signed file come from the partner record. */
+function partnerFieldsOf(row: PartnerRosterRow, merged: string | null): RosterFields {
+  const number = row.designation_number == null ? '' : String(row.designation_number)
+  return {
+    id: row.id,
+    email: row.email,
+    firstName: row.first_name,
+    middleName: row.middle_name,
+    lastName: row.last_name,
+    phone: row.phone || row.merged_signup_phone || '',
+    mir: row.designation_mir,
+    region: row.region_code,
+    town: row.municipality_name,
+    place: row.place_note,
+    role: '',
+    submitted: false,
+    withdrawn: false,
+    emailConfirmed: false,
+    imported: true,
+    draftSection: row.section_draft,
+    draftLocked: Number(row.section_draft_locked) === 1,
+    publishedSection: row.section_published,
+    egn: row.egn,
+    notes: '',
+    callRequestedAt: '',
+    callMessage: '',
+    cantReachSection: '',
+    cantReachAt: '',
+    staffNote: '',
+    staffCalledAt: '',
+    staffCalledBy: '',
+    regionName: row.region_name,
+    municipality: row.municipality_name,
+    designationMir: row.designation_mir,
+    designationNumber: number,
+    source: 'iaz',
+    designationSigned: Boolean(row.designation_signed_at),
+    ...(merged ? { mergedSignupId: merged } : {}),
   }
 }
 
@@ -417,8 +529,10 @@ export const adminSession = createServerFn({ method: 'POST' })
   })
 
 export const adminRoster = createServerFn({ method: 'POST' })
-  .validator((input: { view?: string; mir?: string; q?: string; page?: number; limit?: number; sort?: string; dir?: string; finished?: boolean; state?: string; processed?: string }) => ({
+  .validator((input: { view?: string; mir?: string; q?: string; page?: number; limit?: number; sort?: string; dir?: string; finished?: boolean; state?: string; processed?: string; partners?: boolean; source?: string }) => ({
     state: input.state === undefined ? undefined : isSectionState(input.state) ? input.state : ('' as const),
+    partners: input.partners === true,
+    source: (input.source === 'tb' || input.source === 'iaz' ? input.source : '') as RosterSource,
     view: input.view ?? 'all',
     mir: input.mir ?? '',
     q: (input.q ?? '').slice(0, 120),
@@ -435,9 +549,21 @@ export const adminRoster = createServerFn({ method: 'POST' })
     const db = access.db
     const queried = await queryPeople(
       db, data.view, data.mir, data.q, data.limit, (data.page - 1) * data.limit, false, data.sort, data.dir, data.finished, false, undefined, data.state, data.processed,
+      data.partners ? { source: data.source } : undefined,
     )
     if ('error' in queried) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: queried.error }
-    const people = queried.rows.map(fieldsOf)
+    let people = queried.rows.map(fieldsOf)
+    if (queried.order) {
+      // Finished volunteers who also have an „И аз“ record get a small marker; nothing else changes for them.
+      const signupIds = queried.rows.map((row) => row.id)
+      const overlap = signupIds.length
+        ? new Set(((await bound(db, `SELECT id FROM signups WHERE id IN (${signupIds.map(() => '?').join(', ')}) AND ${SIGNUP_HAS_PARTNER_SQL}`, signupIds).all<{ id: string }>()).results ?? []).map((row) => row.id))
+        : new Set<string>()
+      const byId = new Map<string, RosterFields>()
+      for (const person of people) byId.set(person.id, overlap.has(person.id) ? { ...person, iazOverlap: true } : person)
+      for (const row of queried.partnerRows) byId.set(row.id, partnerFieldsOf(row, row.merged_signup_id))
+      people = queried.order.map((row) => byId.get(row.id)).filter((person): person is RosterFields => Boolean(person))
+    }
     const takenMir = viewOf(data.view) === 'mir' ? data.mir.trim().padStart(2, '0') : ''
     const taken = await db
       .prepare(
@@ -455,6 +581,9 @@ export const adminRoster = createServerFn({ method: 'POST' })
       summary: await summaryOf(db),
       withdrawnCounts: await withdrawnCounts(db),
       total: queried.total,
+      /** Rows that are signups (bulk actions apply only to these). */
+      signupTotal: queried.signupTotal,
+      partnerTotal: queried.partnerTotal,
       sectionCounts: queried.sectionCounts,
       page: data.page,
       limit: data.limit,
@@ -466,7 +595,8 @@ export const adminRoster = createServerFn({ method: 'POST' })
 
 export const adminBulkCallback = createServerFn({ method: 'POST' })
   .validator((input: { called?: boolean; scope?: string; ids?: unknown; view?: string; mir?: string; q?: string; processed?: string }) => {
-    const picked = callbackIds(Array.isArray(input.ids) ? input.ids : [])
+    // „И аз“ rows are not signups: no call flags, no bulk actions.
+    const picked = callbackIds((Array.isArray(input.ids) ? input.ids : []).filter((id) => !(typeof id === 'string' && isPartnerPersonId(id))))
     return {
       called: input.called === true,
       scope: input.scope === 'filter' ? ('filter' as const) : ('ids' as const),
@@ -1321,5 +1451,80 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
       changes: await loadAudit(access.db, row.id),
       person: buildAdminPerson(edited, personExtra(row, write.staffNote, write.staffCalledAt, write.staffCalledBy)),
       ...(renamed?.resign ? { message: renameMessage(renamed, renamed.number, renamed.mir).trim() } : {}),
+    }
+  })
+
+/**
+ * One „И аз“ record for the admin (read-only), with every signup of the same person (ЕГН or e-mail).
+ * The ЕГН is masked: the full number stays on the partner record and in the пълномощно.
+ */
+export const adminPartnerPerson = createServerFn({ method: 'POST' })
+  .validator((input: { id?: string }) => ({ id: typeof input?.id === 'string' ? input.id.slice(0, 80) : '' }))
+  .handler(async ({ data }) => {
+    const access = await gate('view')
+    if (!access.ok) return access
+    if (!isPartnerPersonId(data.id)) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: 'Това не е запис от „И аз“.' }
+    const row = await access.db
+      .prepare(
+        `SELECT p.id, p.partner, COALESCE(p.egn, '') AS egn, COALESCE(p.email, '') AS email, COALESCE(p.phone, '') AS phone,
+           COALESCE(p.first_name, '') AS first_name, COALESCE(p.middle_name, '') AS middle_name, COALESCE(p.last_name, '') AS last_name,
+           COALESCE(p.region_name, '') AS region_name, COALESCE(p.municipality_name, '') AS municipality_name, COALESCE(p.place_note, '') AS place_note,
+           COALESCE(p.designation_mir, '') AS designation_mir, p.designation_number, COALESCE(p.designation_issued_at, '') AS designation_issued_at,
+           COALESCE(p.designation_signed_at, '') AS designation_signed_at, COALESCE(p.designation_pdf_url, '') AS designation_pdf_url,
+           COALESCE(p.section_draft, '') AS section_draft, COALESCE(p.section_published, '') AS section_published,
+           COALESCE(p.submitted_at, '') AS submitted_at, COALESCE(p.imported_at, '') AS imported_at,
+           COALESCE(p.withdrawn_at, '') AS withdrawn_at, COALESCE(p.covered_by_signup_id, '') AS covered_by_signup_id
+         FROM partner_people p WHERE p.id = ?`,
+      )
+      .bind(data.id)
+      .first<Record<string, string | number | null>>()
+    if (!row) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: 'Няма такъв запис от „И аз“.' }
+    const signups = await access.db
+      .prepare(
+        `SELECT s.id, COALESCE(s.email, '') AS email, COALESCE(s.submitted, 0) AS submitted, COALESCE(s.email_confirmed, 0) AS email_confirmed,
+           COALESCE(s.withdrawn, 0) AS withdrawn, s.designation_number, COALESCE(s.published_section, '') AS published_section,
+           COALESCE(json_extract(s.payload, '$.firstName'), '') AS first_name, COALESCE(json_extract(s.payload, '$.lastName'), '') AS last_name,
+           COALESCE(s.mir_code, '') AS mir_code
+         FROM signups s, partner_people p WHERE p.id = ? AND ${samePersonSql('s', 'p')} ORDER BY s.updated_at DESC LIMIT 20`,
+      )
+      .bind(data.id)
+      .all<{ id: string; email: string; submitted: number; email_confirmed: number; withdrawn: number; designation_number: number | null; published_section: string; first_name: string; last_name: string; mir_code: string }>()
+    const egn = String(row.egn ?? '')
+    return {
+      ok: true as const,
+      person: {
+        id: String(row.id),
+        partner: String(row.partner ?? ''),
+        egnMasked: egn ? `******${egn.slice(-4)}` : '',
+        email: String(row.email ?? ''),
+        phone: String(row.phone ?? ''),
+        name: [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' '),
+        region: String(row.region_name ?? ''),
+        municipality: String(row.municipality_name ?? ''),
+        placeNote: String(row.place_note ?? ''),
+        mir: String(row.designation_mir ?? ''),
+        number: row.designation_number == null ? '' : String(row.designation_number),
+        issuedAt: String(row.designation_issued_at ?? ''),
+        signedAt: String(row.designation_signed_at ?? ''),
+        pdfUrl: String(row.designation_pdf_url ?? ''),
+        sectionDraft: String(row.section_draft ?? ''),
+        sectionPublished: String(row.section_published ?? ''),
+        submittedAt: String(row.submitted_at ?? ''),
+        importedAt: String(row.imported_at ?? ''),
+        withdrawnAt: String(row.withdrawn_at ?? ''),
+        coveredBy: String(row.covered_by_signup_id ?? ''),
+      },
+      signups: (signups.results ?? []).map((item) => ({
+        id: item.id,
+        email: item.email,
+        name: [item.first_name, item.last_name].filter(Boolean).join(' '),
+        mir: item.mir_code,
+        finished: Number(item.submitted) === 1 && Number(item.email_confirmed) === 1,
+        submitted: Number(item.submitted) === 1,
+        confirmed: Number(item.email_confirmed) === 1,
+        withdrawn: Number(item.withdrawn) === 1,
+        number: item.designation_number == null ? '' : String(item.designation_number),
+        publishedSection: item.published_section,
+      })),
     }
   })

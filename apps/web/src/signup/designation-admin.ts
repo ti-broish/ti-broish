@@ -12,6 +12,7 @@ import {
 } from './designation-preview'
 import { todayInSofia } from './designation-config'
 import { PARTNER_DESIGNATION_ROW_SQL, isPartnerPersonId } from './partner-people-sql'
+import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
 import { registerWorkerDesignationFonts } from './designation-fonts-worker'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
@@ -66,7 +67,7 @@ export async function serveDesignationPdf(personId: string): Promise<Response> {
       isPartnerPersonId(personId)
         ? PARTNER_DESIGNATION_ROW_SQL
         : `SELECT id, payload, egn,
-        COALESCE(published_section, '') AS published_section,
+        ${SIGNUP_DESIGNATION_SECTION_SQL} AS published_section,
         COALESCE(NULLIF(section_place, ''), json_extract(payload, '$.place.sectionPlace'), '') AS section_place,
         designation_number, designation_issued_at
         FROM signups WHERE id = ?`,

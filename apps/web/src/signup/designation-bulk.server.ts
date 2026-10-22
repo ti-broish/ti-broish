@@ -30,6 +30,7 @@ import {
 } from './designation-files'
 import { DESIGNATION_ASSIGN_SQL, PARTNER_DESIGNATION_ASSIGN_SQL, designationMirOf, parseStoredNumber } from './designation-number'
 import { brevoSignupIds } from './partner-people-sql'
+import { SIGNUP_DESIGNATION_SECTION_SQL, isPlaceholderEmail } from './designation-section-sql'
 import {
   EGN_HOLDERS_SQL,
   duplicateOf,
@@ -108,7 +109,7 @@ const LIST_SQL = `SELECT id,
   COALESCE(json_extract(payload, '$.middleName'), '') AS middle_name,
   COALESCE(json_extract(payload, '$.lastName'), '') AS last_name,
   COALESCE(email, '') AS email,
-  COALESCE(published_section, '') AS section,
+  ${SIGNUP_DESIGNATION_SECTION_SQL} AS section,
   COALESCE(designation_mir, '') AS designation_mir,
   COALESCE(NULLIF(draft_section, ''), published_section, '') AS assigned_section,
   designation_number,
@@ -121,7 +122,7 @@ const LIST_SQL = `SELECT id,
   created_at,
   ${egnKeySql('egn')} AS egn_key
   FROM signups
-  WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0`
+  WHERE ${SIGNUP_DESIGNATION_SECTION_SQL} != '' AND COALESCE(withdrawn, 0) = 0`
 
 /**
  * „И аз“ partner people: not signups, only here for пълномощни. Their МИР stands in for the
@@ -471,7 +472,7 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   for (const row of rows) {
     const email = (row.email ?? '').trim()
     const url = (row.url ?? '').trim()
-    if (!email) results.push({ personId: row.id, ok: false, error: 'няма имейл' })
+    if (!email || isPlaceholderEmail(email)) results.push({ personId: row.id, ok: false, error: 'няма имейл' })
     else if (!url) results.push({ personId: row.id, ok: false, error: 'няма подписано пълномощно (линк към Drive)' })
     else contacts.push({ personId: row.id, email, url })
   }
@@ -527,7 +528,7 @@ export async function syncSignedLinkToBrevo(person: { id: string; email: string;
   const config = readBrevoConfig()
   if ('missing' in config) return { ok: false, attribute, skipped: true, error: 'липсва BREVO_API_KEY' }
   const email = person.email.trim()
-  if (!email) return { ok: false, attribute, error: 'няма имейл' }
+  if (!email || isPlaceholderEmail(email)) return { ok: false, attribute, skipped: true, error: 'няма имейл' }
   let section: Record<string, string | number | boolean | string[]> | undefined
   if (db) {
     try {

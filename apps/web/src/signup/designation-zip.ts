@@ -16,6 +16,7 @@ import { PARTNER_DESIGNATION_COLUMNS, isPartnerPersonId } from './partner-people
 import { streamZipWriter } from './designation-zip-stream'
 import { parseSignScope, signScopeWhere } from './designation-sign-scope'
 import { partnerDuplicateSql, signupDuplicateSql } from './designation-duplicates'
+import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
 
 registerWorkerDesignationFonts()
 
@@ -54,20 +55,20 @@ export async function serveDesignationZip(request: Request): Promise<Response> {
   const scope = parseSignScope(url.searchParams.get('scope'))
   const scopeWhere = signScopeWhere(scope)
   const from0 = scope === 'new' ? 0 : offset
-  // Signups with a published section plus „И аз“ partner people with a МИР, in one numbered list.
+  // Signups with a published section (or numbered in their МИР before allocation) plus „И аз“ partner people with a МИР, in one numbered list.
   // Never a withdrawn „И аз“ row or a duplicate (same ЕГН holds another number): one person, one пълномощно.
   const rows = await access.db
     .prepare(
       `SELECT * FROM (
         SELECT id, payload, egn,
-          COALESCE(published_section, '') AS published_section,
+          ${SIGNUP_DESIGNATION_SECTION_SQL} AS published_section,
           COALESCE(NULLIF(section_place, ''), json_extract(payload, '$.place.sectionPlace'), '') AS section_place,
           designation_number, designation_issued_at
           FROM signups
-          WHERE COALESCE(published_section, '') != ''
+          WHERE ${SIGNUP_DESIGNATION_SECTION_SQL} != ''
             AND designation_number IS NOT NULL
             AND COALESCE(withdrawn, 0) = 0
-            AND (?1 = '' OR substr(published_section, 1, 2) = ?1)
+            AND (?1 = '' OR substr(${SIGNUP_DESIGNATION_SECTION_SQL}, 1, 2) = ?1)
             AND ?4 = 0
             AND ${scopeWhere}
             AND NOT ${signupDuplicateSql('signups')}

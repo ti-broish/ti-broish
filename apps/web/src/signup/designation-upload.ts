@@ -9,6 +9,7 @@ import { parseStoredNumber } from './designation-number'
 import { httpStatusForStaffDenial, namesFromPayload } from './designation-preview'
 import { PARTNER_DESIGNATION_COLUMNS, isPartnerPersonId } from './partner-people-sql'
 import { SIGNED_WAVE_SET_SQL } from './signed-waves-sql'
+import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
 import { describeUploadError, isTransientMessage } from './designation-upload-errors'
 
 /** Drive simple/multipart uploads (uploadType=multipart|media) take at most 5 MB; signed PDFs are ~170 KB. */
@@ -79,7 +80,7 @@ async function handleDesignationUpload(request: Request): Promise<Response> {
     .prepare(
       partner
         ? `SELECT ${PARTNER_DESIGNATION_COLUMNS}, email, designation_drive_file_id, designation_pdf_url FROM partner_people WHERE id = ?`
-        : `SELECT id, email, payload, COALESCE(published_section, '') AS published_section,
+        : `SELECT id, email, payload, ${SIGNUP_DESIGNATION_SECTION_SQL} AS published_section,
         designation_number, designation_drive_file_id, designation_pdf_url
         FROM signups WHERE id = ?`,
     )

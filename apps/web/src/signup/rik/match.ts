@@ -9,7 +9,7 @@
  * them again / call the РИК when nothing showed up.
  */
 import { STALE_AFTER_HOURS, mirLabel } from './config'
-import { editDistance } from './normalize'
+import { editDistance, nameKey } from './normalize'
 
 export type RikStatus =
   | 'registered' // published by the РИК of their МИР under our committee, name and number match
@@ -25,8 +25,9 @@ export type RikStatus =
   | 'withdrawn' // left us, not published: nothing to do
   | 'duplicate' // same ЕГН keeps another number with us: never call the РИК for this one
   | 'rik_unavailable' // the РИК's register could not be read
+  | 'renamed' // we changed the name after it went to the РИК: send a correction (old name still accepted)
 
-export type RikTaskType = 'call_rik' | 'remove_person' | 'fix_data' | 'check_rik'
+export type RikTaskType = 'call_rik' | 'remove_person' | 'fix_data' | 'check_rik' | 'fix_name'
 
 export const STATUS_LABELS: Record<RikStatus, string> = {
   registered: 'Регистриран',
@@ -42,6 +43,7 @@ export const STATUS_LABELS: Record<RikStatus, string> = {
   withdrawn: 'Отписан',
   duplicate: 'Дубликат',
   rik_unavailable: 'РИК не се чете',
+  renamed: 'Сменено име — подай поправка',
 }
 
 export const TASK_LABELS: Record<RikTaskType, string> = {
@@ -49,6 +51,7 @@ export const TASK_LABELS: Record<RikTaskType, string> = {
   remove_person: 'Махни човека',
   fix_data: 'Поправи данните + ново пълномощно',
   check_rik: 'Провери РИК ръчно',
+  fix_name: 'Поправи името в РИК',
 }
 
 export interface RikPerson {
@@ -64,6 +67,12 @@ export interface RikPerson {
   duplicate?: boolean
   /** When the signed пълномощно went to the РИК (first signed upload), ISO; null when not signed. */
   signedAt: string | null
+  /**
+   * Names the РИК may still have for this person: we renamed them after the пълномощно went to the
+   * РИК (designation_renames.rik_correction). Until the register shows the new name the person reads
+   * „renamed“ with a „fix_name“ task, and a row under any of these names counts as theirs.
+   */
+  previousNames?: string[]
 }
 
 export interface RikEntryRow {
@@ -167,7 +176,8 @@ export function classifyPerson(
 ): { result: PersonResult; tasks: DerivedTask[] } {
   const base = { personId: person.id, source: person.source, mir: person.mir, number: person.number }
   const live = (rows: RikEntryRow[] | undefined) => (rows ?? []).filter((row) => !row.missingSince && row.kind === 'representative')
-  const sameKey = live(index.byKey.get(person.nameKey))
+  const oldKeys = (person.previousNames ?? []).map((name) => nameKey(name)).filter((key) => key && key !== person.nameKey)
+  const sameKey = live([person.nameKey, ...oldKeys].flatMap((key) => index.byKey.get(key) ?? []))
   const ownByName = sameKey.filter((row) => row.ours && row.mir === person.mir && !row.annulled)
   const ownByNumber = person.number == null ? [] : live(index.byMirNumber.get(`${person.mir}:${person.number}`))
   const otherParty = sameKey.filter((row) => !row.ours)
@@ -221,6 +231,21 @@ export function classifyPerson(
         ? `РИК е записал дата ${registered.numberDate}, пълномощното е от ${person.issuedOn}.`
         : ''
     return { result: result('registered', { entryId: registered.id, detail: dateNote }), tasks }
+  }
+
+  // Renamed after the РИК got the old name: one correction task until the register shows the new name.
+  if (person.previousNames?.length) {
+    const oldName = person.previousNames[0]!
+    const published =
+      ownByNumber.find((row) => !row.annulled && oldKeys.includes(row.nameKey)) ??
+      ownByName.find((row) => oldKeys.includes(row.nameKey)) ??
+      ownByNumber.find((row) => !row.annulled) ??
+      null
+    const where = published ? `РИК ${person.mir} го има като „${published.name}“` : `РИК ${person.mir} го е получил като „${oldName}“`
+    tasks.push(
+      task(person, 'fix_name', 'renamed', `Сменено име: ${where} под № ${person.number}. Подай поправка с новото име и новото подписано пълномощно.`),
+    )
+    return { result: result('renamed', { entryId: published?.id ?? null, detail: oldName }), tasks }
   }
 
   const health = effectiveHealth(sources.get(person.mir))

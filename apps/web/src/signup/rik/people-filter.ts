@@ -3,7 +3,7 @@ import type { RikStatus } from './match'
 /** Rows that hold no пълномощно for the РИК any more: an отписан/оттеглен person, or a duplicate number of the same ЕГН. */
 export const RIK_HIDDEN_BY_DEFAULT: RikStatus[] = ['withdrawn', 'duplicate']
 
-export const RIK_PROBLEM_STATUSES: RikStatus[] = ['stale', 'name_mismatch', 'number_mismatch', 'annulled', 'elsewhere', 'other_party', 'withdrawn_registered', 'rik_unavailable']
+export const RIK_PROBLEM_STATUSES: RikStatus[] = ['stale', 'name_mismatch', 'number_mismatch', 'annulled', 'elsewhere', 'other_party', 'withdrawn_registered', 'rik_unavailable', 'renamed']
 
 const quoted = (list: string[]) => list.map((item) => `'${item}'`).join(', ')
 

@@ -24,6 +24,8 @@ export interface SignedPerson {
   firstSignedAt: string
   driveFileId: string
   partner: boolean
+  /** The name the РИК still has (renamed after it went out); the wave ZIP adds a „Поправки“ table. */
+  correctionFrom?: string
 }
 
 export interface SignedWave {
@@ -146,6 +148,18 @@ export function rikRowFor(person: SignedPerson, numberPrefix: string): RikTableR
   }
 }
 
+export const RIK_CORRECTION_TITLE_PREFIX = 'Поправка на имената в списъка на упълномощените представители на \n'
+
+export function rikCorrectionsFilename(mir: string) {
+  return `РИК ${mir.padStart(2, '0')} Поправки.xlsx`
+}
+
+/** A „Поправки“ row: same number and ЕГН, the new name, and the name the РИК has now. */
+export function rikCorrectionRowFor(person: SignedPerson, numberPrefix: string): RikTableRow {
+  const row = rikRowFor(person, numberPrefix)
+  return { ...row, name: `${row.name} (вместо „${person.correctionFrom ?? ''}“)` }
+}
+
 export function signedPdfName(person: SignedPerson) {
   return bulkDesignationSignedFilename({
     number: person.number,
@@ -186,6 +200,16 @@ export async function writeSignedWaveZip(
     const folder = rikFolder(mir)
     const rows = sortRikRows(members.map((person) => rikRowFor(person, input.numberPrefix)))
     await add(`${folder}/${rikTableFilename(mir)}`, buildRikTableXlsx({ title, rows }))
+    const corrections = members.filter((person) => person.correctionFrom)
+    if (corrections.length > 0) {
+      await add(
+        `${folder}/${rikCorrectionsFilename(mir)}`,
+        buildRikTableXlsx({
+          title: `${RIK_CORRECTION_TITLE_PREFIX}${input.committeeFullName.trim()}`,
+          rows: sortRikRows(corrections.map((person) => rikCorrectionRowFor(person, input.numberPrefix))),
+        }),
+      )
+    }
     if (input.tablesOnly) continue
     for (const person of members) {
       const name = signedPdfName(person)

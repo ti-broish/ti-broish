@@ -37,6 +37,7 @@ import { auditLines, staffAuditChanges, type AuditLine } from './admin-audit'
 import { profileFrom, SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { confirmCodeMail, deliverMail, importConfirmMail, isDevMailHost, staffInviteMail } from './mail'
 import { emptyProfile, validEmail, type Profile } from './model'
+import { applyRenameTransition, namesChanged, renameMessage, type PersonNames } from './designation-rename'
 import { signupColumns } from './record'
 import { sessionCookieSecure } from './session-cookie'
 import { keepsAnAdmin, parseStaffRole, permissionsFor, roleAllows, staffRoleLabel, type StaffAction, type StaffRole } from './staff'
@@ -1219,6 +1220,7 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
     let beforeFirst = false
     let beforeRunoff = false
     let beforeTravel = ''
+    let beforeNames: PersonNames = { firstName: '', middleName: '', lastName: '' }
     try {
       const profile = profileFrom({
         id: row.id,
@@ -1245,6 +1247,7 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
       beforeFirst = sealed.rounds.first
       beforeRunoff = sealed.rounds.runoff
       beforeTravel = staffTravelText(sealed)
+      beforeNames = { firstName: sealed.firstName, middleName: sealed.middleName, lastName: sealed.lastName }
       const radius = parseRadiusChoice(data.radius, sealed.place)
       edited = applyStaffEdit(sealed, {
         firstName: data.firstName,
@@ -1296,6 +1299,11 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
         row.id,
       )
       .run()
+    // A new name on an existing пълномощно: same number, sign again, and a РИК correction if it went out.
+    const afterNames = { firstName: edited.firstName, middleName: edited.middleName, lastName: edited.lastName }
+    const renamed = namesChanged(beforeNames, afterNames)
+      ? await applyRenameTransition(access.db, { table: 'signups', id: row.id, before: beforeNames, after: afterNames, actor: access.email, now })
+      : null
     const audited = staffAuditChanges(
       { role: beforeRole, roundsFirst: beforeFirst, roundsRunoff: beforeRunoff, staffNote: beforeNote, travel: beforeTravel },
       { role: edited.role, roundsFirst: edited.rounds.first, roundsRunoff: edited.rounds.runoff, staffNote: write.staffNote, travel: staffTravelText(edited) },
@@ -1312,5 +1320,6 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
       ok: true as const,
       changes: await loadAudit(access.db, row.id),
       person: buildAdminPerson(edited, personExtra(row, write.staffNote, write.staffCalledAt, write.staffCalledBy)),
+      ...(renamed?.resign ? { message: renameMessage(renamed, renamed.number, renamed.mir).trim() } : {}),
     }
   })

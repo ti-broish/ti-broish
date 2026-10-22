@@ -44,7 +44,7 @@ import {
 } from '../../signup/designation-sign-scope'
 import { postSignedPdf } from '../../signup/designation-upload-errors'
 import { IAZ_LABEL, partnerBadge } from '../../signup/partner-import'
-import { adminPartnerSetMir, adminPartnerWithdraw } from '../../signup/partner-import-admin'
+import { adminPartnerRename, adminPartnerSetMir, adminPartnerWithdraw } from '../../signup/partner-import-admin'
 import { COVERED_LABEL, WITHDRAWN_PARTNER_LABEL, duplicateBadge } from '../../signup/designation-duplicates'
 import { PartnerImportPanel } from './-partner-import-panel'
 import { PersonName } from './-person-name'
@@ -652,6 +652,9 @@ function PalnomoshtniPage() {
                       {row.partner && !row.withdrawnAt && canWithdraw ? (
                         <PartnerWithdraw id={row.id} number={row.number} disabled={busy} onDone={reload} setMessage={setMessage} />
                       ) : null}
+                      {row.partner && !row.withdrawnAt && canEdit ? (
+                        <PartnerRename id={row.id} names={row} disabled={busy} onDone={reload} setMessage={setMessage} />
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -713,6 +716,77 @@ function PartnerWithdraw({
       </label>
       <button type="submit" className={adminGhost} disabled={saving || !reason.trim()}>
         Потвърди оттеглянето
+      </button>
+      <button type="button" className={adminGhost} disabled={saving} onClick={() => setOpen(false)}>
+        Откажи
+      </button>
+    </form>
+  )
+}
+
+/** New names for an „И аз“ person; an existing пълномощно goes back for signing (same number). */
+function PartnerRename({
+  id,
+  names,
+  disabled,
+  onDone,
+  setMessage,
+}: {
+  id: string
+  names: { firstName: string; middleName: string; lastName: string }
+  disabled: boolean
+  onDone: () => void
+  setMessage: (text: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(names)
+  const [saving, setSaving] = useState(false)
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className={adminGhost}
+        disabled={disabled}
+        onClick={() => {
+          setDraft({ firstName: names.firstName, middleName: names.middleName, lastName: names.lastName })
+          setOpen(true)
+        }}
+      >
+        Смени имената
+      </button>
+    )
+  }
+  return (
+    <form
+      className="flex flex-wrap items-end gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        setSaving(true)
+        void adminPartnerRename({ data: { id, ...draft } })
+          .then((result) => {
+            setMessage(result.message)
+            if (result.ok) {
+              setOpen(false)
+              onDone()
+            }
+          })
+          .finally(() => setSaving(false))
+      }}
+    >
+      {(['firstName', 'middleName', 'lastName'] as const).map((field) => (
+        <label key={field} className="grid gap-1 text-xs font-bold text-[#1a1020]">
+          {field === 'firstName' ? 'Име' : field === 'middleName' ? 'Презиме' : 'Фамилия'}
+          <input
+            className={adminInput}
+            value={draft[field]}
+            maxLength={80}
+            required={field !== 'middleName'}
+            onChange={(event) => setDraft({ ...draft, [field]: event.target.value })}
+          />
+        </label>
+      ))}
+      <button type="submit" className={adminGhost} disabled={saving || !draft.firstName.trim() || !draft.lastName.trim()}>
+        Запази имената
       </button>
       <button type="button" className={adminGhost} disabled={saving} onClick={() => setOpen(false)}>
         Откажи

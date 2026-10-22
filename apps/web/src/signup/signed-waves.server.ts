@@ -4,6 +4,7 @@ import { createDriveClient, tryReadDriveAuth } from './designation-drive-core'
 import { httpStatusForStaffDenial } from './designation-preview'
 import { streamZipWriter } from './designation-zip-stream'
 import type { SignupD1 } from './db-core'
+import { ensureRenamesTable } from './designation-rename'
 import {
   SIGNED_PEOPLE_SQL,
   peopleInWave,
@@ -20,7 +21,29 @@ export const SIGNED_ZIP_PDF_LIMIT = 900
 
 export async function loadSignedPeople(db: SignupD1): Promise<SignedPerson[]> {
   const result = await db.prepare(SIGNED_PEOPLE_SQL).all<SignedRow>()
-  return (result.results ?? []).map(signedPersonFromRow).filter((person): person is SignedPerson => person != null)
+  const people = (result.results ?? []).map(signedPersonFromRow).filter((person): person is SignedPerson => person != null)
+  const open = await openRikCorrections(db)
+  return open.size ? people.map((person) => (open.has(person.id) ? { ...person, correctionFrom: open.get(person.id)! } : person)) : people
+}
+
+/** Renamed after the РИК got the old name, and the register does not show the new one yet: person id → old name. */
+async function openRikCorrections(db: SignupD1) {
+  const open = new Map<string, string>()
+  try {
+    await ensureRenamesTable(db)
+    const rows = await db
+      .prepare(
+        `SELECT r.person_id, r.old_name FROM designation_renames r
+         WHERE r.rik_correction = 1
+           AND NOT EXISTS (SELECT 1 FROM rik_status s WHERE s.person_id = r.person_id AND s.status = 'registered')
+         ORDER BY r.created_at`,
+      )
+      .all<{ person_id: string; old_name: string }>()
+    for (const row of rows.results ?? []) if (!open.has(row.person_id)) open.set(row.person_id, row.old_name)
+  } catch {
+    // No rik_status table yet: no corrections to list.
+  }
+  return open
 }
 
 export async function handleSignedWaves(): Promise<

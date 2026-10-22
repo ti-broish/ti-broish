@@ -38,7 +38,7 @@ export const STATUS_LABELS: Record<RikStatus, string> = {
   annulled: 'Анулиран',
   elsewhere: 'В друг РИК',
   other_party: 'За друга партия',
-  withdrawn_registered: 'Отписан, но регистриран',
+  withdrawn_registered: 'За заличаване в РИК',
   withdrawn: 'Отписан',
   duplicate: 'Дубликат',
   rik_unavailable: 'РИК не се чете',

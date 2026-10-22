@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { RIK_TABLES } from './sql'
-import { rikPeopleWhere } from './people-filter'
+import { RIK_LIVE_STATUS_SQL, RIK_TASK_VISIBLE_SQL, rikPeopleWhere } from './people-filter'
 
 interface SqliteDatabase {
   exec(sql: string): void
@@ -48,5 +48,58 @@ describe.skipIf(!sqlite)('rikPeopleWhere', () => {
 
   it('problems stay problems, never the withdrawn row', () => {
     expect(numbers(db(), { mir: '17', status: 'problems' })).toEqual([501, 502, 503, 504, 505, 507])
+  })
+})
+
+/**
+ * 22.10.2026: a volunteer отписан between two hourly runs still read „Чака РИК“ on /admin/rik and
+ * stayed in „Всички“ and in „N с пълномощно“ until the next run. The live status applies it at once.
+ */
+describe.skipIf(!sqlite)('withdrawals show at once, before the next sync', () => {
+  const db = () => {
+    const raw = new sqlite!.DatabaseSync(':memory:')
+    for (const sql of RIK_TABLES) raw.exec(sql)
+    raw.exec('CREATE TABLE signups (id TEXT PRIMARY KEY, withdrawn INTEGER NOT NULL DEFAULT 0, payload TEXT, designation_issued_at TEXT)')
+    raw.exec('CREATE TABLE partner_people (id TEXT PRIMARY KEY, withdrawn_at TEXT, first_name TEXT, middle_name TEXT, last_name TEXT, designation_issued_at TEXT)')
+    const status = raw.prepare(`INSERT INTO rik_status (person_id, source, mir, number, status, entry_id, status_since, checked_at) VALUES (?, ?, '26', ?, ?, ?, 't', 't')`)
+    const rows: Array<[string, 'signup' | 'partner', number, string, string | null, boolean]> = [
+      ['a', 'signup', 501, 'pending', null, true], // отписан after the last run
+      ['b', 'signup', 502, 'registered', 'e1', true], // отписан, already published
+      ['c', 'signup', 503, 'pending', null, false],
+      ['d', 'signup', 504, 'stale', null, true], // had a „call the РИК“ task
+      ['pp-1', 'partner', 505, 'pending', null, true], // оттеглено „И аз“
+      ['pp-2', 'partner', 506, 'pending', null, false],
+    ]
+    for (const [id, source, number, st, entry, withdrawn] of rows) {
+      status.run(id, source, number, st, entry)
+      if (source === 'signup') raw.prepare('INSERT INTO signups (id, withdrawn) VALUES (?, ?)').run(id, withdrawn ? 1 : 0)
+      else raw.prepare('INSERT INTO partner_people (id, withdrawn_at) VALUES (?, ?)').run(id, withdrawn ? '2026-10-22T11:00:00Z' : null)
+    }
+    const task = raw.prepare(`INSERT INTO rik_tasks (id, person_id, mir, type, reason, created_at, updated_at) VALUES (?, ?, '26', ?, ?, 't', 't')`)
+    task.run('d:call_rik:not_published', 'd', 'call_rik', 'not_published')
+    task.run('c:call_rik:not_published', 'c', 'call_rik', 'not_published')
+    task.run('b:remove_person:withdrawn', 'b', 'remove_person', 'withdrawn')
+    task.run('rik:26:check_rik', null, 'check_rik', 'error')
+    return raw
+  }
+  const live = (raw: SqliteDatabase, input: { mir: string; status: string }) => {
+    const { where, binds } = rikPeopleWhere(input)
+    return (raw.prepare(`SELECT number FROM (${RIK_LIVE_STATUS_SQL}) s WHERE ${where.join(' AND ')} ORDER BY s.mir, s.number`).all(...binds) as Array<{ number: number }>).map((row) => row.number)
+  }
+
+  it('„Всички“ drops the withdrawn right away, both volunteers and „И аз“', () => {
+    expect(live(db(), { mir: '26', status: '' })).toEqual([502, 503, 506])
+  })
+
+  it('an already published withdrawn person reads „За заличаване в РИК“, the rest „Отписан“', () => {
+    const raw = db()
+    expect(live(raw, { mir: '26', status: 'withdrawn_registered' })).toEqual([502])
+    expect(live(raw, { mir: '26', status: 'withdrawn' })).toEqual([501, 504, 505])
+    expect(live(raw, { mir: '26', status: 'problems' })).toEqual([502])
+  })
+
+  it('open tasks: a withdrawn person keeps only „Махни човека“; others and РИК tasks stay', () => {
+    const ids = (db().prepare(`SELECT id FROM rik_tasks t WHERE t.active = 1 AND ${RIK_TASK_VISIBLE_SQL} ORDER BY id`).all() as Array<{ id: string }>).map((row) => row.id)
+    expect(ids).toEqual(['b:remove_person:withdrawn', 'c:call_rik:not_published', 'rik:26:check_rik'])
   })
 })

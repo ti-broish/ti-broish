@@ -199,6 +199,12 @@ const schemaReady = new WeakMap<object, Promise<void>>()
  * dead promise, cpu 0 ms, until the client gave up; /admin/sections and loadSignup never answered)
  * must not hang the isolate forever. Past this deadline the run counts as failed, is forgotten, and
  * the next request starts a fresh one.
+ *
+ * Every request applies the deadline with its own timer. The shared run lives in the request that
+ * started it: when that request is canceled (the browser navigates away, TanStack aborts a loader),
+ * the Workers runtime cancels its D1 calls and its timers, so the shared promise never settles and
+ * its own deadline never fires. On 22.10.2026 after the 15:19 deploy, /admin/sections, „/“ and a
+ * post page waited 20–187 s at ~4 ms CPU on such a promise.
  */
 export const SCHEMA_DEADLINE_MS = 10_000
 /** The withdrawn-seat backfill is best effort; a request never waits on it longer than this. */
@@ -212,20 +218,41 @@ export function withDeadline<T>(work: Promise<T>, ms: number, label: string): Pr
   return Promise.race([work, deadline]).finally(() => clearTimeout(timer))
 }
 
+function startSchemaRun(db: SignupD1) {
+  const pending = ensureSignupSchema(db)
+  schemaReady.set(db, pending)
+  pending.catch((error) => {
+    console.warn('signup schema bootstrap failed', error instanceof Error ? error.message : error)
+    if (schemaReady.get(db) === pending) schemaReady.delete(db)
+  })
+  return pending
+}
+
+/** Waits on a bootstrap run with this request's own timer; a run that misses it is forgotten. */
+async function awaitSchemaRun(db: SignupD1, run: Promise<void>, label: string) {
+  try {
+    await withDeadline(run, SCHEMA_DEADLINE_MS, label)
+  } catch (error) {
+    if (schemaReady.get(db) === run) schemaReady.delete(db)
+    throw error
+  }
+}
+
 export async function signupDatabase() {
   const db = (env as unknown as { DB?: SignupD1 }).DB
   if (!db) return null
-  let ready = schemaReady.get(db)
-  if (!ready) {
-    const pending = withDeadline(ensureSignupSchema(db), SCHEMA_DEADLINE_MS, 'signup schema bootstrap')
-    ready = pending
-    schemaReady.set(db, pending)
-    pending.catch((error) => {
-      console.warn('signup schema bootstrap failed', error instanceof Error ? error.message : error)
-      if (schemaReady.get(db) === pending) schemaReady.delete(db)
-    })
+  const shared = schemaReady.get(db)
+  if (!shared) {
+    await awaitSchemaRun(db, startSchemaRun(db), 'signup schema bootstrap')
+    return db
   }
-  await ready
+  try {
+    await awaitSchemaRun(db, shared, 'signup schema bootstrap (shared)')
+  } catch (error) {
+    // Another request's run failed or died with that request: run once from this one.
+    console.warn('signup schema bootstrap: shared run did not finish, retrying', error instanceof Error ? error.message : error)
+    await awaitSchemaRun(db, schemaReady.get(db) ?? startSchemaRun(db), 'signup schema bootstrap')
+  }
   return db
 }
 
@@ -334,13 +361,19 @@ async function afterSignupSchema(db: SignupD1) {
   }
   await ensureSearchIndex(db)
   // Once per isolate: withdrawn people who still hold a seat (the old /profil withdraw) get it freed,
-  // with an audit line and the Brevo cleanup. Idempotent; never blocks a request.
-  const sweep = (withdrawnSweep ??= withDeadline(releaseWithdrawnSections(db, now), WITHDRAWN_SWEEP_DEADLINE_MS, 'releaseWithdrawnSections').catch((error) => {
+  // with an audit line and the Brevo cleanup. Idempotent; never blocks a request. The deadline is
+  // this request's own: a sweep started by a request that was later canceled never settles.
+  const sweep = (withdrawnSweep ??= releaseWithdrawnSections(db, now).catch((error) => {
     console.warn('releaseWithdrawnSections failed', error instanceof Error ? error.message : error)
-    // A failed or stuck sweep is retried by a later bootstrap instead of being cached forever.
+    // A failed sweep is retried by a later bootstrap instead of being cached forever.
     if (withdrawnSweep === sweep) withdrawnSweep = null
   }))
-  await sweep
+  try {
+    await withDeadline(sweep, WITHDRAWN_SWEEP_DEADLINE_MS, 'releaseWithdrawnSections')
+  } catch (error) {
+    console.warn('releaseWithdrawnSections', error instanceof Error ? error.message : error)
+    if (withdrawnSweep === sweep) withdrawnSweep = null
+  }
 }
 
 let withdrawnSweep: Promise<unknown> | null = null

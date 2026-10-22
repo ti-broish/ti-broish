@@ -281,6 +281,8 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
   const everyone = [...all, ...partners]
   const mirsMap = new Map<string, number>()
   for (const row of everyone) {
+    // An оттеглено „И аз“ row stays listed with its badge but is not counted under its МИР.
+    if (row.withdrawnAt) continue
     const code = mirFromSection(row.section)
     if (!code) continue
     mirsMap.set(code, (mirsMap.get(code) ?? 0) + 1)

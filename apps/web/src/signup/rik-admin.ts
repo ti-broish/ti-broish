@@ -6,7 +6,7 @@ import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './
 import { ABROAD_MIR, DEFAULT_FETCH_BUDGET, DOMESTIC_MIRS, mirLabel } from './rik/config'
 import { STATUS_LABELS, TASK_LABELS, type RikStatus, type RikTaskType } from './rik/match'
 import { nameKey } from './rik/normalize'
-import { RIK_PROBLEM_STATUSES, rikPeopleWhere } from './rik/people-filter'
+import { RIK_LIVE_STATUS_SQL, RIK_PROBLEM_STATUSES, RIK_TASK_VISIBLE_SQL, rikPeopleWhere } from './rik/people-filter'
 import { createRikSync, ensureRikTables } from './rik/sync'
 
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -74,12 +74,12 @@ export const rikOverview = createServerFn({ method: 'POST' })
            SUM(CASE WHEN status = 'registered' THEN 1 ELSE 0 END) AS registered,
            SUM(CASE WHEN status IN (${quoted(WAITING_STATUSES)}) THEN 1 ELSE 0 END) AS waiting,
            SUM(CASE WHEN status IN (${quoted(PROBLEM_STATUSES)}) THEN 1 ELSE 0 END) AS problems
-         FROM rik_status WHERE status NOT IN ('withdrawn', 'duplicate') GROUP BY mir`,
+         FROM (${RIK_LIVE_STATUS_SQL}) WHERE status NOT IN ('withdrawn', 'duplicate') GROUP BY mir`,
       )
       .all<{ mir: string; people: number; registered: number; waiting: number; problems: number }>()).results ?? []
-    const tasks = (await db.prepare(`SELECT mir, COUNT(*) AS n FROM rik_tasks WHERE active = 1 AND done_at IS NULL GROUP BY mir`).all<{ mir: string; n: number }>()).results ?? []
-    const byStatus = (await db.prepare(`SELECT status, COUNT(*) AS n FROM rik_status GROUP BY status`).all<{ status: string; n: number }>()).results ?? []
-    const byType = (await db.prepare(`SELECT type, COUNT(*) AS n FROM rik_tasks WHERE active = 1 AND done_at IS NULL GROUP BY type`).all<{ type: string; n: number }>()).results ?? []
+    const tasks = (await db.prepare(`SELECT t.mir, COUNT(*) AS n FROM rik_tasks t WHERE t.active = 1 AND t.done_at IS NULL AND ${RIK_TASK_VISIBLE_SQL} GROUP BY t.mir`).all<{ mir: string; n: number }>()).results ?? []
+    const byStatus = (await db.prepare(`SELECT status, COUNT(*) AS n FROM (${RIK_LIVE_STATUS_SQL}) GROUP BY status`).all<{ status: string; n: number }>()).results ?? []
+    const byType = (await db.prepare(`SELECT t.type, COUNT(*) AS n FROM rik_tasks t WHERE t.active = 1 AND t.done_at IS NULL AND ${RIK_TASK_VISIBLE_SQL} GROUP BY t.type`).all<{ type: string; n: number }>()).results ?? []
     // SELECT *: rik_runs.status is added by the sync on its first run after a deploy.
     const lastRun = await db.prepare(`SELECT * FROM rik_runs ORDER BY started_at DESC LIMIT 1`).first<Record<string, unknown>>()
     const countMap = new Map(counts.map((row) => [row.mir, row]))
@@ -160,8 +160,8 @@ SELECT s.person_id AS id, s.source, s.mir, s.number, s.status, s.status_since, s
   COALESCE(e.name, '') AS rik_name, COALESCE(e.number_raw, '') AS rik_number, COALESCE(e.source_url, '') AS source_url,
   COALESCE(su.designation_issued_at, pp.designation_issued_at, '') AS issued_on,
   TRIM(COALESCE(json_extract(su.payload, '$.firstName'), pp.first_name, '') || ' ' || COALESCE(json_extract(su.payload, '$.middleName'), pp.middle_name, '') || ' ' || COALESCE(json_extract(su.payload, '$.lastName'), pp.last_name, '')) AS name,
-  (SELECT COUNT(*) FROM rik_tasks t WHERE t.person_id = s.person_id AND t.active = 1 AND t.done_at IS NULL) AS tasks
-FROM rik_status s
+  (SELECT COUNT(*) FROM rik_tasks t WHERE t.person_id = s.person_id AND t.active = 1 AND t.done_at IS NULL AND ${RIK_TASK_VISIBLE_SQL}) AS tasks
+FROM (${RIK_LIVE_STATUS_SQL}) s
 LEFT JOIN rik_entries e ON e.id = s.entry_id
 LEFT JOIN signups su ON s.source = 'signup' AND su.id = s.person_id
 LEFT JOIN partner_people pp ON s.source = 'partner' AND pp.id = s.person_id`
@@ -254,7 +254,7 @@ export const rikTasks = createServerFn({ method: 'POST' })
       where.push('t.type = ?')
       binds.push(data.type)
     }
-    if (data.show === 'open') where.push('t.active = 1 AND t.done_at IS NULL')
+    if (data.show === 'open') where.push(`t.active = 1 AND t.done_at IS NULL AND ${RIK_TASK_VISIBLE_SQL}`)
     if (data.show === 'done') where.push('t.done_at IS NOT NULL')
     const clause = where.length ? ` WHERE ${where.join(' AND ')}` : ''
     const total = await access.db.prepare(`SELECT COUNT(*) AS n FROM rik_tasks t${clause}`).bind(...binds).first<{ n: number }>()

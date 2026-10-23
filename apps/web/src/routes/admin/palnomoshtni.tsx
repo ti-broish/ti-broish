@@ -86,6 +86,8 @@ function PalnomoshtniPage() {
   const [resyncFailures, setResyncFailures] = useState<string[]>([])
   const [replaceExisting, setReplaceExisting] = useState(false)
   const [retrying, setRetrying] = useState<string[]>([])
+  const [volunteersNoMir, setVolunteersNoMir] = useState<Array<{ id: string; name: string; reason: string }>>([])
+  const [volunteersAwaitingMir, setVolunteersAwaitingMir] = useState(0)
 
   const reload = useCallback(() => {
     void adminDesignationStatus({ data: { mir, q } }).then((result) => {
@@ -101,6 +103,8 @@ function PalnomoshtniPage() {
       setScopeCounts('scopeCounts' in result && result.scopeCounts ? result.scopeCounts : null)
       setPartnerScopeCounts('partnerScopeCounts' in result && result.partnerScopeCounts ? result.partnerScopeCounts : null)
       setVolunteerScopeCounts('volunteerScopeCounts' in result && result.volunteerScopeCounts ? result.volunteerScopeCounts : null)
+      setVolunteersNoMir('volunteersNoMir' in result && result.volunteersNoMir ? result.volunteersNoMir : [])
+      setVolunteersAwaitingMir('volunteersAwaitingMir' in result ? Number(result.volunteersAwaitingMir ?? 0) : 0)
     })
   }, [mir, q])
 
@@ -233,6 +237,29 @@ function PalnomoshtniPage() {
               Дубликати по ЕГН: {counts.duplicates}. Не влизат в ZIP за подпис, в „За подпис“ и в задачите за РИК, и не се номерират. Оттегли
               излишното пълномощно (бутон „Оттегли пълномощното“ при „{IAZ_LABEL}“).
             </p>
+          ) : null}
+          {volunteersAwaitingMir ? (
+            <p className="text-sm text-[#333]" data-testid="volunteers-awaiting-mir">
+              Доброволци без секция, които „Номерирай“ ще номерира по МИР (от черновата или от мястото в профила): {volunteersAwaitingMir}.
+            </p>
+          ) : null}
+          {volunteersNoMir.length ? (
+            <div className="grid gap-1 text-sm" data-testid="volunteers-no-mir">
+              <p className="font-bold text-[#8f1d1d]">
+                Доброволци без МИР – избери: {volunteersNoMir.length}. Без секция и без ясен МИР не получават номер; избери района (МИР) в профила им и
+                натисни „Номерирай“.
+              </p>
+              <ul className="flex flex-wrap gap-x-4 gap-y-1">
+                {volunteersNoMir.map((row) => (
+                  <li key={row.id}>
+                    <a className="underline" href={`/admin/signups/${row.id}`}>
+                      {row.name}
+                    </a>{' '}
+                    <span className="text-[#555]">({row.reason})</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
           {partnerCounts && partnerCounts.total > 0 ? (
             <p className="text-sm text-[#333]" data-testid="partner-counts">

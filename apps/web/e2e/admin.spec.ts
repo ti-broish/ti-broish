@@ -653,6 +653,8 @@ test.describe('staff admin', () => {
     await signIn(page)
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/admin/palnomoshtni')
+    // Wait for the list: the „already uploaded“ check needs it, and CI picked the files before it arrived.
+    await expect(page.getByRole('cell', { name: 'Мария Георгиева Петрова' })).toBeVisible()
     const upload = page.getByRole('region', { name: 'Качване на подписани' })
     const pdf = Buffer.from('%PDF-1.4 test')
     // Мария already has a signed file: a re-upload skips her by default.

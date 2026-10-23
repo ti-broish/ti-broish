@@ -162,6 +162,12 @@ export function searchTownIds(codes: string[], towns: TownRef[], found: Readonly
   return out
 }
 
+/** МИР code → name from the election regions API ('' when the API is down). */
+export async function electionRegionNames(): Promise<Record<string, string>> {
+  const regions = await loadRegions()
+  return Object.fromEntries(regions.map((region) => [String(region.code).padStart(2, '0'), String(region.name ?? '').trim()]))
+}
+
 async function loadRegions() {
   if (regionCache) return regionCache
   const payload = await getJson<RegionSource[]>('election_regions')

@@ -22,6 +22,7 @@ import { BulkCallbackBar, SelectPerson } from './-bulk-callback'
 import { BulkUnregisterBar, CleanupWithdrawnButton } from './-bulk-unregister'
 import { useDebouncedQuery } from './-debounced-query'
 import { downloadCsv } from './-brevo-sections-export'
+import { adminPartnerExport } from '../../signup/partner-export-admin'
 import { ReservedBadge, reservedOrgFor, useReservedIndex } from './-reserved-badge'
 import { MobileBadge, useMobileIndex } from './-mobile-teams'
 import { ProcessedToggle, WithdrawnCountsContext } from './-withdrawal-processed'
@@ -329,6 +330,7 @@ function SignupsPage() {
             </button>
           )
         })}
+        {canInternal ? <IazExportButton setMessage={setMessage} /> : null}
       </div>
       {search.view === 'withdrawn' ? (
         <div className="grid gap-2">
@@ -768,6 +770,35 @@ function roleText(role: string) {
   if (role === 'video') return 'Видеонаблюдение'
   if (role === 'section') return 'Секция'
   return role || '—'
+}
+
+/** „Експорт И аз“ (admins): every active „И аз“ person, live, as the Brevo CSV (no ЕГН). */
+function IazExportButton({ setMessage }: { setMessage: (message: string) => void }) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button
+      type="button"
+      className={`${adminGhost} border-[#0f5f73] text-[#0f5f73]`}
+      disabled={busy}
+      data-testid="iaz-export"
+      onClick={() => {
+        setBusy(true)
+        void adminPartnerExport()
+          .then((result) => {
+            if (!result.ok) {
+              setMessage(result.message)
+              return
+            }
+            downloadCsv(result.filename, result.csv)
+            setMessage(`„Експорт И аз“: ${result.count} души (без ЕГН).`)
+          })
+          .catch(() => setMessage('Експортът не мина. Опитай пак.'))
+          .finally(() => setBusy(false))
+      }}
+    >
+      {busy ? 'Експортираме…' : 'Експорт И аз'}
+    </button>
+  )
 }
 
 function exportCsv(kind: 'campaign' | 'internal' | 'brevo-sections', search: SignupSearch, setMessage: (message: string) => void) {

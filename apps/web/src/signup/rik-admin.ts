@@ -273,7 +273,7 @@ export const rikTasks = createServerFn({ method: 'POST' })
            COALESCE(su.designation_number, pp.designation_number) AS person_number,
            COALESCE(su.designation_signing_generated_at, pp.designation_signing_generated_at) AS person_signing_at,
            COALESCE(su.designation_signed_at, pp.designation_signed_at) AS person_signed_at,
-           COALESCE(t.fixed_at, (SELECT MAX(r.created_at) FROM designation_renames r WHERE r.person_id = t.person_id AND r.origin = 'identity_fix')) AS fix_at
+           CASE WHEN t.type = 'self_identity' THEN t.fixed_at ELSE COALESCE(t.fixed_at, (SELECT MAX(r.created_at) FROM designation_renames r WHERE r.person_id = t.person_id AND r.origin = 'identity_fix')) END AS fix_at
          FROM rik_tasks t
          LEFT JOIN rik_sources src ON src.mir = t.mir
          LEFT JOIN rik_status st ON st.person_id = t.person_id

@@ -8,6 +8,7 @@ import { STATUS_LABELS, TASK_LABELS, type RikStatus, type RikTaskType } from '..
 import { parseRikSearch, type RikSearch } from '../../signup/rik/search'
 import { useDebouncedQuery } from './-debounced-query'
 import { IdentityFixForm } from '../../components/IdentityFixForm'
+import { identityReissue } from '../../signup/identity-fix-admin'
 
 export const Route = createFileRoute('/admin/rik')({
   validateSearch: (search: Record<string, unknown>): RikSearch => parseRikSearch(search),
@@ -508,6 +509,18 @@ function TasksView({
       .finally(() => setBusy(''))
   }
 
+  const reissue = (task: RikTaskRow) => {
+    setBusy(task.id)
+    setFixNote('')
+    void identityReissue({ data: { taskId: task.id } })
+      .then((result) => {
+        setFixNote(result.message)
+        if (result.ok) onChanged()
+      })
+      .catch(() => setFixNote('Новият документ не се издаде. Опитай пак.'))
+      .finally(() => setBusy(''))
+  }
+
   const columns = [
     taskColumns.accessor('typeLabel', {
       header: 'Задача',
@@ -551,6 +564,18 @@ function TasksView({
                 onChanged()
               }}
             />
+          ) : canFix && info.row.original.type === 'self_identity' ? (
+            info.row.original.doneAt || info.row.original.fixedAt || info.row.original.personNumber == null ? null : (
+              <button
+                type="button"
+                className={`${adminGhost} justify-self-start`}
+                disabled={busy === info.row.original.id}
+                data-testid="identity-reissue"
+                onClick={() => reissue(info.row.original)}
+              >
+                Издай нов документ
+              </button>
+            )
           ) : canFix && info.row.original.personId && info.row.original.personNumber != null && !info.row.original.doneAt ? (
             <button type="button" className={`${adminGhost} justify-self-start`} onClick={() => setFixing(info.row.original.id)}>
               Поправи име/ЕГН

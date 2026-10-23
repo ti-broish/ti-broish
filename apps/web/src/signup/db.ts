@@ -12,6 +12,16 @@ import { sessionCookieSecure } from './session-cookie'
 import { SELF_WITHDRAW_REASON } from './admin-unregister'
 import { IDENTITY_AUDIT_SQL, identityChanges, identityOf, OTHER_RECORD_MESSAGE, saveDecision, selfActor, type EmailRow, type SessionRow } from './signup-guard'
 import { restoreSignup, withdrawalTurn, withdrawSignup } from './withdrawal'
+import { ensureRikTables } from './rik/sync'
+import {
+  EGN_TAKEN_SQL,
+  checkIdentityFix,
+  holdSelfIdentity,
+  loadStoredIdentity,
+  recordSelfIdentityChange,
+  requestedSelfIdentity,
+  type SelfIdentity,
+} from './identity-fix'
 
 function requestHost() {
   try {
@@ -114,8 +124,19 @@ export const saveSignup = createServerFn({ method: 'POST' })
         return { ok: false as const, reason: 'other-record' as const, message: OTHER_RECORD_MESSAGE }
       }
     }
-    let columns = signupColumns(data)
     const existing = decision.kind === 'own' ? decision.row : null
+    // A person with a пълномощно changes names/ЕГН only after confirming (confirmOwnIdentityChange):
+    // until then the stored ones stay and the other fields save as usual.
+    let identityPending: { requested: SelfIdentity; stored: SelfIdentity } | null = null
+    if (existing) {
+      const stored = await loadStoredIdentity(db, 'signups', existing.id)
+      const requested = stored ? requestedSelfIdentity(stored, data) : null
+      if (stored && requested && holdSelfIdentity(stored, requested)) {
+        identityPending = { requested, stored: { ...stored.names, egn: stored.egn } }
+        data = { ...data, firstName: stored.names.firstName, middleName: stored.names.middleName, lastName: stored.names.lastName, egn: stored.egn }
+      }
+    }
+    let columns = signupColumns(data)
     if (egnAgeProblem(data.egn, null)) {
       const stored = existing
         ? await db.prepare(`SELECT COALESCE(egn, '') AS egn FROM signups WHERE id = ?`).bind(existing.id).first<{ egn: string }>()
@@ -292,6 +313,46 @@ export const saveSignup = createServerFn({ method: 'POST' })
       referralCount: countRow?.n ?? 0,
       pendingLinks: synced.pendingLinks,
       renewedCallAt: renewedCall ? data.callRequestedAt : null,
+      identityPending,
+    }
+  })
+
+/**
+ * „Да, смени“ after SELF_CHANGE_CONFIRM: the volunteer's own names/ЕГН change for a person with a
+ * пълномощно. Saved with audit; the РИК task „Смяна име/ЕГН – нов документ“ is opened for staff,
+ * who issue the new document (same number and МИР) from it. Nothing is reset or sent here.
+ */
+export const confirmOwnIdentityChange = createServerFn({ method: 'POST' })
+  .validator((input: { firstName: string; middleName: string; lastName: string; egn: string }) => ({
+    firstName: String(input.firstName ?? '').slice(0, 200),
+    middleName: String(input.middleName ?? '').slice(0, 200),
+    lastName: String(input.lastName ?? '').slice(0, 200),
+    egn: String(input.egn ?? '').slice(0, 40),
+  }))
+  .handler(async ({ data }) => {
+    const db = await signupDatabase()
+    if (!db) return { ok: false as const, message: 'Няма връзка с базата. Опитай пак.' }
+    const cookie = getCookie(SESSION_COOKIE)
+    const session = cookie
+      ? await db.prepare('SELECT id, email FROM signups WHERE session_token = ?').bind(cookie).first<{ id: string; email: string }>()
+      : null
+    if (!session) return { ok: false as const, message: 'Влез отново с код, за да смениш имената или ЕГН.' }
+    const stored = await loadStoredIdentity(db, 'signups', session.id)
+    if (!stored) return { ok: false as const, message: 'Записването не е намерено.' }
+    const requested = requestedSelfIdentity(stored, data)
+    if (!holdSelfIdentity(stored, requested)) return { ok: true as const, task: false, identity: { ...stored.names, egn: stored.egn } }
+    const check = checkIdentityFix(requested, { ...stored.names, egn: stored.egn })
+    if (!check.ok) return { ok: false as const, message: check.message.replace('ЕГН: човекът', 'ЕГН: ти') }
+    if (check.egnChanged) {
+      const taken = await db.prepare(EGN_TAKEN_SQL).bind(check.after.egn, stored.id).first<{ id: string }>()
+      if (taken) return { ok: false as const, message: 'Това ЕГН вече е записано при друг човек. Обади се на екипа.' }
+    }
+    await ensureRikTables(db)
+    await recordSelfIdentityChange(db, { stored, after: check.after, actor: selfActor(stored.email || session.email), now: new Date().toISOString() })
+    return {
+      ok: true as const,
+      task: true,
+      identity: { firstName: check.after.firstName, middleName: check.after.middleName, lastName: check.after.lastName, egn: check.after.egn },
     }
   })
 

@@ -1,4 +1,5 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { IdentityChangeConfirm, type IdentityPending } from '../components/IdentityChangeConfirm'
 import { useEffect, useRef, useState } from 'react'
 import { AssignedSectionMap } from '../components/AssignedSectionMap'
 import { loadAssignedSectionPlace } from '../signup/assigned-section-load'
@@ -164,6 +165,8 @@ function ProfilePage() {
   const [synced, setSynced] = useState(false)
   const [unsentCompanionLinks, setUnsentCompanionLinks] = useState<{ email: string; link: string }[]>([])
   const [saveNotice, setSaveNotice] = useState('')
+  const [identityPending, setIdentityPending] = useState<IdentityPending | null>(null)
+  const [identityNote, setIdentityNote] = useState('')
   const skipSave = useRef(true)
   const designation = useOwnDesignation(ready && Boolean(profile.email))
   const designationPlace = useAssignedSectionPlace(designation?.section || null)
@@ -198,6 +201,7 @@ function ProfilePage() {
     const handle = window.setTimeout(() => {
       void saveSignup({ data: profile }).then((result) => {
         setSaveNotice(!result.ok && 'reason' in result && result.reason ? result.message : '')
+        if (result.ok) setIdentityPending(result.identityPending ?? null)
         if (result.ok && result.pendingLinks.length > 0) setUnsentCompanionLinks(result.pendingLinks)
         if (result.ok && result.renewedCallAt && result.renewedCallAt !== profile.callRequestedAt) {
           updateProfile({ callRequestedAt: result.renewedCallAt })
@@ -243,6 +247,19 @@ function ProfilePage() {
         />
       ) : null}
       <PageIntro title={`${profile.firstName}, това е профилът ти`} />
+      {identityPending ? (
+        <IdentityChangeConfirm
+          pending={identityPending}
+          onDone={(message) => {
+            setIdentityPending(null)
+            setIdentityNote(message)
+          }}
+        />
+      ) : identityNote ? (
+        <p role="status" className="rounded-xl border border-green-300 bg-green-50 p-3 leading-7 text-green-900" data-testid="identity-change-note">
+          {identityNote}
+        </p>
+      ) : null}
       {saveNotice ? (
         <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 leading-7 text-red-800">
           {saveNotice} <Link to="/vhod">Вход с код</Link>

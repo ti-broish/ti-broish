@@ -4,6 +4,7 @@ import { SESSION_COOKIE, signupDatabase } from './db-core'
 import { confirmCodeMail, deliverMail, isDevMailHost } from './mail'
 import { emptyProfile, validEmail } from './model'
 import { signupColumns } from './record'
+import { IDENTITY_AUDIT_SQL } from './signup-guard'
 
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
@@ -142,10 +143,15 @@ export const checkEmailCode = createServerFn({ method: 'POST' })
       if (!code || pending.email_code !== code) return { ok: false }
       const taken = await db.prepare('SELECT id FROM signups WHERE email = ? AND id != ?').bind(email, pending.id).first<{ id: string }>()
       if (taken) return { ok: false }
+      const previous = await db.prepare('SELECT email FROM signups WHERE id = ?').bind(pending.id).first<{ email: string }>()
       const now = new Date().toISOString()
       await db
         .prepare('UPDATE signups SET email = ?, email_confirmed = 1, email_code = NULL, pending_email = NULL, payload = ?, updated_at = ? WHERE id = ?')
         .bind(email, payloadConfirmed(pending.payload, email), now, pending.id)
+        .run()
+      await db
+        .prepare(IDENTITY_AUDIT_SQL)
+        .bind(crypto.randomUUID(), pending.id, `session:${email}`, 'email', previous?.email ?? '', email, now)
         .run()
       if (pending.session_token) sessionCookie(pending.session_token)
       return { ok: true }

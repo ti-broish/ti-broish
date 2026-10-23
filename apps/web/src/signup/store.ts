@@ -39,6 +39,25 @@ export function updateProfile(patch: Partial<Profile> | ((profile: Profile) => P
   write(next)
 }
 
+/** sessionStorage: this tab already chose „Продължи своето записване“ for this e-mail. */
+export const SIGNUP_CHOICE_KEY = 'ti-broish-signup-choice'
+
+export function markOwnSignup(email: string) {
+  if (typeof window === 'undefined' || !email) return
+  window.sessionStorage.setItem(SIGNUP_CHOICE_KEY, email.trim().toLowerCase())
+}
+
+export function ownSignupMarked(email: string) {
+  if (typeof window === 'undefined' || !email) return false
+  return window.sessionStorage.getItem(SIGNUP_CHOICE_KEY) === email.trim().toLowerCase()
+}
+
+/** „Запиши друг човек“: forget the cached profile in this browser. */
+export function resetProfile() {
+  window.sessionStorage.removeItem(SIGNUP_CHOICE_KEY)
+  write(emptyProfile())
+}
+
 export function useProfile() {
   const [profile, setProfile] = useState<Profile>(emptyProfile)
   const [ready, setReady] = useState(false)

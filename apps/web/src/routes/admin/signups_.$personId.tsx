@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminInput } from '../../components/admin-ui'
 import { EgnReveal } from '../../components/EgnReveal'
+import { IdentityFixPanel } from '../../components/IdentityFixForm'
 import { StaffTravel, type StaffTravelValue } from '../../components/StaffTravel'
 import { adminPerson, adminUpdatePerson } from '../../signup/admin'
 import { adminSectionPlaces } from '../../signup/admin-section-places'
@@ -142,6 +143,7 @@ function PersonPage() {
               {person.designationNumber ? ` · № ${person.designationNumber}` : ''}
             </p>
           ) : null}
+          <IdentityFixPanel personId={person.id} onChanged={reload} />
           <form
             className="grid gap-4 rounded-2xl border-2 border-[#2b062f] bg-white p-4"
             onSubmit={(event) => {

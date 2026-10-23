@@ -119,6 +119,8 @@ export const RIK_COLUMNS: Array<[string, string, string]> = [
   ['rik_pages', 'etag', "TEXT NOT NULL DEFAULT ''"],
   ['rik_pages', 'last_modified', "TEXT NOT NULL DEFAULT ''"],
   ['rik_sources', 'submitted_at', 'TEXT'],
+  ['rik_tasks', 'fixed_at', 'TEXT'],
+  ['rik_tasks', 'fixed_by', 'TEXT'],
 ]
 
 export const RIK_INDEXES = [

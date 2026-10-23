@@ -27,7 +27,7 @@ export type RikStatus =
   | 'rik_unavailable' // the РИК's register could not be read
   | 'renamed' // we changed the name after it went to the РИК: send a correction (old name still accepted)
 
-export type RikTaskType = 'call_rik' | 'remove_person' | 'fix_data' | 'check_rik' | 'fix_name'
+export type RikTaskType = 'call_rik' | 'remove_person' | 'fix_data' | 'check_rik' | 'fix_name' | 'self_identity'
 
 export const STATUS_LABELS: Record<RikStatus, string> = {
   registered: 'Регистриран',
@@ -52,6 +52,7 @@ export const TASK_LABELS: Record<RikTaskType, string> = {
   fix_data: 'Поправи данните + ново пълномощно',
   check_rik: 'Провери РИК ръчно',
   fix_name: 'Поправи името в РИК',
+  self_identity: 'Смяна име/ЕГН – нов документ',
 }
 
 export interface RikPerson {

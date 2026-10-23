@@ -770,6 +770,7 @@ export async function writeResults(db: SignupD1, results: PersonResult[], tasks:
   // Causes that went away. People no longer holding a number drop out of rik_status.
   // Frozen МИР (blocked by the site) are left exactly as they were.
   const keep = frozenMirs.length ? ` AND COALESCE(mir, '') NOT IN (${frozenMirs.map(() => '?').join(', ')})` : ''
-  await db.prepare(`UPDATE rik_tasks SET active = 0, updated_at = ? WHERE active = 1 AND updated_at < ?${keep}`).bind(stamp, stamp, ...frozenMirs).run()
+  // Self-service change tasks are not the matcher's: only staff close them.
+  await db.prepare(`UPDATE rik_tasks SET active = 0, updated_at = ? WHERE active = 1 AND updated_at < ? AND type != 'self_identity'${keep}`).bind(stamp, stamp, ...frozenMirs).run()
   await db.prepare(`DELETE FROM rik_status WHERE checked_at < ?${keep}`).bind(stamp, ...frozenMirs).run()
 }

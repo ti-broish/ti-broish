@@ -1,4 +1,5 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import { IdentityChangeConfirm, type IdentityPending } from '../components/IdentityChangeConfirm'
 import { useEffect, useRef, useState } from 'react'
 import { BulgariaMap, type MapPoint } from '../components/BulgariaMap'
 import { PartnerBanner } from '../components/PartnerBanner'
@@ -60,6 +61,8 @@ function SignupPage() {
   const { pending, sessionEmail } = useRegistration()
   const [error, setError] = useState('')
   const [saveNotice, setSaveNotice] = useState('')
+  const [identityPending, setIdentityPending] = useState<IdentityPending | null>(null)
+  const [identityNote, setIdentityNote] = useState('')
   const [chosen, setChosen] = useState(false)
   useEffect(() => {
     if (ownSignupMarked(sessionEmail)) setChosen(true)
@@ -87,6 +90,7 @@ function SignupPage() {
           return
         }
         setSaveNotice('')
+        setIdentityPending(result.identityPending ?? null)
         if (result.pendingLinks.length > 0) setUnsentCompanionLinks(result.pendingLinks)
         if (result.renewedCallAt && result.renewedCallAt !== profile.callRequestedAt) {
           updateProfile({ callRequestedAt: result.renewedCallAt })
@@ -174,6 +178,19 @@ function SignupPage() {
       {saveNotice ? (
         <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 leading-7 text-red-800">
           {saveNotice} <Link to="/vhod">Вход с код</Link>
+        </p>
+      ) : null}
+      {identityPending ? (
+        <IdentityChangeConfirm
+          pending={identityPending}
+          onDone={(message) => {
+            setIdentityPending(null)
+            setIdentityNote(message)
+          }}
+        />
+      ) : identityNote ? (
+        <p role="status" className="rounded-xl border border-green-300 bg-green-50 p-3 leading-7 text-green-900" data-testid="identity-change-note">
+          {identityNote}
         </p>
       ) : null}
       {current === 'review' && settled ? <p className="text-lg leading-7">Провери промените и ги запази.</p> : null}

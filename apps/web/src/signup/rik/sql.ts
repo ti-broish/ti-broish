@@ -121,6 +121,8 @@ export const RIK_COLUMNS: Array<[string, string, string]> = [
   ['rik_sources', 'submitted_at', 'TEXT'],
   ['rik_tasks', 'fixed_at', 'TEXT'],
   ['rik_tasks', 'fixed_by', 'TEXT'],
+  ['rik_tasks', 'old_name', 'TEXT'],
+  ['rik_tasks', 'old_egn', 'TEXT'],
 ]
 
 export const RIK_INDEXES = [

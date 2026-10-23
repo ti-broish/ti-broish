@@ -18,6 +18,7 @@ import {
   loadStoredIdentity,
   maskEgn,
   type StoredIdentity,
+  SELF_TASK_TYPE,
 } from './identity-fix'
 
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -165,4 +166,37 @@ export const identityFixSave = createServerFn({ method: 'POST' })
       if (/UNIQUE/i.test(message)) return refuse('Това ЕГН вече е записано при друг човек от същия партньор.')
       throw error
     }
+  })
+
+/**
+ * „Издай нов документ“ on a „Смяна име/ЕГН – нов документ“ task: the volunteer already saved the new
+ * names/ЕГН; this resets the пълномощно (same number and МИР) for signing under them, keeps the old
+ * file in the history and tracks the РИК correction from the task's old values. Sends nothing.
+ */
+export const identityReissue = createServerFn({ method: 'POST' })
+  .validator((input: { taskId: string }) => ({ taskId: String(input.taskId ?? '').slice(0, 200) }))
+  .handler(async ({ data }) => {
+    const access = await gate('fixIdentity')
+    if (!access.ok) return access
+    const refuse = (message: string) => ({ ok: false as const, state: 'invalid' as const, email: access.email, message })
+    const task = await access.db
+      .prepare(`SELECT person_id, type, COALESCE(old_name, '') AS old_name, COALESCE(old_egn, '') AS old_egn, fixed_at, done_at FROM rik_tasks WHERE id = ?`)
+      .bind(data.taskId)
+      .first<{ person_id: string | null; type: string; old_name: string; old_egn: string; fixed_at: string | null; done_at: string | null }>()
+    if (!task || task.type !== SELF_TASK_TYPE || !task.person_id) return refuse('Това не е задача „Смяна име/ЕГН – нов документ“.')
+    if (task.done_at) return refuse('Задачата е готова.')
+    if (task.fixed_at) return refuse('Новият документ вече е издаден по тази задача.')
+    const stored = await loadStoredIdentity(access.db, isPartnerPersonId(task.person_id) ? 'partner_people' : 'signups', task.person_id)
+    if (!stored) return refuse('Няма такъв човек.')
+    if (stored.file.number == null) return refuse('Човекът няма номер на пълномощно.')
+    if (stored.withdrawn) return refuse('Човекът е отписан: няма пълномощно за издаване.')
+    const result = await applyIdentityFix(access.db, {
+      stored,
+      after: { ...stored.names, egn: stored.egn },
+      actor: access.email,
+      now: new Date().toISOString(),
+      taskId: data.taskId,
+      reissue: { oldName: task.old_name, oldEgn: task.old_egn },
+    })
+    return result
   })

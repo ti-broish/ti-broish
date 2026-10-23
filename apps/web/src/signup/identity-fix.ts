@@ -23,6 +23,7 @@ import { egnKey } from './designation-duplicates'
 import { IDENTITY_AUDIT_SQL, identityChanges, maskEgn } from './signup-guard'
 import { ensureRenamesTable, fullName, renameDecision, type DesignationState, type PersonNames, type RenameTable, type RikState } from './designation-rename'
 import type { SignupD1 } from './db-core'
+import type { SelfIdentity } from './self-identity'
 
 export interface IdentityFixValues extends PersonNames {
   /** Ten digits; '' keeps the stored ЕГН. */
@@ -296,10 +297,21 @@ export function fixMessage(plan: ResetPlan, number: number | null, mir: string, 
  */
 export async function applyIdentityFix(
   db: SignupD1,
-  input: { stored: StoredIdentity; after: IdentityFixValues; actor: string; now: string; taskId?: string | null },
+  input: {
+    stored: StoredIdentity
+    after: IdentityFixValues
+    actor: string
+    now: string
+    taskId?: string | null
+    /**
+     * „Издай нов документ“ on a self-service change task: the data is already the new one (the
+     * volunteer saved it), only the document is reset; the РИК correction is from these old values.
+     */
+    reissue?: { oldName: string; oldEgn: string }
+  },
 ): Promise<IdentityFixResult> {
   await ensureIdentityFixTables(db)
-  const { stored, after, actor, now } = input
+  const { stored, after, actor, now, reissue } = input
   const state = stored.file
   let rik: RikState = { mirSubmittedAt: null, inRegister: false }
   if (state.number != null && state.mir) {
@@ -315,18 +327,24 @@ export async function applyIdentityFix(
       .catch(() => null)
     rik = { mirSubmittedAt: source?.submitted_at ?? null, inRegister: Boolean(entry) }
   }
-  const plan = resetPlan(state, rik, Boolean(input.taskId))
-  const nameChanged = fullName(after) !== fullName(stored.names)
-  const egnChanged = after.egn !== stored.egn
-  const statements = [
-    stored.table === 'signups'
-      ? db.prepare(UPDATE_SIGNUP_IDENTITY_SQL).bind(after.firstName, after.middleName, after.lastName, after.egn, now, stored.id)
-      : db.prepare(UPDATE_PARTNER_IDENTITY_SQL).bind(after.firstName, after.middleName, after.lastName, after.egn, now, stored.id),
-  ]
-  // Before/after per field, the ЕГН masked (the same helper as the signup form's audit).
-  const identity = (names: PersonNames, egn: string) => ({ name: fullName(names), email: '', phone: '', egn })
-  for (const change of identityChanges(identity(stored.names, stored.egn), identity(after, after.egn))) {
-    statements.push(db.prepare(IDENTITY_AUDIT_SQL).bind(crypto.randomUUID(), stored.id, actor, change.field, change.before, change.after, now))
+  // A РИК task about wrong data means the РИК has the old data; a self-service change only when it went out.
+  const plan = resetPlan(state, rik, Boolean(input.taskId) && !reissue)
+  const oldName = reissue ? reissue.oldName : fullName(stored.names)
+  const oldEgn = reissue ? reissue.oldEgn : stored.egn
+  const nameChanged = fullName(after) !== oldName
+  const egnChanged = Boolean(oldEgn) && after.egn !== oldEgn
+  const statements: ReturnType<SignupD1['prepare']>[] = []
+  if (!reissue) {
+    statements.push(
+      stored.table === 'signups'
+        ? db.prepare(UPDATE_SIGNUP_IDENTITY_SQL).bind(after.firstName, after.middleName, after.lastName, after.egn, now, stored.id)
+        : db.prepare(UPDATE_PARTNER_IDENTITY_SQL).bind(after.firstName, after.middleName, after.lastName, after.egn, now, stored.id),
+    )
+    // Before/after per field, the ЕГН masked (the same helper as the signup form's audit).
+    const identity = (names: PersonNames, egn: string) => ({ name: fullName(names), email: '', phone: '', egn })
+    for (const change of identityChanges(identity(stored.names, stored.egn), identity(after, after.egn))) {
+      statements.push(db.prepare(IDENTITY_AUDIT_SQL).bind(crypto.randomUUID(), stored.id, actor, change.field, change.before, change.after, now))
+    }
   }
   if (plan.supersede) {
     statements.push(
@@ -344,13 +362,13 @@ export async function applyIdentityFix(
           stored.id,
           state.mir,
           state.number,
-          fullName(stored.names),
+          oldName,
           fullName(after),
           plan.resign ? 1 : 0,
           plan.rikCorrection ? 1 : 0,
           now,
           actor,
-          egnChanged ? stored.egn : '',
+          egnChanged ? oldEgn : '',
           input.taskId ?? null,
         ),
     )
@@ -367,14 +385,14 @@ export async function applyIdentityFix(
           actor,
           'designation_resign',
           `№ ${state.mir}/${state.number}: ${state.signedAt ? 'подписано' : 'генерирано'} със старите данни`,
-          `поправка (${what})${input.taskId ? ' от задача в РИК' : ''}: за ново подписване${plan.supersede ? ', старият файл е в историята' : ''}${plan.rikCorrection ? ' и поправка в РИК' : ''}`,
+          `${reissue ? 'нов документ след смяна от човека' : 'поправка'} (${what || 'данни'})${input.taskId ? ' от задача в РИК' : ''}: за ново подписване${plan.supersede ? ', старият файл е в историята' : ''}${plan.rikCorrection ? ' и поправка в РИК' : ''}`,
           now,
         ),
     )
   }
   if (input.taskId) statements.push(db.prepare(TASK_FIXED_SQL).bind(now, actor, input.taskId, stored.id))
   await db.batch(statements)
-  return { ok: true, plan, number: state.number, mir: state.mir, nameChanged, egnChanged, message: fixMessage(plan, state.number, state.mir, after) }
+  return { ok: true, plan, number: state.number, mir: state.mir, nameChanged, egnChanged, message: reissue ? fixMessage(plan, state.number, state.mir, after).replace('Данните са поправени', 'Новите данни (от човека)') : fixMessage(plan, state.number, state.mir, after) }
 }
 
 /**
@@ -394,3 +412,103 @@ export function designationLinkBrevoEligible(person: { id: string; partner: bool
 }
 
 export { maskEgn }
+
+/**
+ * Self-service (Harry, 23.10.2026): a volunteer with a generated or signed пълномощно who changes
+ * their names or ЕГН confirms first; the change is saved with audit and a РИК task
+ * „Смяна име/ЕГН – нов документ“ is opened. Nothing is reset automatically: staff issue the new
+ * document from that task („Издай нов документ“).
+ */
+export { SELF_CHANGE_CONFIRM } from './self-identity'
+
+/** The person already has a document (generated, in a signing ZIP, or signed) under the current data. */
+export function hasDesignationDocument(file: FileState) {
+  if (file.number == null) return false
+  return Boolean(file.generatedAt || file.signingGeneratedAt || file.signedAt || file.firstSignedAt || (file.driveFileId ?? '').trim() || (file.pdfUrl ?? '').trim())
+}
+
+export type { SelfIdentity } from './self-identity'
+
+/** Names or ЕГН differ (names compared trimmed, ЕГН as digits). */
+export function selfIdentityChanged(before: SelfIdentity, after: SelfIdentity) {
+  return fullName(before) !== fullName({ firstName: cleanName(after.firstName), middleName: cleanName(after.middleName), lastName: cleanName(after.lastName) }) ||
+    egnKey(before.egn) !== egnKey(after.egn)
+}
+
+export const SELF_TASK_TYPE = 'self_identity'
+
+export function selfTaskDetail(input: { before: SelfIdentity; after: SelfIdentity; mir: string; number: number | null }) {
+  const parts: string[] = []
+  const oldName = fullName(input.before)
+  const newName = fullName(input.after)
+  if (oldName !== newName) parts.push(`имена „${oldName}“ → „${newName}“`)
+  if (egnKey(input.before.egn) !== egnKey(input.after.egn)) parts.push(`ЕГН ${maskEgn(egnKey(input.before.egn))} → ${maskEgn(egnKey(input.after.egn))}`)
+  const which = input.number != null ? ` Пълномощно № ${input.mir}/${input.number}.` : ''
+  return `Човекът сам смени ${parts.join('; ')}.${which} Издай нов документ (същият номер и МИР), подпиши и качи; после подай поправката в РИК.`
+}
+
+export const SELF_TASK_INSERT_SQL = `INSERT INTO rik_tasks (id, person_id, mir, type, reason, detail, active, created_at, updated_at, old_name, old_egn)
+  VALUES (?1, ?2, ?3, 'self_identity', 'changed', ?4, 1, ?5, ?5, ?6, ?7)`
+
+/** The volunteer's own save (saveSignup) asks for names/ЕГН different from the stored ones. '' ЕГН keeps the stored. */
+export function requestedSelfIdentity(stored: StoredIdentity, input: { firstName?: unknown; middleName?: unknown; lastName?: unknown; egn?: unknown }): SelfIdentity {
+  return {
+    firstName: cleanName(input.firstName),
+    middleName: cleanName(input.middleName),
+    lastName: cleanName(input.lastName),
+    egn: egnKey(cleanEgn(input.egn)) || stored.egn,
+  }
+}
+
+/**
+ * saveSignup holds the names/ЕГН back (keeps the stored ones) and asks to confirm: a non-withdrawn
+ * person with a document whose names or ЕГН would change.
+ */
+export function holdSelfIdentity(stored: StoredIdentity | null, requested: SelfIdentity) {
+  if (!stored || stored.withdrawn || !hasDesignationDocument(stored.file)) return false
+  return selfIdentityChanged({ ...stored.names, egn: stored.egn }, requested)
+}
+
+/** An open self-change task of the person not yet re-issued: a second change updates it (the РИК still has the first old data). */
+export const OPEN_SELF_TASK_SQL = `SELECT id, COALESCE(old_name, '') AS old_name, COALESCE(old_egn, '') AS old_egn FROM rik_tasks
+  WHERE person_id = ?1 AND type = 'self_identity' AND active = 1 AND done_at IS NULL AND fixed_at IS NULL
+  ORDER BY created_at DESC LIMIT 1`
+
+export const SELF_TASK_UPDATE_SQL = `UPDATE rik_tasks SET detail = ?1, updated_at = ?2 WHERE id = ?3`
+
+/**
+ * The confirmed self-service change: new names/ЕГН, a before/after audit per field (ЕГН masked) and
+ * the РИК task „Смяна име/ЕГН – нов документ“, in one batch. The document is NOT reset here.
+ */
+export async function recordSelfIdentityChange(
+  db: SignupD1,
+  input: { stored: StoredIdentity; after: IdentityFixValues; actor: string; now: string },
+): Promise<{ taskId: string }> {
+  const { stored, after, actor, now } = input
+  const open = await db.prepare(OPEN_SELF_TASK_SQL).bind(stored.id).first<{ id: string; old_name: string; old_egn: string }>()
+  const before: SelfIdentity = open
+    ? { ...splitFirstOld(open.old_name, stored.names), egn: open.old_egn || stored.egn }
+    : { ...stored.names, egn: stored.egn }
+  const detail = selfTaskDetail({ before, after, mir: stored.file.mir, number: stored.file.number })
+  const identity = (names: PersonNames, egn: string) => ({ name: fullName(names), email: '', phone: '', egn })
+  const statements: ReturnType<SignupD1['prepare']>[] = [
+    db.prepare(UPDATE_SIGNUP_IDENTITY_SQL).bind(after.firstName, after.middleName, after.lastName, after.egn, now, stored.id),
+  ]
+  for (const change of identityChanges(identity(stored.names, stored.egn), identity(after, after.egn))) {
+    statements.push(db.prepare(IDENTITY_AUDIT_SQL).bind(crypto.randomUUID(), stored.id, actor, change.field, change.before, change.after, now))
+  }
+  const taskId = open?.id ?? crypto.randomUUID()
+  statements.push(
+    open
+      ? db.prepare(SELF_TASK_UPDATE_SQL).bind(detail, now, open.id)
+      : db.prepare(SELF_TASK_INSERT_SQL).bind(taskId, stored.id, stored.file.mir || '', detail, now, fullName(stored.names), stored.egn),
+  )
+  await db.batch(statements)
+  return { taskId }
+}
+
+/** The stored old name of an open task, as names for the detail line (only the full name matters). */
+function splitFirstOld(oldName: string, fallback: PersonNames): PersonNames {
+  const name = oldName.trim()
+  return name ? { firstName: name, middleName: '', lastName: '' } : fallback
+}

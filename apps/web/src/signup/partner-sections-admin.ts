@@ -4,10 +4,6 @@ import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { fetchApiJson } from './distribute-plan'
 import { isSectionHeldAbort } from './partner-people-sql'
-import { PARTNER_EXPORT_SQL, partnerExportCode, partnerExportCsv, type ExportPlace, type PartnerExportRow } from './partner-export'
-import { abroadLocation, isAbroadSection, loadAbroadPlaces } from './brevo-location'
-import { abroadSectionAddress } from './abroad-section-addresses'
-import { electionRegionNames, lookupSectionPlaces } from './section-places-lookup'
 import { describePartnerPublish, partnerHolderOf, publishPartnerDrafts } from './partner-publish'
 import { designationMirMessage, designationMirMismatch } from './designation-mir-guard'
 import {
@@ -245,34 +241,6 @@ export const adminPartnerUnpublish = createServerFn({ method: 'POST' })
     if (!row || !row.published) return { ok: false as const, message: 'Няма публикувана секция.' }
     await db.batch(unpublishStatements(db, row, new Date().toISOString()))
     return { ok: true as const, message: `Секция ${row.published} вече не е публикувана и не е резервирана. Черновата остава.` }
-  })
-
-/**
- * „Експорт И аз“ (admins only): every active „И аз“ person, live from D1, with the section's town and
- * address from the same sources as the Brevo sync (API for Bulgaria, abroad list + MFA for МИР 32).
- * No ЕГН. Read-only: nothing is written and nothing goes to Brevo or e-mail.
- */
-export const adminPartnerExport = createServerFn({ method: 'POST' })
-  .handler(async () => {
-    const access = await gate('exportInternal')
-    if (!access.ok) return access
-    const db = access.db
-    const rows = ((await db.prepare(PARTNER_EXPORT_SQL).all<PartnerExportRow>()).results ?? [])
-    const codes = [...new Set(rows.map(partnerExportCode).filter(Boolean))]
-    const domestic = codes.filter((code) => !isAbroadSection(code))
-    const found = domestic.length > 0 ? await lookupSectionPlaces(domestic) : {}
-    const abroad = await loadAbroadPlaces(db, codes)
-    const places: Record<string, ExportPlace> = {}
-    for (const code of codes) {
-      if (isAbroadSection(code)) places[code] = { town: abroadLocation(abroad.get(code), {}, code), address: abroadSectionAddress(code) }
-      else {
-        const spot = found[code] ?? { address: '', area: '', town: '' }
-        places[code] = { town: (spot.town ?? '').trim(), address: spot.address ?? '' }
-      }
-    }
-    const mirNames = await electionRegionNames()
-    const stamp = new Date().toISOString().slice(0, 10)
-    return { ok: true as const, csv: partnerExportCsv(rows, places, mirNames), count: rows.length, filename: `iaz-brevo-export-${stamp}.csv` }
   })
 
 const holderOf = partnerHolderOf

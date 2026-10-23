@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { getCookie, getRequestUrl } from '@tanstack/react-start/server'
 import { PERSON_REACH_COLUMNS, personReachFrom, publishBlocked, validateAssignment, warningSummary, type PersonReach } from './admin-assign'
 import { normalizeSection } from './admin-csv'
+import { isPartnerPersonId } from './partner-people-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { assignmentMail, deliverMail } from './mail'
 import { resolveAssignedSectionPlace } from './assigned-section-resolve'
@@ -63,6 +64,8 @@ export const adminPublishOne = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const access = await publishAccess()
     if (!access.ok) return access
+    // „И аз“ people never get e-mail from us (their partner contacts them).
+    if (isPartnerPersonId(String(data.id ?? ''))) return { ok: false as const, message: 'На хора от „И аз“ не пращаме писма.' }
     const db = access.db
     const row = await db
       .prepare(

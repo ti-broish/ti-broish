@@ -209,3 +209,37 @@ export interface PartnerRosterRow {
 export const PARTNER_SUMMARY_SQL = `SELECT COUNT(*) AS partners,
   COALESCE(SUM(CASE WHEN COALESCE(p.section_published, '') != '' THEN 1 ELSE 0 END), 0) AS assigned
   FROM partner_people p WHERE ${PARTNER_SHOWN_SQL}`
+
+/**
+ * Секции: shown „И аз“ rows for the page's scope (alias p), or null when the scope holds none.
+ * „Цялата страна“ = all, a МИР = the пълномощно МИР, „Чужбина“ = МИР 32.
+ */
+export function partnerSectionsScope(view: RosterView | string, mir: string): { clause: string; binds: string[] } | null {
+  if (view === 'all') return { clause: '1 = 1', binds: [] }
+  if (view === 'abroad') return { clause: "COALESCE(p.designation_mir, '') = '32'", binds: [] }
+  if (view === 'mir') {
+    const code = mir.trim()
+    if (!code) return null
+    return { clause: 'p.designation_mir = ?', binds: [code.padStart(2, '0')] }
+  }
+  return null
+}
+
+const P_PUBLISHED = `COALESCE(p.section_published, '') != ''`
+const P_DRAFTED = `COALESCE(p.section_draft, '') != ''`
+
+/** The three Секции states for a partner row (alias p), same rules as for signups. */
+export const PARTNER_SECTION_STATE_SQL = {
+  none: `NOT (${P_PUBLISHED}) AND NOT (${P_DRAFTED})`,
+  draft: `NOT (${P_PUBLISHED}) AND ${P_DRAFTED}`,
+  published: P_PUBLISHED,
+} as const
+
+/** Per-state counts of shown partner rows in a Секции scope (same columns as sectionCountsSql). */
+export function partnerSectionCountsSql(partnerClause: string) {
+  return `SELECT COUNT(*) AS total,
+    COALESCE(SUM(CASE WHEN ${PARTNER_SECTION_STATE_SQL.none} THEN 1 ELSE 0 END), 0) AS none,
+    COALESCE(SUM(CASE WHEN ${PARTNER_SECTION_STATE_SQL.draft} THEN 1 ELSE 0 END), 0) AS draft,
+    COALESCE(SUM(CASE WHEN ${PARTNER_SECTION_STATE_SQL.published} THEN 1 ELSE 0 END), 0) AS published
+  FROM partner_people p WHERE ${PARTNER_SHOWN_SQL} AND ${partnerClause}`
+}

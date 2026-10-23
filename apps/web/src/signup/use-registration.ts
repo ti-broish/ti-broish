@@ -39,6 +39,7 @@ export function applyLoadedSession(current: Profile, remote: NonNullable<Session
 export function useRegistration() {
   const { profile, ready } = useProfile()
   const [remoteDone, setRemoteDone] = useState(false)
+  const [sessionEmail, setSessionEmail] = useState('')
 
   useEffect(() => {
     if (!ready) return
@@ -46,7 +47,10 @@ export function useRegistration() {
     const current = beginSessionLoad(profile)
     void current.pending.then((result) => {
       if (cancelled) return
-      if (result) updateProfile((latest) => applyLoadedSession(latest, result, current.at))
+      if (result) {
+        updateProfile((latest) => applyLoadedSession(latest, result, current.at))
+        setSessionEmail(result.profile.email)
+      }
       setRemoteDone(true)
     })
     return () => {
@@ -56,5 +60,6 @@ export function useRegistration() {
 
   const settled = ready && registrationSettled(profile)
   const pending = !ready || (profileIsBlank(profile) && !settled && !remoteDone)
-  return { settled, pending }
+  /** The e-mail of the record this browser's tb_session holds, once loaded ('' without one). */
+  return { settled, pending, sessionEmail }
 }

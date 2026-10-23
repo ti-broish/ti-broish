@@ -1351,6 +1351,7 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
     let beforeRunoff = false
     let beforeTravel = ''
     let beforeNames: PersonNames = { firstName: '', middleName: '', lastName: '' }
+    let beforePhone = ''
     try {
       const profile = profileFrom({
         id: row.id,
@@ -1378,6 +1379,7 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
       beforeRunoff = sealed.rounds.runoff
       beforeTravel = staffTravelText(sealed)
       beforeNames = { firstName: sealed.firstName, middleName: sealed.middleName, lastName: sealed.lastName }
+      beforePhone = sealed.phone.trim()
       const radius = parseRadiusChoice(data.radius, sealed.place)
       edited = applyStaffEdit(sealed, {
         firstName: data.firstName,
@@ -1438,6 +1440,8 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
       { role: beforeRole, roundsFirst: beforeFirst, roundsRunoff: beforeRunoff, staffNote: beforeNote, travel: beforeTravel },
       { role: edited.role, roundsFirst: edited.rounds.first, roundsRunoff: edited.rounds.runoff, staffNote: write.staffNote, travel: staffTravelText(edited) },
     )
+    // Names are audited by applyRenameTransition above; the phone is the other identity field staff can edit.
+    if (beforePhone !== edited.phone.trim()) audited.push({ field: 'phone', before: beforePhone || 'няма', after: edited.phone.trim() || 'няма' })
     for (const change of audited) {
       await access.db
         .prepare(

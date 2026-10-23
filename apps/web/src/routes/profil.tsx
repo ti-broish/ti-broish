@@ -18,7 +18,7 @@ import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signup
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
-import { ensureReferralCode, updateProfile, useProfile } from '../signup/store'
+import { ensureReferralCode, updateProfile, useProfile, markOwnSignup } from '../signup/store'
 
 export const Route = createFileRoute('/profil')({ component: ProfilePage })
 
@@ -163,6 +163,7 @@ function ProfilePage() {
   const [referralCount, setReferralCount] = useState(0)
   const [synced, setSynced] = useState(false)
   const [unsentCompanionLinks, setUnsentCompanionLinks] = useState<{ email: string; link: string }[]>([])
+  const [saveNotice, setSaveNotice] = useState('')
   const skipSave = useRef(true)
   const designation = useOwnDesignation(ready && Boolean(profile.email))
   const designationPlace = useAssignedSectionPlace(designation?.section || null)
@@ -196,6 +197,7 @@ function ProfilePage() {
     if (!profile.email.includes('@')) return
     const handle = window.setTimeout(() => {
       void saveSignup({ data: profile }).then((result) => {
+        setSaveNotice(!result.ok && 'reason' in result && result.reason ? result.message : '')
         if (result.ok && result.pendingLinks.length > 0) setUnsentCompanionLinks(result.pendingLinks)
         if (result.ok && result.renewedCallAt && result.renewedCallAt !== profile.callRequestedAt) {
           updateProfile({ callRequestedAt: result.renewedCallAt })
@@ -241,15 +243,20 @@ function ProfilePage() {
         />
       ) : null}
       <PageIntro title={`${profile.firstName}, това е профилът ти`} />
+      {saveNotice ? (
+        <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 leading-7 text-red-800">
+          {saveNotice} <Link to="/vhod">Вход с код</Link>
+        </p>
+      ) : null}
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid gap-8">
           <NextStep profile={profile} />
           <div className="grid gap-2">
-            <Link to="/signup" search={{ step: 'contact' }} className="font-bold">
+            <Link to="/signup" search={{ step: 'contact' }} className="font-bold" onClick={() => markOwnSignup(profile.email)}>
               Промени данните
             </Link>
             {canEditPlace ? (
-              <Link to="/signup" search={{ step: 'place' }} className="font-bold">
+              <Link to="/signup" search={{ step: 'place' }} className="font-bold" onClick={() => markOwnSignup(profile.email)}>
                 Промени мястото{assigned && mirOf(profile.place) ? ` в МИР ${mirOf(profile.place)}` : ''}
               </Link>
             ) : (

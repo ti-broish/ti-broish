@@ -10,6 +10,7 @@ import { egnAgeProblem, egnProblem, signupColumns } from './record'
 import { receiptClaimed, signupReceiptMail } from './receipt'
 import { sessionCookieSecure } from './session-cookie'
 import { SELF_WITHDRAW_REASON } from './admin-unregister'
+import { IDENTITY_AUDIT_SQL, identityChanges, identityOf, OTHER_RECORD_MESSAGE, saveDecision, selfActor, type EmailRow, type SessionRow } from './signup-guard'
 import { restoreSignup, withdrawalTurn, withdrawSignup } from './withdrawal'
 
 function requestHost() {
@@ -26,6 +27,14 @@ function profileUrl() {
     return `${url.protocol}//${url.host}/profil`
   } catch {
     return 'https://tibroish.bg/profil'
+  }
+}
+
+function parsePayload(payload: string | null): Record<string, string | undefined> {
+  try {
+    return payload ? (JSON.parse(payload) as Record<string, string | undefined>) : {}
+  } catch {
+    return {}
   }
 }
 
@@ -82,28 +91,31 @@ export const saveSignup = createServerFn({ method: 'POST' })
     const cookie = getCookie(SESSION_COOKIE)
     const bySession = cookie
       ? await db
-          .prepare('SELECT id, email, session_token, imported, email_confirmed FROM signups WHERE session_token = ?')
+          .prepare('SELECT id, email, session_token, imported, email_confirmed, pending_email FROM signups WHERE session_token = ?')
           .bind(cookie)
-          .first<{ id: string; email: string; session_token: string | null; imported: number | null; email_confirmed: number | null }>()
+          .first<SessionRow>()
       : null
-    if (bySession && bySession.email.trim().toLowerCase() !== data.email.trim().toLowerCase()) {
-      data = { ...data, email: bySession.email, emailConfirmed: bySession.email_confirmed === 1 }
-    }
-    let columns = signupColumns(data)
     const byEmail = await db
       .prepare('SELECT id, session_token, imported, email_confirmed FROM signups WHERE email = ?')
-      .bind(columns.email)
-      .first<{ id: string; session_token: string | null; imported: number | null; email_confirmed: number | null }>()
-    if (bySession && byEmail && byEmail.id !== bySession.id) {
-      if (byEmail.imported && !byEmail.email_confirmed) {
-        return { ok: false as const, message: 'Този имейл чака потвърждение от писмото.' }
+      .bind(data.email.trim().toLowerCase())
+      .first<EmailRow>()
+    // Never take over another record by its e-mail: only the code (checkEmailCode, /vhod) brings its session here.
+    const decision = saveDecision(data.email, bySession, byEmail)
+    if (decision.kind === 'refuse') return { ok: false as const, reason: decision.reason, message: decision.message }
+    // email_confirmed is the server's to set (checkEmailCode), never the form's.
+    data = decision.kind === 'own' ? { ...data, email: decision.email, emailConfirmed: decision.emailConfirmed } : { ...data, emailConfirmed: false }
+    if (decision.kind === 'own' && decision.renameFrom !== undefined) {
+      try {
+        await db
+          .prepare('UPDATE signups SET email = ?, email_code = NULL, pending_email = NULL WHERE id = ? AND COALESCE(email_confirmed, 0) = 0')
+          .bind(decision.email, decision.row.id)
+          .run()
+      } catch {
+        return { ok: false as const, reason: 'other-record' as const, message: OTHER_RECORD_MESSAGE }
       }
-      return { ok: false as const, message: 'Този имейл вече е на друго записване.' }
     }
-    if (byEmail?.imported && !byEmail.email_confirmed && cookie !== byEmail.session_token) {
-      return { ok: false as const, message: 'Този имейл чака потвърждение от писмото.' }
-    }
-    const existing = bySession ?? byEmail
+    let columns = signupColumns(data)
+    const existing = decision.kind === 'own' ? decision.row : null
     if (egnAgeProblem(data.egn, null)) {
       const stored = existing
         ? await db.prepare(`SELECT COALESCE(egn, '') AS egn FROM signups WHERE id = ?`).bind(existing.id).first<{ egn: string }>()
@@ -113,6 +125,9 @@ export const saveSignup = createServerFn({ method: 'POST' })
     }
     const id = existing?.id ?? crypto.randomUUID()
     const token = existing?.session_token ?? crypto.randomUUID()
+    const identityBefore = existing
+      ? await db.prepare(`SELECT payload, COALESCE(egn, '') AS egn FROM signups WHERE id = ?`).bind(existing.id).first<{ payload: string | null; egn: string }>()
+      : null
     // A new request from someone the team already called reopens it in the queue.
     const prior = existing
       ? await db
@@ -243,6 +258,13 @@ export const saveSignup = createServerFn({ method: 'POST' })
           .run()
       }
     }
+    if (existing && identityBefore) {
+      const after = await db.prepare(`SELECT payload, COALESCE(egn, '') AS egn FROM signups WHERE id = ?`).bind(id).first<{ payload: string | null; egn: string }>()
+      const changes = identityChanges(identityOf(parsePayload(identityBefore.payload), identityBefore.egn), identityOf(parsePayload(after?.payload ?? null), after?.egn ?? ''))
+      for (const change of changes) {
+        await db.prepare(IDENTITY_AUDIT_SQL).bind(crypto.randomUUID(), id, selfActor(columns.email), change.field, change.before, change.after, now).run()
+      }
+    }
     const synced = await syncCompanions(db, id, data.companions)
     data = { ...data, companions: synced.companions }
     await db.prepare('UPDATE signups SET payload = ? WHERE id = ?').bind(signupColumns(data).payload, id).run()
@@ -351,4 +373,13 @@ export const loadSignup = createServerFn({ method: 'GET' }).handler(async () => 
     referrerName: await referrerName(db, profile.referredBy),
     referralCount: countRow?.n ?? 0,
   }
+})
+
+/**
+ * „Запиши друг човек“: this browser lets go of its record (tb_session) so the next save starts a new
+ * one. The record itself is untouched; its owner gets back in with the code on /vhod.
+ */
+export const leaveSignupSession = createServerFn({ method: 'POST' }).handler(async () => {
+  setCookie(SESSION_COOKIE, '', { httpOnly: true, secure: sessionCookieSecure(requestHost()), sameSite: 'lax', path: '/', maxAge: 0 })
+  return { ok: true as const }
 })

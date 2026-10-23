@@ -7,7 +7,7 @@ import { StaffNote } from '../components/StaffNote'
 import { TravelChoice, useTownDistricts } from '../components/TravelChoice'
 import { checkEmailCode, requestEmailCode } from '../signup/confirm-mail'
 import { assignmentTiming, groupAsCoordinator, groupWithYou, mobileTeamText, paperSectionText, votingLogistics } from '../signup/copy'
-import { saveSignup } from '../signup/db'
+import { leaveSignupSession, saveSignup } from '../signup/db'
 import { geocodePlace } from '../signup/geo'
 import {
   EXPERIENCE,
@@ -38,8 +38,8 @@ import {
 import { adultOnElectionDay, campaignFromSearch, locationEditable, mirOf, needsWiderTravel, placeChangeAllowed, UNDERAGE_MESSAGE, validEgn } from '../signup/rules'
 import { placeSummaries } from '../signup/sections'
 import { useOutlines } from '../signup/use-outlines'
-import { updateProfile, useProfile } from '../signup/store'
-import { useRegistration } from '../signup/use-registration'
+import { markOwnSignup, ownSignupMarked, resetProfile, updateProfile, useProfile } from '../signup/store'
+import { invalidateSessionLoad, useRegistration } from '../signup/use-registration'
 import type { CityRegion, PollingSection } from '../signup/geo'
 
 export const Route = createFileRoute('/signup')({
@@ -57,8 +57,13 @@ function SignupPage() {
   const { step } = Route.useSearch()
   const navigate = useNavigate()
   const { profile, ready } = useProfile()
-  const { pending } = useRegistration()
+  const { pending, sessionEmail } = useRegistration()
   const [error, setError] = useState('')
+  const [saveNotice, setSaveNotice] = useState('')
+  const [chosen, setChosen] = useState(false)
+  useEffect(() => {
+    if (ownSignupMarked(sessionEmail)) setChosen(true)
+  }, [sessionEmail])
   const [mailFailed, setMailFailed] = useState(false)
   useEffect(() => {
     const found = campaignFromSearch(new URLSearchParams(window.location.search))
@@ -76,7 +81,12 @@ function SignupPage() {
       const payload = counted ? { ...profile, submitted: true } : profile
       if (counted && !profile.submitted) updateProfile({ submitted: true })
       void saveSignup({ data: payload }).then((result) => {
-        if (!result.ok) return
+        if (!result.ok) {
+          // A refused save (someone else's e-mail, another session) says why instead of failing quietly.
+          setSaveNotice('reason' in result && result.reason ? result.message : '')
+          return
+        }
+        setSaveNotice('')
         if (result.pendingLinks.length > 0) setUnsentCompanionLinks(result.pendingLinks)
         if (result.renewedCallAt && result.renewedCallAt !== profile.callRequestedAt) {
           updateProfile({ callRequestedAt: result.renewedCallAt })
@@ -141,6 +151,17 @@ function SignupPage() {
   }
 
   if (pending) return <p>Зареждаме данните…</p>
+  if (sessionEmail && !chosen) {
+    return (
+      <SessionChoice
+        email={sessionEmail}
+        onContinue={() => {
+          markOwnSignup(sessionEmail)
+          setChosen(true)
+        }}
+      />
+    )
+  }
 
   const motionClass = entrance?.id === current ? (entrance.dir === 'back' ? 'step-enter-back' : 'step-enter-forward') : ''
 
@@ -150,6 +171,11 @@ function SignupPage() {
       {settled ? <p className="text-lg leading-7">Вече си записан. Тук променяш записването.</p> : null}
       <h1 className="text-3xl font-black text-[#444]">{titles[current]}</h1>
       <PartnerBanner source={profile.source} />
+      {saveNotice ? (
+        <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 leading-7 text-red-800">
+          {saveNotice} <Link to="/vhod">Вход с код</Link>
+        </p>
+      ) : null}
       {current === 'review' && settled ? <p className="text-lg leading-7">Провери промените и ги запази.</p> : null}
       {current === 'contact' ? (
         settled ? (
@@ -188,6 +214,44 @@ function SignupPage() {
           Назад
         </button>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * A browser that already holds a record (tb_session) chooses: go on with that record, or start a new
+ * person. The second clears this browser's draft and session, so the next save is a new record and
+ * never writes over the signed-in one.
+ */
+function SessionChoice({ email, onContinue }: { email: string; onContinue: () => void }) {
+  const [leaving, setLeaving] = useState(false)
+  return (
+    <div className="grid gap-4">
+      <h1 className="text-3xl font-black text-[#444]">Влязъл си като {email}</h1>
+      <p className="text-lg leading-7">Продължи своето записване или запиши друг човек. Записването на друг човек започва на чисто и не променя твоето.</p>
+      <button type="button" className={button} onClick={onContinue}>
+        Продължи своето записване
+      </button>
+      <button
+        type="button"
+        className={ghost}
+        disabled={leaving}
+        onClick={() => {
+          setLeaving(true)
+          void leaveSignupSession()
+            .catch(() => undefined)
+            .then(() => {
+              resetProfile()
+              invalidateSessionLoad()
+              window.location.assign('/signup?step=contact')
+            })
+        }}
+      >
+        Запиши друг човек
+      </button>
+      <p className="text-sm leading-7">
+        След това този браузър вече не е влязъл като {email}. Влизаш отново през <Link to="/vhod">/vhod</Link> с код от имейла. Ако си от екипа, добавяй други хора от администрацията („Хора, въведени от екипа“ в Записвания).
+      </p>
     </div>
   )
 }

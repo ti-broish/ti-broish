@@ -82,7 +82,7 @@ describe('numbering message', () => {
   it('says how many were skipped as ЕГН duplicates', () => {
     expect(numberingMessage(3, 2, 0)).toBe('Номерирани 3 души; пропуснати 2 (дубликат по ЕГН).')
     expect(numberingMessage(0, 1, 1)).toBe('Няма нови за номериране; пропуснати 1 (дубликат по ЕГН), пропуснати 1 (покрит от доброволец).')
-    expect(numberingMessage(0, 0, 0)).toBe('Всички с публикувана секция вече имат номер.')
+    expect(numberingMessage(0, 0, 0)).toBe('Всички вече имат номер.')
     expect(numberingMessage(4, 0, 0)).toBe('Номерирани 4 души.')
   })
 })

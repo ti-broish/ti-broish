@@ -43,6 +43,7 @@ import {
 } from './designation-duplicates'
 import { designationNumberAuditSql } from './designation-audit-sql'
 import { numberingMessage } from './designation-number-message'
+import { SECTIONLESS_SIGNUPS_SQL, sectionlessMir } from './designation-sectionless'
 import { addToSignScopeCounts, emptySignScopeCounts } from './designation-sign-scope'
 import { runSqlBatches } from './designation-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
@@ -247,6 +248,61 @@ async function listPartnerPeople(db: Database): Promise<ListedPerson[]> {
   return (result.results ?? []).map(fromRaw)
 }
 
+interface RawSectionless {
+  id: string
+  first_name: string
+  middle_name: string
+  last_name: string
+  email: string
+  draft_section: string | null
+  mir_code: string | null
+  region_code: string | null
+  created_at: string
+  egn_key: string | null
+}
+
+/** A finished volunteer without a published section, unnumbered, with the МИР they get (or why not). */
+export interface SectionlessVolunteer {
+  person: ListedPerson
+  mir: string
+  reason: string | null
+}
+
+/**
+ * Finished volunteers without a published section: numbered by МИР alone (draft section, else home
+ * place), the way „И аз“ are. No МИР (София без район) means no number, and the page lists them.
+ */
+async function listSectionless(db: Database): Promise<SectionlessVolunteer[]> {
+  const result = await db.prepare(SECTIONLESS_SIGNUPS_SQL).all<RawSectionless>()
+  return (result.results ?? []).map((row) => {
+    const pick = sectionlessMir(row)
+    const person = fromRaw({
+      id: row.id,
+      first_name: row.first_name,
+      middle_name: row.middle_name,
+      last_name: row.last_name,
+      email: row.email,
+      section: pick.mir,
+      designation_number: null,
+      designation_issued_at: null,
+      designation_generated_at: null,
+      designation_signed_at: null,
+      designation_pdf_url: null,
+      designation_drive_file_id: null,
+      created_at: row.created_at ?? '',
+      egn_key: row.egn_key,
+    })
+    return { person, mir: pick.mir, reason: pick.reason }
+  })
+}
+
+/** „без МИР – избери“ on the page: volunteers who cannot be numbered until staff set the район. */
+export interface DesignationNoMirVolunteer {
+  id: string
+  name: string
+  reason: string
+}
+
 export async function handleDesignationStatus(data: { mir: string; q: string }) {
   const access = await gateDesignation('view')
   if (!access.ok) return access
@@ -299,10 +355,17 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
   // The volunteer share of scopeCounts; the rest are „И аз“ partner people.
   const volunteerScopeCounts = inMir.filter((row) => !row.partner).reduce(addToSignScopeCounts, emptySignScopeCounts())
   const partnerScopeCounts = partners.filter((row) => signable(row, dupOf(row))).reduce(addToSignScopeCounts, emptySignScopeCounts())
+  const sectionless = await listSectionless(access.db)
+  const volunteersNoMir: DesignationNoMirVolunteer[] = sectionless
+    .filter((row) => !row.mir)
+    .map((row) => ({ id: row.person.id, name: displayName(row.person), reason: row.reason ?? '' }))
+  const volunteersAwaitingMir = sectionless.filter((row) => row.mir).length
   return {
     ok: true as const,
     counts,
     partnerCounts,
+    volunteersNoMir,
+    volunteersAwaitingMir,
     people,
     mirs,
     zipEligible,
@@ -316,7 +379,14 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
 export async function handleDesignationNumber() {
   const access = await gateDesignation('exportCampaign')
   if (!access.ok) return access
-  const listed = [...(await listPublished(access.db)), ...(await listPartnerPeople(access.db))]
+  const sectionless = await listSectionless(access.db)
+  // Volunteers without a section join with their МИР as the section, as „И аз“ do; no МИР, no number.
+  const listed = [
+    ...(await listPublished(access.db)),
+    ...sectionless.filter((row) => row.mir).map((row) => row.person),
+    ...(await listPartnerPeople(access.db)),
+  ]
+  const noMir = sectionless.filter((row) => !row.mir).length
   const issuedOn = todayInSofia()
   const now = new Date().toISOString()
   const ordered = [...listed].sort((a, b) => {
@@ -374,7 +444,8 @@ export async function handleDesignationNumber() {
     skippedDuplicates: duplicates,
     skippedCovered: covered,
     updated: assigned + dateStatements.length,
-    message: numberingMessage(assigned, duplicates, covered),
+    noMir,
+    message: numberingMessage(assigned, duplicates, covered, noMir),
   }
 }
 

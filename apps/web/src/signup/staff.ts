@@ -2,13 +2,16 @@ export const STAFF_ROLES = ['viewer', 'editor', 'admin'] as const
 
 export type StaffRole = (typeof STAFF_ROLES)[number]
 
-/** revealEgn: see one person's full ЕГН on their profile (admins only; every reveal is audited). */
-export type StaffAction = 'view' | 'edit' | 'exportCampaign' | 'exportInternal' | 'publish' | 'invite' | 'revealEgn'
+/**
+ * revealEgn: see one person's full ЕГН on their profile (admins only; every reveal is audited).
+ * fixIdentity: „Поправи име/ЕГН“ on a numbered person (admins only; resets the пълномощно for signing).
+ */
+export type StaffAction = 'view' | 'edit' | 'exportCampaign' | 'exportInternal' | 'publish' | 'invite' | 'revealEgn' | 'fixIdentity'
 
 const ALLOWED: Record<StaffRole, readonly StaffAction[]> = {
   viewer: ['view'],
   editor: ['view', 'edit', 'exportCampaign'],
-  admin: ['view', 'edit', 'exportCampaign', 'exportInternal', 'publish', 'invite', 'revealEgn'],
+  admin: ['view', 'edit', 'exportCampaign', 'exportInternal', 'publish', 'invite', 'revealEgn', 'fixIdentity'],
 }
 
 export function parseStaffRole(value: string | null | undefined): StaffRole | null {

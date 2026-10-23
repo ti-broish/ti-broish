@@ -4,7 +4,7 @@ import { createDriveClient, tryReadDriveAuth } from './designation-drive-core'
 import { httpStatusForStaffDenial } from './designation-preview'
 import { streamZipWriter } from './designation-zip-stream'
 import type { SignupD1 } from './db-core'
-import { ensureRenamesTable } from './designation-rename'
+import { ensureIdentityFixTables } from './identity-fix'
 import {
   SIGNED_PEOPLE_SQL,
   peopleInWave,
@@ -23,27 +23,56 @@ export async function loadSignedPeople(db: SignupD1): Promise<SignedPerson[]> {
   const result = await db.prepare(SIGNED_PEOPLE_SQL).all<SignedRow>()
   const people = (result.results ?? []).map(signedPersonFromRow).filter((person): person is SignedPerson => person != null)
   const open = await openRikCorrections(db)
-  return open.size ? people.map((person) => (open.has(person.id) ? { ...person, correctionFrom: open.get(person.id)! } : person)) : people
+  return open.size ? people.map((person) => withCorrection(person, open.get(person.id))) : people
 }
 
-/** Renamed after the РИК got the old name, and the register does not show the new one yet: person id → old name. */
-async function openRikCorrections(db: SignupD1) {
-  const open = new Map<string, string>()
-  try {
-    await ensureRenamesTable(db)
-    const rows = await db
-      .prepare(
-        `SELECT r.person_id, r.old_name FROM designation_renames r
-         WHERE r.rik_correction = 1
-           AND NOT EXISTS (SELECT 1 FROM rik_status s WHERE s.person_id = r.person_id AND s.status = 'registered')
-         ORDER BY r.created_at`,
-      )
-      .all<{ person_id: string; old_name: string }>()
-    for (const row of rows.results ?? []) if (!open.has(row.person_id)) open.set(row.person_id, row.old_name)
-  } catch {
-    // No rik_status table yet: no corrections to list.
+function withCorrection(person: SignedPerson, correction: OpenCorrection | undefined): SignedPerson {
+  if (!correction) return person
+  return {
+    ...person,
+    ...(correction.oldName ? { correctionFrom: correction.oldName } : {}),
+    ...(correction.oldEgn ? { correctionEgnFrom: correction.oldEgn } : {}),
+  }
+}
+
+export interface OpenCorrection {
+  oldName: string
+  oldEgn: string
+}
+
+/**
+ * Open РИК corrections, person id → what the РИК has now. A name: until the register shows the
+ * new one. An ЕГН (from „Поправи име/ЕГН“; the register never shows ЕГН): until a РИК task of the
+ * person is marked done after the fix.
+ */
+export const OPEN_RIK_CORRECTIONS_SQL = `SELECT r.person_id, r.old_name, r.new_name, COALESCE(r.old_egn, '') AS old_egn FROM designation_renames r
+  WHERE r.rik_correction = 1 AND (
+    (r.old_name != r.new_name AND NOT EXISTS (SELECT 1 FROM rik_status s WHERE s.person_id = r.person_id AND s.status = 'registered'))
+    OR (COALESCE(r.old_egn, '') != '' AND NOT EXISTS (SELECT 1 FROM rik_tasks t WHERE t.person_id = r.person_id AND t.done_at IS NOT NULL AND t.done_at > r.created_at))
+  )
+  ORDER BY r.created_at`
+
+export function openCorrectionsFromRows(rows: Array<{ person_id: string; old_name: string; new_name: string; old_egn: string }>) {
+  const open = new Map<string, OpenCorrection>()
+  for (const row of rows) {
+    const current = open.get(row.person_id) ?? { oldName: '', oldEgn: '' }
+    // The first (oldest) value is what the РИК was sent.
+    if (!current.oldName && row.old_name && row.old_name !== row.new_name) current.oldName = row.old_name
+    if (!current.oldEgn && row.old_egn) current.oldEgn = row.old_egn
+    if (current.oldName || current.oldEgn) open.set(row.person_id, current)
   }
   return open
+}
+
+async function openRikCorrections(db: SignupD1) {
+  try {
+    await ensureIdentityFixTables(db)
+    const rows = await db.prepare(OPEN_RIK_CORRECTIONS_SQL).all<{ person_id: string; old_name: string; new_name: string; old_egn: string }>()
+    return openCorrectionsFromRows(rows.results ?? [])
+  } catch {
+    // No rik_status / rik_tasks table yet: no corrections to list.
+    return new Map<string, OpenCorrection>()
+  }
 }
 
 export async function handleSignedWaves(): Promise<

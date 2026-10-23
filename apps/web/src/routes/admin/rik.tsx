@@ -7,6 +7,7 @@ import { rikOverview, rikPeople, rikSyncNow, rikTaskDone, rikTasks, type RikPers
 import { STATUS_LABELS, TASK_LABELS, type RikStatus, type RikTaskType } from '../../signup/rik/match'
 import { parseRikSearch, type RikSearch } from '../../signup/rik/search'
 import { useDebouncedQuery } from './-debounced-query'
+import { IdentityFixForm } from '../../components/IdentityFixForm'
 
 export const Route = createFileRoute('/admin/rik')({
   validateSearch: (search: Record<string, unknown>): RikSearch => parseRikSearch(search),
@@ -470,6 +471,9 @@ function TasksView({
   const [tasks, setTasks] = useState<RikTaskRow[]>([])
   const [total, setTotal] = useState(0)
   const [canEdit, setCanEdit] = useState(false)
+  const [canFix, setCanFix] = useState(false)
+  const [fixing, setFixing] = useState('')
+  const [fixNote, setFixNote] = useState('')
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [busy, setBusy] = useState('')
 
@@ -483,6 +487,7 @@ function TasksView({
         setTasks(result.tasks)
         setTotal(result.total)
         setCanEdit(result.canEdit)
+        setCanFix(result.canFix)
         setPhase('ready')
       })
       .catch(() => !cancelled && setPhase('error'))
@@ -510,6 +515,11 @@ function TasksView({
         <div className="grid gap-1">
           <Badge tone={info.row.original.type === 'remove_person' ? undefined : 'bg-[#1f4d7a] text-white'}>{info.getValue()}</Badge>
           {!info.row.original.active ? <span className="text-xs text-[#5c5160]">Причината отпадна</span> : null}
+          {info.row.original.fixStage ? (
+            <span className="rounded-full bg-[#fff3c4] px-2 py-0.5 text-xs font-bold text-[#5a4300]" data-testid="rik-task-fix-stage">
+              {info.row.original.fixStage}
+            </span>
+          ) : null}
         </div>
       ),
     }),
@@ -530,6 +540,22 @@ function TasksView({
       cell: (info) => (
         <div className="grid gap-1">
           <p className="max-w-xl whitespace-pre-wrap">{info.getValue()}</p>
+          {fixing === info.row.original.id && info.row.original.personId ? (
+            <IdentityFixForm
+              personId={info.row.original.personId}
+              taskId={info.row.original.id}
+              onCancel={() => setFixing('')}
+              onSaved={(_info, message) => {
+                setFixing('')
+                setFixNote(message)
+                onChanged()
+              }}
+            />
+          ) : canFix && info.row.original.personId && info.row.original.personNumber != null && !info.row.original.doneAt ? (
+            <button type="button" className={`${adminGhost} justify-self-start`} onClick={() => setFixing(info.row.original.id)}>
+              Поправи име/ЕГН
+            </button>
+          ) : null}
           {info.row.original.type === 'call_rik' || info.row.original.type === 'check_rik' ? (
             <span className="text-xs">Телефон на РИК: {info.row.original.phones || '—'}</span>
           ) : null}
@@ -590,6 +616,11 @@ function TasksView({
           ))}
         </select>
       </label>
+      {fixNote ? (
+        <p className="text-sm font-bold text-[#1d5f2f]" role="status" data-testid="identity-fix-note">
+          {fixNote}
+        </p>
+      ) : null}
       <p className="text-sm font-bold" role="status">
         {phase === 'loading' ? 'Зареждаме…' : phase === 'error' ? 'Задачите не се заредиха.' : `${total} задачи.`}
       </p>

@@ -1,6 +1,7 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { AdminHeading } from '../../components/admin-ui'
+import { IdentityFixPanel } from '../../components/IdentityFixForm'
 import { adminPartnerPerson } from '../../signup/admin'
 import { defaultSignupSearch } from '../../signup/admin-search'
 import { IazBadge, IAZ_ROW_TINT } from './-iaz-row'
@@ -22,6 +23,7 @@ function when(value: string) {
 function PartnerPersonPage() {
   const { personId } = Route.useParams()
   const [state, setState] = useState<{ phase: 'loading' } | { phase: 'error'; message: string } | { phase: 'ready'; data: Found }>({ phase: 'loading' })
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -37,7 +39,7 @@ function PartnerPersonPage() {
     return () => {
       cancelled = true
     }
-  }, [personId])
+  }, [personId, reloadKey])
 
   const back = (
     <Link to="/admin/signups" search={{ ...defaultSignupSearch, source: 'iaz' }} className="text-sm font-bold text-[#2b062f] underline">
@@ -94,6 +96,7 @@ function PartnerPersonPage() {
           <Link className="font-bold text-[#2b062f] underline" to="/admin/palnomoshtni" hash="i-az">Пълномощни → „И аз“</Link>
         </p>
       </div>
+      <IdentityFixPanel personId={personId} onChanged={() => setReloadKey((key) => key + 1)} />
       <section className="grid gap-2">
         <h2 className="text-lg font-black text-[#1a1020]">Записвания при нас със същото ЕГН или имейл</h2>
         {signups.length === 0 ? <p className="text-sm text-[#333]">Няма.</p> : (

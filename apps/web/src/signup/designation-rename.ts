@@ -195,9 +195,10 @@ export async function loadRikCorrections(db: SignupD1): Promise<Map<string, RikC
   const map = new Map<string, RikCorrection>()
   for (const row of rows) {
     const current = map.get(row.person_id) ?? { personId: row.person_id, oldNames: [], newName: '' }
-    if (row.old_name && !current.oldNames.includes(row.old_name)) current.oldNames.push(row.old_name)
+    // An ЕГН-only fix keeps the name: nothing for the matcher to look for under an old name.
+    if (row.old_name && row.old_name !== row.new_name && !current.oldNames.includes(row.old_name)) current.oldNames.push(row.old_name)
     current.newName = row.new_name
-    map.set(row.person_id, current)
+    if (current.oldNames.length) map.set(row.person_id, current)
   }
   return map
 }

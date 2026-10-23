@@ -26,6 +26,8 @@ export interface SignedPerson {
   partner: boolean
   /** The name the РИК still has (renamed after it went out); the wave ZIP adds a „Поправки“ table. */
   correctionFrom?: string
+  /** „Поправи име/ЕГН“ changed the ЕГН after the РИК got the old one: the old ЕГН. */
+  correctionEgnFrom?: string
 }
 
 export interface SignedWave {
@@ -154,10 +156,15 @@ export function rikCorrectionsFilename(mir: string) {
   return `РИК ${mir.padStart(2, '0')} Поправки.xlsx`
 }
 
-/** A „Поправки“ row: same number and ЕГН, the new name, and the name the РИК has now. */
+/** A „Поправки“ row: same number, the new name and ЕГН, and what the РИК has now. */
 export function rikCorrectionRowFor(person: SignedPerson, numberPrefix: string): RikTableRow {
   const row = rikRowFor(person, numberPrefix)
-  return { ...row, name: `${row.name} (вместо „${person.correctionFrom ?? ''}“)` }
+  const was = [person.correctionFrom ? `вместо „${person.correctionFrom}“` : '', person.correctionEgnFrom ? `ЕГН вместо ${person.correctionEgnFrom}` : ''].filter(Boolean)
+  return { ...row, name: `${row.name} (${was.join('; ') || 'вместо „“'})` }
+}
+
+export function hasRikCorrection(person: SignedPerson) {
+  return Boolean(person.correctionFrom || person.correctionEgnFrom)
 }
 
 export function signedPdfName(person: SignedPerson) {
@@ -226,7 +233,7 @@ export async function writeSignedWaveZip(
     const folder = rikFolder(mir)
     const rows = sortRikRows(members.map((person) => rikRowFor(person, input.numberPrefix)))
     await add(`${folder}/${rikTableFilename(mir)}`, buildRikTableXlsx({ title, rows }))
-    const corrections = members.filter((person) => person.correctionFrom)
+    const corrections = members.filter(hasRikCorrection)
     if (corrections.length > 0) {
       await add(
         `${folder}/${rikCorrectionsFilename(mir)}`,

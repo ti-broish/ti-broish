@@ -8,6 +8,7 @@ import { STATUS_LABELS, TASK_LABELS, type RikStatus, type RikTaskType } from './
 import { nameKey } from './rik/normalize'
 import { RIK_LIVE_STATUS_SQL, RIK_PROBLEM_STATUSES, RIK_TASK_VISIBLE_SQL, rikPeopleWhere } from './rik/people-filter'
 import { createRikSync, ensureRikTables } from './rik/sync'
+import { FIX_STAGE_LABELS, ensureIdentityFixTables, fixStage } from './identity-fix'
 
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
 
@@ -232,6 +233,12 @@ export interface RikTaskRow {
   phones: string
   registerUrl: string
   sourceUrl: string
+  /** The person's пълномощно number (null: none yet), for „Поправи име/ЕГН“. */
+  personNumber: number | null
+  /** „Поправи име/ЕГН“ was used (on this task or the person's page): when. */
+  fixedAt: string | null
+  /** „Поправено – чака подпис“ etc.; '' without a fix. */
+  fixStage: string
 }
 
 export const rikTasks = createServerFn({ method: 'POST' })
@@ -244,6 +251,7 @@ export const rikTasks = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const access = await gate('view')
     if (!access.ok) return access
+    await ensureIdentityFixTables(access.db)
     const where: string[] = []
     const binds: unknown[] = []
     if (data.mir) {
@@ -261,7 +269,11 @@ export const rikTasks = createServerFn({ method: 'POST' })
     const rows = (await access.db
       .prepare(
         `SELECT t.*, COALESCE(src.phones, '') AS phones, COALESCE(src.base_url, '') AS base_url, COALESCE(e.source_url, '') AS source_url,
-           TRIM(COALESCE(json_extract(su.payload, '$.firstName'), pp.first_name, '') || ' ' || COALESCE(json_extract(su.payload, '$.middleName'), pp.middle_name, '') || ' ' || COALESCE(json_extract(su.payload, '$.lastName'), pp.last_name, '')) AS person_name
+           TRIM(COALESCE(json_extract(su.payload, '$.firstName'), pp.first_name, '') || ' ' || COALESCE(json_extract(su.payload, '$.middleName'), pp.middle_name, '') || ' ' || COALESCE(json_extract(su.payload, '$.lastName'), pp.last_name, '')) AS person_name,
+           COALESCE(su.designation_number, pp.designation_number) AS person_number,
+           COALESCE(su.designation_signing_generated_at, pp.designation_signing_generated_at) AS person_signing_at,
+           COALESCE(su.designation_signed_at, pp.designation_signed_at) AS person_signed_at,
+           COALESCE(t.fixed_at, (SELECT MAX(r.created_at) FROM designation_renames r WHERE r.person_id = t.person_id AND r.origin = 'identity_fix')) AS fix_at
          FROM rik_tasks t
          LEFT JOIN rik_sources src ON src.mir = t.mir
          LEFT JOIN rik_status st ON st.person_id = t.person_id
@@ -277,6 +289,8 @@ export const rikTasks = createServerFn({ method: 'POST' })
     const tasks: RikTaskRow[] = rows.map((row) => {
       const type = String(row.type) as RikTaskType
       const base = String(row.base_url ?? '')
+      const fixedAt = (row.fix_at as string | null) ?? null
+      const stage = fixStage({ fixedAt, signingGeneratedAt: (row.person_signing_at as string | null) ?? null, signedAt: (row.person_signed_at as string | null) ?? null })
       return {
         id: String(row.id),
         personId: (row.person_id as string | null) ?? null,
@@ -294,9 +308,12 @@ export const rikTasks = createServerFn({ method: 'POST' })
         phones: String(row.phones ?? ''),
         registerUrl: base ? `${base}/registers/register_p` : '',
         sourceUrl: String(row.source_url ?? ''),
+        personNumber: row.person_number == null || row.person_number === '' ? null : Number(row.person_number),
+        fixedAt,
+        fixStage: stage ? FIX_STAGE_LABELS[stage] : '',
       }
     })
-    return { ok: true as const, canEdit: roleAllows(access.role, 'edit'), total: Number(total?.n ?? 0), tasks }
+    return { ok: true as const, canEdit: roleAllows(access.role, 'edit'), canFix: roleAllows(access.role, 'fixIdentity'), total: Number(total?.n ?? 0), tasks }
   })
 
 export const rikTaskDone = createServerFn({ method: 'POST' })

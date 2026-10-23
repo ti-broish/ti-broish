@@ -22,7 +22,10 @@ import {
   partnerCountSql,
   partnerRowsSql,
   partnerSearchClause,
+  partnerSectionCountsSql,
+  partnerSectionsScope,
   partnerViewWhere,
+  PARTNER_SECTION_STATE_SQL,
   SIGNUP_HAS_PARTNER_SQL,
   samePersonSql,
   unionPageSql,
@@ -372,6 +375,10 @@ async function queryPeople(
     if (partners && !exportKind && !finishedOnly && !publishedOnly && sectionState === undefined) {
       return await queryRoster(db, base, viewOf(view), mir, q, limit, offset, withEgn, sort, dir, partners.source)
     }
+    // Секции with „И аз“: signups and shown partner rows, counted and paged together.
+    if (partners && !exportKind && sectionState !== undefined) {
+      return await querySections(db, base, view, mir, q, limit, offset, withEgn, sort, dir, sectionState)
+    }
     // Секции: counts per state over the same scope and search, then narrow to the picked state.
     const sectionCounts = sectionState === undefined
       ? undefined
@@ -426,6 +433,58 @@ async function queryRoster(
   const signupTotal = Number(signupCount?.n ?? 0)
   const partnerTotal = Number(partnerCount?.n ?? 0)
   return { total: signupTotal + partnerTotal, rows, sectionCounts: undefined, partnerRows, order, signupTotal, partnerTotal }
+}
+
+/**
+ * Секции: finished signups and shown „И аз“ rows (not withdrawn, not covered by a finished or
+ * numbered volunteer) in one list. Counts per state add both; the picked state narrows both.
+ */
+async function querySections(
+  db: Database,
+  base: { clause: string; binds: string[] },
+  view: string,
+  mir: string,
+  q: string,
+  limit: number,
+  offset: number,
+  withEgn: boolean,
+  sort: string,
+  dir: string,
+  sectionState: SectionState | '',
+) {
+  const scope = partnerSectionsScope(viewOf(view), mir)
+  const search = partnerSearchClause(q)
+  const partnerBase = scope
+    ? { clause: `(${scope.clause}) AND (${search.clause})`, binds: [...scope.binds, ...search.binds] }
+    : { clause: '1 = 0', binds: [] as string[] }
+  const signupCounts = sectionCountsFrom(await bound(db, sectionCountsSql(base.clause), base.binds).first<Record<string, unknown>>())
+  const partnerCounts = scope
+    ? sectionCountsFrom(await bound(db, partnerSectionCountsSql(partnerBase.clause), partnerBase.binds).first<Record<string, unknown>>())
+    : sectionCountsFrom(null)
+  const sectionCounts = {
+    total: signupCounts.total + partnerCounts.total,
+    none: signupCounts.none + partnerCounts.none,
+    draft: signupCounts.draft + partnerCounts.draft,
+    published: signupCounts.published + partnerCounts.published,
+  }
+  const signup = sectionState ? { clause: `(${base.clause}) AND (${SECTION_STATE_SQL[sectionState]})`, binds: base.binds } : base
+  const partner = sectionState
+    ? { clause: `(${partnerBase.clause}) AND (${PARTNER_SECTION_STATE_SQL[sectionState]})`, binds: partnerBase.binds }
+    : partnerBase
+  const page = await bound(db, unionPageSql(signup.clause, partner.clause, sort, dir === 'asc' ? 'asc' : 'desc'), [...signup.binds, ...partner.binds, limit, offset])
+    .all<{ id: string; kind: number }>()
+  const order = (page.results ?? []).map((row) => ({ id: String(row.id), kind: Number(row.kind) }))
+  const signupIds = order.filter((row) => row.kind === 0).map((row) => row.id)
+  const partnerIds = order.filter((row) => row.kind === 1).map((row) => row.id)
+  const rows = signupIds.length
+    ? await selectPeople(db, `id IN (${signupIds.map(() => '?').join(', ')})`, signupIds, signupIds.length, 0, withEgn, 'updated_at DESC')
+    : []
+  const partnerRows = partnerIds.length
+    ? ((await bound(db, partnerRowsSql(partnerIds.length, withEgn), partnerIds).all<PartnerRosterRow>()).results ?? [])
+    : []
+  const signupTotal = sectionState ? signupCounts[sectionState] : signupCounts.total
+  const partnerTotal = sectionState ? partnerCounts[sectionState] : partnerCounts.total
+  return { total: signupTotal + partnerTotal, rows, sectionCounts, partnerRows, order, signupTotal, partnerTotal }
 }
 
 /** An „И аз“ row on Записвания. Section, number and signed file come from the partner record. */

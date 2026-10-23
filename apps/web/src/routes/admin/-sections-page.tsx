@@ -7,6 +7,8 @@ import { adminSectionPlaces } from '../../signup/admin-section-places'
 import { adminPublish, adminPublishPreview } from '../../signup/admin-assign-actions'
 import { publishConfirmLabel } from '../../signup/publish-preview'
 import { adminUnpublish } from '../../signup/section-state-actions'
+import { adminPartnerPublish, adminPartnerUnpublish } from '../../signup/partner-sections-admin'
+import { isPartnerPersonId } from '../../signup/partner-people-sql'
 import { hasPendingDraft, type SectionCounts } from '../../signup/section-state'
 import { adminClearDrafts, adminDistribute } from '../../signup/admin-distribute'
 import { adminNotifyAssignment } from '../../signup/assignment-notify'
@@ -128,7 +130,7 @@ export function SectionsPage() {
     setArmedPicked(false)
     setPicked(new Set())
     setPhase('loading')
-    void adminRoster({ data: { view: search.view, mir: search.mir, q: search.q, state: search.state ?? '', page: 1, limit: 100, sort: 'updated', dir: 'desc', finished: true } }).then((result) => {
+    void adminRoster({ data: { view: search.view, mir: search.mir, q: search.q, state: search.state ?? '', page: 1, limit: 100, sort: 'updated', dir: 'desc', finished: true, partners: true } }).then((result) => {
       if (!result.ok) {
         setPhase('error')
         setMessage(result.message)
@@ -180,8 +182,34 @@ export function SectionsPage() {
   }, [placeKey])
 
   /** No-email publish: the whole view, or only the picked / one row's ids. */
-  function runPublish(ids?: string[]) {
-    return adminPublish({ data: { view: search.view, mir: search.mir, ...(ids ? { ids } : {}) } }).then((result) => {
+  async function runPublish(ids?: string[]) {
+    // Picked or one row: „И аз“ ids publish through partner_people (no email, no Brevo); never an empty id list.
+    const partnerIds = ids ? ids.filter(isPartnerPersonId) : []
+    const signupIds = ids ? ids.filter((id) => !isPartnerPersonId(id)) : undefined
+    let partnerNote = ''
+    if (partnerIds.length > 0) {
+      try {
+        const result = await adminPartnerPublish({ data: { ids: partnerIds } })
+        partnerNote = ` „И аз“: ${result.message}`
+        if (result.ok && 'blocked' in result && result.blocked.length) {
+          setRowWarnings((current) => {
+            const next = { ...current }
+            for (const item of result.blocked) next[item.id] = [{ code: 'taken', level: 'block', message: `Секция ${item.section} е заета: ${item.reason}` }]
+            return next
+          })
+        }
+      } catch {
+        partnerNote = ' „И аз“: публикуването не мина. Опитай пак.'
+      }
+    }
+    if (signupIds && signupIds.length === 0) {
+      setArmed(false)
+      setArmedPicked(false)
+      setPublishPreview(null)
+      load(partnerNote.trim())
+      return
+    }
+    return adminPublish({ data: { view: search.view, mir: search.mir, ...(signupIds ? { ids: signupIds } : {}) } }).then((result) => {
       setArmed(false)
       setArmedPicked(false)
       if (!result.ok) {
@@ -198,7 +226,7 @@ export function SectionsPage() {
       const notice =
         (skipped > 0
           ? `Публикувани са ${result.published} чернови (без имейл). Пропуснати заради заета секция, дубликат или МИР извън пълномощното: ${skipped}.`
-          : `Публикувани са ${result.published} чернови (без имейл).`) + partnerNotice
+          : `Публикувани са ${result.published} чернови (без имейл).`) + partnerNotice + partnerNote
       load(notice)
       if (result.blocked?.length) {
         setRowWarnings((current) => {
@@ -508,7 +536,7 @@ export function SectionsPage() {
                 picked={picked.has(person.id)}
                 onPick={(on) => togglePick(person.id, on)}
                 publish={(id) => runPublish([id])}
-                unpublish={(id) => adminUnpublish({ data: { id } })}
+                unpublish={(id) => (isPartnerPersonId(id) ? adminPartnerUnpublish({ data: { id } }) : adminUnpublish({ data: { id } }))}
                 notifyAgain={(id) => adminNotifyAssignment({ data: { id } })}
                 spots={spots}
               />

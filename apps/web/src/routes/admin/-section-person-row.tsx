@@ -3,6 +3,8 @@ import { useState } from 'react'
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
 import { adminDraft } from '../../signup/admin-assign-actions'
+import { adminPartnerSave } from '../../signup/partner-sections-admin'
+import { IAZ_ROW_BORDER, IAZ_ROW_TINT, IazBadge } from './-iaz-row'
 import { adminGhost } from '../../components/admin-ui'
 import { addressDeskLine, deskLabel } from '../../signup/sections'
 import { EMPTY_SECTION_DIRECTORY, sectionSpot, signupSpot, type SectionSpot } from '../../signup/section-where'
@@ -54,6 +56,8 @@ export function SectionPersonRow(props: {
     setMessage, load,
     canPublish, publish, unpublish, picked, onPick, notifyAgain, spots, priority = {}, reach = null, reserved = {}, mobile = null,
   } = props
+  // „И аз“: same row, own colour and badge; writes go to partner_people, never email or Brevo.
+  const iaz = person.source === 'iaz'
   const pendingDraft = Boolean(person.draftSection && person.draftSection !== person.publishedSection)
   const signed = signupSpot(person)
   const draftCode = draftValues[person.id] ?? person.draftSection
@@ -62,7 +66,11 @@ export function SectionPersonRow(props: {
   const [saving, setSaving] = useState(false)
   const name = [person.firstName, person.lastName].filter(Boolean).join(' ') || person.email
   return (
-                <tr className="border-b border-[#eee] align-top" data-testid="section-person-row">
+                <tr
+                  className={`border-b border-[#eee] align-top ${iaz ? `${IAZ_ROW_TINT} ${IAZ_ROW_BORDER}` : ''}`}
+                  data-testid="section-person-row"
+                  data-source={iaz ? 'iaz' : 'tb'}
+                >
                   <td className="py-3 pr-2">
                     {canPublish && pendingDraft ? (
                       <input type="checkbox" aria-label={`Избери ${name}`} checked={picked} onChange={(event) => onPick(event.target.checked)} />
@@ -70,10 +78,17 @@ export function SectionPersonRow(props: {
                   </td>
                   <td className="py-3 pr-3">
                     <p>
-                      <Link to="/admin/signups/$personId" params={{ personId: person.id }} className="font-bold text-[#2b062f] underline">
-                        {[person.firstName, person.lastName].filter(Boolean).join(' ') || '—'}
-                      </Link>
+                      {iaz ? (
+                        <Link to="/admin/iaz/$personId" params={{ personId: person.id }} className="font-bold text-[#2b062f] underline">
+                          {[person.firstName, person.lastName].filter(Boolean).join(' ') || '—'}
+                        </Link>
+                      ) : (
+                        <Link to="/admin/signups/$personId" params={{ personId: person.id }} className="font-bold text-[#2b062f] underline">
+                          {[person.firstName, person.lastName].filter(Boolean).join(' ') || '—'}
+                        </Link>
+                      )}
                     </p>
+                    {iaz ? <p className="mt-1"><IazBadge /></p> : null}
                     <p>{person.email}</p>
                     {person.role === 'mobile' ? (
                       <p className="mt-1" data-testid="mobile-row">
@@ -117,7 +132,7 @@ export function SectionPersonRow(props: {
                     {priorityOf(draftCode, priority) ? (
                       <p className="mb-1"><PriorityBadge info={priorityOf(draftCode, priority)} /></p>
                     ) : null}
-                    {reservedOrgFor(draftCode, reserved) ? (
+                    {reservedOrgFor(draftCode, reserved) && !(iaz && draftCode === person.publishedSection) ? (
                       <p className="mb-1"><ReservedBadge org={reservedOrgFor(draftCode, reserved)} conflict={draftCode === person.draftSection} /></p>
                     ) : null}
                     {canEdit ? (
@@ -129,6 +144,23 @@ export function SectionPersonRow(props: {
                             // „Запази“ only saves a manual draft: never publishes, never sends email.
                             const section = draftValues[person.id] ?? person.draftSection
                             setSaving(true)
+                            if (iaz) {
+                              // „И аз“: draft in partner_people (locked, manual). A МИР mismatch only warns.
+                              void adminPartnerSave({ data: { id: person.id, section } }).then((result) => {
+                                setSaving(false)
+                                setMessage(result.message)
+                                if (!result.ok) {
+                                  setRowWarnings((current) => ({ ...current, [person.id]: [{ code: 'taken', level: 'block', message: result.message }] }))
+                                  return
+                                }
+                                setRowWarnings((current) => ({ ...current, [person.id]: [] }))
+                                load(result.message)
+                              }).catch(() => {
+                                setSaving(false)
+                                setMessage('Не се запази. Опитай пак.')
+                              })
+                              return
+                            }
                             void adminDraft({ data: { id: person.id, section } }).then((result) => {
                               setSaving(false)
                               if (!result.ok) {
@@ -196,7 +228,7 @@ export function SectionPersonRow(props: {
                     {priorityOf(person.publishedSection, priority) ? (
                       <p className="mt-1"><PriorityBadge info={priorityOf(person.publishedSection, priority)} /></p>
                     ) : null}
-                    {reservedOrgFor(person.publishedSection, reserved) ? (
+                    {reservedOrgFor(person.publishedSection, reserved) && !iaz ? (
                       <p className="mt-1"><ReservedBadge org={reservedOrgFor(person.publishedSection, reserved)} conflict /></p>
                     ) : null}
                     {canPublish ? (
@@ -236,15 +268,17 @@ export function SectionPersonRow(props: {
                             >
                               {armedUnpublish ? 'Да, махни публикуването' : 'Махни публикуването'}
                             </button>
-                            <button
-                              type="button"
-                              className="min-h-10 text-sm font-bold"
-                              onClick={() => {
-                                void notifyAgain(person.id).then((result) => setMessage(result.message))
-                              }}
-                            >
-                              Извести по имейл
-                            </button>
+                            {iaz ? null : (
+                              <button
+                                type="button"
+                                className="min-h-10 text-sm font-bold"
+                                onClick={() => {
+                                  void notifyAgain(person.id).then((result) => setMessage(result.message))
+                                }}
+                              >
+                                Извести по имейл
+                              </button>
+                            )}
                           </>
                         ) : null}
                       </div>

@@ -11,7 +11,10 @@ import {
   partnerCountSql,
   partnerRowsSql,
   partnerSearchClause,
+  partnerSectionCountsSql,
+  partnerSectionsScope,
   partnerViewWhere,
+  PARTNER_SECTION_STATE_SQL,
   SIGNUP_HAS_PARTNER_SQL,
   unionPageSql,
 } from './partner-roster'
@@ -163,5 +166,61 @@ describe('no Brevo for „И аз“ or merged signups', () => {
     db.exec("UPDATE signups SET designation_number = 999 WHERE id = 'sig-sonya'")
     expect(ids(db.prepare(`SELECT id FROM signups WHERE ${MERGED_SIGNUP_SQL}`).all())).toEqual(['sig-ina'])
     db.exec("UPDATE signups SET designation_number = NULL WHERE id = 'sig-sonya'")
+  })
+})
+
+// Секции: „И аз“ rows join the list like our volunteers — same states, counts and filters.
+const sectionsDb = await openDb()
+
+describe.skipIf(!sectionsDb)('„И аз“ on Секции (SQLite)', () => {
+  const db = sectionsDb!
+  seed(db)
+  // One more active „И аз“ person with no section at all, and a withdrawn one with none (never shown).
+  const partner = db.prepare(`INSERT INTO partner_people (id, partner, egn, email, first_name, last_name, designation_mir, designation_number, imported_at, updated_at, withdrawn_at)
+    VALUES (?, 'iaz.bg', ?, ?, ?, ?, ?, ?, '2026-10-19T20:44:21Z', ?, ?)`)
+  partner.run('pp-none', '4404045555', 'none@example.com', 'Без', 'Секция', '23', 512, '2026-10-23T09:00:00Z', null)
+  partner.run('pp-gone', '3303036666', 'gone@example.com', 'Оттеглен', 'Човек', '23', 513, '2026-10-23T09:00:00Z', '2026-10-22T10:00:00Z')
+  partner.run('pp-abroad', '2202027777', 'abroad@example.com', 'Чуж', 'Бина', '32', 514, '2026-10-23T08:00:00Z', null)
+
+  const counts = (view: string, mir: string, q = '') => {
+    const scope = partnerSectionsScope(view, mir)
+    if (!scope) return null
+    const search = partnerSearchClause(q)
+    return db.prepare(partnerSectionCountsSql(`(${scope.clause}) AND (${search.clause})`)).get(...scope.binds, ...search.binds)
+  }
+  const inState = (state: keyof typeof PARTNER_SECTION_STATE_SQL, view = 'all', mir = '') => {
+    const scope = partnerSectionsScope(view, mir)!
+    return ids(db.prepare(`SELECT p.id AS id FROM partner_people p WHERE ${PARTNER_SHOWN_SQL} AND (${scope.clause}) AND (${PARTNER_SECTION_STATE_SQL[state]})`).all(...scope.binds))
+  }
+
+  it('„Без секция“, „Чернови“ and „Публикувани“ hold the right „И аз“ people; withdrawn and covered ones never show', () => {
+    expect(inState('none')).toEqual(['pp-abroad', 'pp-none'])
+    expect(inState('draft')).toEqual(['pp-solo'])
+    expect(inState('published')).toEqual(['pp-ina', 'pp-sonya'])
+  })
+
+  it('counts per state add up and match the state lists', () => {
+    expect(counts('all', '')).toEqual({ total: 5, none: 2, draft: 1, published: 2 })
+    expect(counts('mir', '23')).toEqual({ total: 2, none: 1, draft: 1, published: 0 })
+    expect(counts('mir', '4')).toEqual({ total: 1, none: 0, draft: 0, published: 1 })
+    expect(counts('abroad', '')).toEqual({ total: 1, none: 1, draft: 0, published: 0 })
+    expect(counts('all', '', 'Без Секция')).toEqual({ total: 1, none: 1, draft: 0, published: 0 })
+    expect(inState('none', 'mir', '23')).toEqual(['pp-none'])
+    expect(inState('none', 'abroad')).toEqual(['pp-abroad'])
+  })
+
+  it('a МИР view needs a МИР; other views hold no „И аз“ rows', () => {
+    expect(partnerSectionsScope('mir', '')).toBeNull()
+    expect(partnerSectionsScope('finished', '')).toBeNull()
+    expect(partnerSectionsScope('mir', '4')).toEqual({ clause: 'p.designation_mir = ?', binds: ['04'] })
+  })
+
+  it('pages finished signups and „И аз“ rows together for a state, one row per person', () => {
+    const scope = partnerSectionsScope('all', '')!
+    const signupClause = `COALESCE(submitted, 0) = 1 AND COALESCE(withdrawn, 0) = 0 AND COALESCE(published_section, '') = '' AND COALESCE(draft_section, '') = ''`
+    const page = db.prepare(unionPageSql(signupClause, `(${scope.clause}) AND (${PARTNER_SECTION_STATE_SQL.none})`, 'updated', 'desc')).all(50, 0) as Array<{ id: string; kind: number }>
+    // sig-finished has a draft, sig-todor is withdrawn: only „И аз“ people have no section here.
+    expect(page.map((row) => row.id)).toEqual(['pp-none', 'pp-abroad'])
+    expect(page.every((row) => row.kind === 1)).toBe(true)
   })
 })

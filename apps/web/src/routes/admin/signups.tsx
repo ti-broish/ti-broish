@@ -28,6 +28,7 @@ import { MobileBadge, useMobileIndex } from './-mobile-teams'
 import { ProcessedToggle, WithdrawnCountsContext } from './-withdrawal-processed'
 import { WITHDRAWN_PROCESSED_OPTIONS, withdrawnCountsLine, type WithdrawnCounts } from '../../signup/admin-unregister'
 import { IAZ_ROW_BORDER, IAZ_ROW_TINT, IazBadge } from './-iaz-row'
+import { AddVolunteerButton } from './-add-volunteer'
 
 export const Route = createFileRoute('/admin/signups')({
   validateSearch: (search: Record<string, unknown>): SignupSearch => parseSignupSearch(search),
@@ -262,6 +263,7 @@ function SignupsPage() {
         title="Записвания"
         lede="Завършилите са изпратили записването. Започналите са отворили формата, но не са стигнали до края. Хората от „И аз“ са в синьо, с етикет „И аз“: внесени са само за пълномощно, не получават писма и не отиват в Brevo. Ако някой от тях има и недовършено записване при нас, е на един ред. Маркирай редове, за да отбележиш обаждане за избраните или за целия филтър, без да отваряш всеки човек."
       />
+      {canEdit ? <AddVolunteerButton onAdded={() => setReloadKey((key) => key + 1)} /> : null}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <label className="grid min-w-0 flex-1 gap-1 text-sm font-bold text-[#1a1020]" htmlFor="signup-search">
           Търсене

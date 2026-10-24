@@ -58,6 +58,8 @@ import { emptyProfile, validEmail, type Profile } from './model'
 import { applyRenameTransition, namesChanged, renameMessage, type PersonNames } from './designation-rename'
 import { signupColumns } from './record'
 import { sessionCookieSecure } from './session-cookie'
+import { isPlaceholderEmail } from './designation-section-sql'
+import { ADD_VOLUNTEER_ACTION, addStaffVolunteer, parseAddVolunteerInput, type AddVolunteerInput } from './staff-add-volunteer'
 import { keepsAnAdmin, parseStaffRole, permissionsFor, roleAllows, staffRoleLabel, type StaffAction, type StaffRole } from './staff'
 
 // Server helpers stay in this file, next to createServerFn. A barrel re-export
@@ -731,7 +733,8 @@ export async function loadBrevoSectionFields(
       'brevo',
     )
     if ('error' in chunk) return { error: chunk.error }
-    people.push(...chunk.rows.map(fieldsOf))
+    // A volunteer added without an e-mail has a …@tibroish.invalid stand-in: never a Brevo contact.
+    people.push(...chunk.rows.map(fieldsOf).filter((person) => !isPlaceholderEmail(person.email)))
     if (chunk.rows.length < 400) break
   }
   const codes = [...new Set(people.map((person) => normalizeSection(person.publishedSection)).filter((code) => /^\d{9}$/.test(code)))]
@@ -906,7 +909,9 @@ export const adminExport = createServerFn({ method: 'POST' })
       people.push(...chunk.rows.map(fieldsOf))
       if (chunk.rows.length < 400) break
     }
-    const exported = campaign ? people.map((person) => ({ ...person, egn: '', draftSection: '' })) : people
+    const exported = campaign
+      ? people.filter((person) => !isPlaceholderEmail(person.email)).map((person) => ({ ...person, egn: '', draftSection: '' }))
+      : people
     const csv = campaign ? campaignCsv(exported) : internalCsv(exported)
     return { ok: true as const, csv, filename: campaign ? `ti-broish-brevo-${stamp}.csv` : `ti-broish-ekip-${stamp}.csv` }
   })
@@ -1136,6 +1141,18 @@ function columnsFor(
   if (mirCode) return { ...columns, mirCode }
   return columns
 }
+
+/**
+ * „Добави доброволец“ (Записвания): a finished signup created by staff with the names, ЕГН and home
+ * place only. No e-mail code, no SIGNUPS_CLOSED check, no letter, no Brevo (staff-add-volunteer.ts).
+ */
+export const adminAddVolunteer = createServerFn({ method: 'POST' })
+  .validator((input: Partial<AddVolunteerInput>) => parseAddVolunteerInput(input))
+  .handler(async ({ data }) => {
+    const access = await gate(ADD_VOLUNTEER_ACTION)
+    if (!access.ok) return access
+    return addStaffVolunteer(access.db, data, access.email)
+  })
 
 export const adminInvite = createServerFn({ method: 'POST' })
   .validator((input: { email: string; role: string }) => input)

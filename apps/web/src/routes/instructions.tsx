@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
+import { SIGNUPS_CLOSED } from '../signup/signups-closed'
 import { isProtocolDay } from '../signup/election'
 
 export const Route = createFileRoute('/instructions')({ component: InstructionsPage })
@@ -80,9 +81,15 @@ function InstructionsPage() {
           </li>
         ))}
       </ul>
-      <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
-        Запиши се
-      </Link>
+      {SIGNUPS_CLOSED ? (
+        <Link to="/vhod" className="brand-button">
+          Вход
+        </Link>
+      ) : (
+        <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
+          Запиши се
+        </Link>
+      )}
     </article>
   )
 }

@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
+import { SIGNUPS_CLOSED } from '../signup/signups-closed'
 
 export const Route = createFileRoute('/about')({ component: AboutPage })
 
@@ -16,9 +17,15 @@ function AboutPage() {
       <p>
         Попълваш данните си и потвърждаваш имейла още в началото. В изборния ден влизаш най-късно час преди затварянето и оставаш до края на протокола.
       </p>
-      <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
-        Запиши се
-      </Link>
+      {SIGNUPS_CLOSED ? (
+        <Link to="/vhod" className="brand-button">
+          Вход
+        </Link>
+      ) : (
+        <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
+          Запиши се
+        </Link>
+      )}
       <p className="font-bold">Това е доброволна дейност без заплащане.</p>
     </article>
   )

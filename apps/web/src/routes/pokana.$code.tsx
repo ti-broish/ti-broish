@@ -1,6 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { PageIntro } from '../components/SiteChrome'
+import { SIGNUPS_CLOSED, SIGNUPS_CLOSED_MESSAGE } from '../signup/signups-closed'
 import { updateProfile, useProfile } from '../signup/store'
 
 export const Route = createFileRoute('/pokana/$code')({ component: InvitePage })
@@ -18,6 +19,17 @@ function InvitePage() {
   }, [code])
 
   const own = profile.inviteCode === code
+
+  if (SIGNUPS_CLOSED) {
+    return (
+      <div className="grid max-w-xl gap-4">
+        <PageIntro title="Записването приключи" lede={SIGNUPS_CLOSED_MESSAGE} />
+        <Link to="/vhod" className="brand-button">
+          Вход
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-xl">

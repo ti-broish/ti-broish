@@ -13,6 +13,8 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     stdout: 'pipe',
+    // Signups are closed in production (src/signup/signups-closed.ts). The specs keep the signup flow covered.
+    env: { VITE_SIGNUPS_OPEN: '1' },
     stderr: 'pipe',
   },
 })

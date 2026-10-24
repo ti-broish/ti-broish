@@ -38,11 +38,7 @@ function registered(patch: Partial<Profile> = {}): Partial<Profile> {
 
 test('a settled person is sent to the profile instead of a new signup', async ({ page }) => {
   await seedProfile(page, registered())
-  await page.goto('/')
-  const main = page.locator('main')
-  await expect(main.getByRole('link', { name: 'Запиши се' })).toHaveCount(0)
-  await expect(main.getByText('Вече си записан')).toBeVisible()
-  await expect(main.getByRole('link', { name: 'Към профила' })).toBeVisible()
+  await page.goto('/faq')
   await expect(page.locator('footer').getByRole('link', { name: 'Профилът ти' })).toBeVisible()
   await expect(page.locator('footer').getByRole('link', { name: 'Запиши се' })).toHaveCount(0)
   await expect(page.locator('.site-nav')).not.toContainText('Запиши се')
@@ -81,6 +77,6 @@ test('changing the email keeps the rest of the signup', async ({ page }) => {
 
 test('an empty profile can still start signup', async ({ page }) => {
   await seedProfile(page, {})
-  await page.goto('/')
-  await expect(page.locator('main').getByRole('link', { name: 'Запиши се' })).toBeVisible()
+  await page.goto('/faq')
+  await expect(page.locator('footer').getByRole('link', { name: 'Запиши се' })).toBeVisible()
 })

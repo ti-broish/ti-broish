@@ -5,6 +5,7 @@ import { confirmCodeMail, deliverMail, isDevMailHost } from './mail'
 import { emptyProfile, validEmail } from './model'
 import { signupColumns } from './record'
 import { IDENTITY_AUDIT_SQL } from './signup-guard'
+import { refusesNewCodeRequest } from './signups-closed'
 
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
@@ -67,6 +68,9 @@ export const requestEmailCode = createServerFn({ method: 'POST' })
       }
       return { sent: true, previewCode: '' }
     }
+    // Signups are closed (signups-closed.ts): no new record, so no code for an address without one.
+    const known = await db.prepare('SELECT id FROM signups WHERE email = ?').bind(email).first<{ id: string }>()
+    if (refusesNewCodeRequest(Boolean(known))) return { sent: false, previewCode: '', closed: true as const }
     const referral = referralCode()
     const columns = signupColumns({
       ...emptyProfile(),

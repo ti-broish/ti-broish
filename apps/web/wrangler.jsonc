@@ -45,7 +45,10 @@
 		// Drive folder „ТЕСТ пълномощни staging“. Share it with the service account (Editor).
 		"DESIGNATION_DRIVE_FOLDER_ID": "14Iw8TBaKKLNa357xDy8PDunhFOloulPb",
 		// /photos/<key> proxies the public MinIO photos bucket through this proxied origin host (infra/photos).
-		"PHOTOS_ORIGIN": "https://minio-origin.tibroish.bg"
+		"PHOTOS_ORIGIN": "https://minio-origin.tibroish.bg",
+		// Staging only: /?demo=1 shows clearly fake signals on the home map (src/home/violations.server.ts).
+		// Not in env.production, and the worker also refuses it on tibroish.bg.
+		"ALLOW_DEMO_DATA": "1"
 	},
 	"env": {
 		// Workers Builds must set CLOUDFLARE_ENV=production before `pnpm build`.

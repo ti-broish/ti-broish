@@ -24,7 +24,8 @@ function pageFrameClass(path: string, search: string) {
   const step = new URLSearchParams(search).get('step')
   const wideMap = path === '/signup' && (step === 'place' || step === 'travel' || step === 'radius')
   const wideProfile = path === '/profil'
-  if (wideMap || wideProfile) return 'mx-auto w-full max-w-6xl bg-white px-4 py-8'
+  const home = path === '/'
+  if (wideMap || wideProfile || home) return 'mx-auto w-full max-w-6xl bg-white px-4 py-8'
   return 'mx-auto w-full max-w-lg bg-white px-4 py-8'
 }
 

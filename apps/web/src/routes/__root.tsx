@@ -1,6 +1,7 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { SiteChrome } from '../components/SiteChrome'
 import appCss from '../styles.css?url'
+import { SIGNUPS_CLOSED } from '../signup/signups-closed'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -8,7 +9,10 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { title: 'Ти Броиш' },
-      { name: 'description', content: 'Запиши се като пазител на вота. Доброволно и без заплащане.' },
+      {
+        name: 'description',
+        content: SIGNUPS_CLOSED ? 'Ти Броиш: пазители на вота. Подай сигнал за нарушение.' : 'Запиши се като пазител на вота. Доброволно и без заплащане.',
+      },
       { name: 'theme-color', content: '#2b062f' },
       { name: 'mobile-web-app-capable', content: 'yes' },
       { name: 'apple-mobile-web-app-capable', content: 'yes' },

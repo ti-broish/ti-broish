@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
+import { SIGNUPS_CLOSED } from '../signup/signups-closed'
 
 export const Route = createFileRoute('/kontakt')({ component: ContactPage })
 
@@ -11,9 +12,15 @@ function ContactPage() {
         Ако вече си се записал, отвори профила, натисни „Поискай обаждане от екипа“ и напиши за какво е. Ще ти звъннем на телефона от записването.
       </p>
       <p>Ако още не си се записал, отвори профила и остави име, телефон и за какво е обаждането.</p>
-      <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
-        Запиши се
-      </Link>
+      {SIGNUPS_CLOSED ? (
+        <Link to="/vhod" className="brand-button">
+          Вход
+        </Link>
+      ) : (
+        <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
+          Запиши се
+        </Link>
+      )}
       <p>
         <Link to="/profil">Отвори профила</Link>, ако искаш само обаждане.
       </p>

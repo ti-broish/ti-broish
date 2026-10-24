@@ -4,6 +4,7 @@ import { PageIntro } from '../components/SiteChrome'
 import { checkEmailCode, requestSignInCode } from '../signup/confirm-mail'
 import { invalidateSessionLoad } from '../signup/use-registration'
 import { validEmail } from '../signup/model'
+import { SIGNUPS_CLOSED } from '../signup/signups-closed'
 import { useProfile } from '../signup/store'
 
 export const Route = createFileRoute('/vhod')({ component: LoginPage })
@@ -29,7 +30,14 @@ function LoginPage() {
       ) : null}
       {phase === 'missing' ? (
         <p className="leading-7">
-          Няма потвърдено записване с този имейл. <Link to="/signup" search={{ step: 'contact' }}>Запиши се</Link>.
+          Няма потвърдено записване с този имейл.{' '}
+          {SIGNUPS_CLOSED ? (
+            'Записването на доброволци приключи.'
+          ) : (
+            <>
+              <Link to="/signup" search={{ step: 'contact' }}>Запиши се</Link>.
+            </>
+          )}
         </p>
       ) : null}
       {phase === 'failed' ? <p className="leading-7">Писмото не тръгна. Опитай отново след малко.</p> : null}

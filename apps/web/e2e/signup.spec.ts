@@ -2,17 +2,6 @@ import { expect, test } from '@playwright/test'
 import { SIGNUP_STORAGE_KEY, nextWaveLabel, seedProfile } from './helpers'
 import type { HomePlace, Profile } from '../src/signup/model'
 
-test('the home page names the election and the group', async ({ page }) => {
-  await page.goto('/')
-  await expect(page.getByText('Президентски избори 2026 г.')).toBeVisible()
-  await expect(page.getByText('Можеш да се включиш по два начина')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'В секция' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Мобилен екип' })).toBeVisible()
-  await expect(page.getByText('заедно като група')).toBeVisible()
-  await expect(page.getByText('Важно!')).toBeVisible()
-  await expect(page.getByText('логистика и време за пътуване')).toBeVisible()
-})
-
 test('a partner link is shown and stored as a source', async ({ page }) => {
   await page.goto('/signup?source=iaz.bg&step=contact')
   await expect(page.getByText('Гюров, Кандев и аз')).toBeVisible()

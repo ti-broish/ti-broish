@@ -41,6 +41,7 @@ import { placeSummaries } from '../signup/sections'
 import { useOutlines } from '../signup/use-outlines'
 import { markOwnSignup, ownSignupMarked, resetProfile, updateProfile, useProfile } from '../signup/store'
 import { invalidateSessionLoad, useRegistration } from '../signup/use-registration'
+import { SIGNUPS_CLOSED, SIGNUPS_CLOSED_MESSAGE } from '../signup/signups-closed'
 import type { CityRegion, PollingSection } from '../signup/geo'
 
 export const Route = createFileRoute('/signup')({
@@ -155,6 +156,9 @@ function SignupPage() {
   }
 
   if (pending) return <p>Зареждаме данните…</p>
+  // Signups closed (signups-closed.ts): only a browser signed in to its own record (tb_session) goes on,
+  // to finish or edit it. Everyone else sees the closed note and the way to sign in.
+  if (SIGNUPS_CLOSED && !sessionEmail) return <SignupsClosed />
   if (sessionEmail && !chosen) {
     return (
       <SessionChoice
@@ -235,6 +239,21 @@ function SignupPage() {
   )
 }
 
+function SignupsClosed() {
+  return (
+    <div className="grid gap-4" data-testid="signups-closed">
+      <h1 className="text-3xl font-black text-[#444]">Записването приключи</h1>
+      <p className="text-lg leading-7">{SIGNUPS_CLOSED_MESSAGE}</p>
+      <Link to="/vhod" className={button}>
+        Вход в профила
+      </Link>
+      <p className="leading-7">
+        Видя нарушение? <Link to="/signal">Подай сигнал</Link>.
+      </p>
+    </div>
+  )
+}
+
 /**
  * A browser that already holds a record (tb_session) chooses: go on with that record, or start a new
  * person. The second clears this browser's draft and session, so the next save is a new record and
@@ -245,10 +264,16 @@ function SessionChoice({ email, onContinue }: { email: string; onContinue: () =>
   return (
     <div className="grid gap-4">
       <h1 className="text-3xl font-black text-[#444]">Влязъл си като {email}</h1>
-      <p className="text-lg leading-7">Продължи своето записване или запиши друг човек. Записването на друг човек започва на чисто и не променя твоето.</p>
+      <p className="text-lg leading-7">
+        {SIGNUPS_CLOSED
+          ? 'Продължи своето записване. Записването на нови доброволци приключи.'
+          : 'Продължи своето записване или запиши друг човек. Записването на друг човек започва на чисто и не променя твоето.'}
+      </p>
       <button type="button" className={button} onClick={onContinue}>
         Продължи своето записване
       </button>
+      {SIGNUPS_CLOSED ? null : (
+      <>
       <button
         type="button"
         className={ghost}
@@ -269,6 +294,8 @@ function SessionChoice({ email, onContinue }: { email: string; onContinue: () =>
       <p className="text-sm leading-7">
         След това този браузър вече не е влязъл като {email}. Влизаш отново през <Link to="/vhod">/vhod</Link> с код от имейла. Ако си от екипа, добавяй други хора от администрацията („Хора, въведени от екипа“ в Записвания).
       </p>
+      </>
+      )}
     </div>
   )
 }
@@ -310,6 +337,10 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
           .then((result) => {
             if ('conflict' in result && result.conflict) {
               onError('Този имейл вече е на друго записване.')
+              return
+            }
+            if ('closed' in result && result.closed) {
+              onError(SIGNUPS_CLOSED_MESSAGE)
               return
             }
             if (changing && !result.sent && !result.previewCode) {
@@ -442,6 +473,10 @@ function Confirm({
       .then((result) => {
         if ('conflict' in result && result.conflict) {
           onError('Този имейл вече е на друго записване.')
+          return
+        }
+        if ('closed' in result && result.closed) {
+          onError(SIGNUPS_CLOSED_MESSAGE)
           return
         }
         updateProfile({ confirmCode: result.previewCode })

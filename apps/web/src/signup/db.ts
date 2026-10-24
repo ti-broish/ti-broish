@@ -12,6 +12,7 @@ import { sessionCookieSecure } from './session-cookie'
 import { SELF_WITHDRAW_REASON } from './admin-unregister'
 import { IDENTITY_AUDIT_SQL, identityChanges, identityOf, OTHER_RECORD_MESSAGE, saveDecision, selfActor, type EmailRow, type SessionRow } from './signup-guard'
 import { restoreSignup, withdrawalTurn, withdrawSignup } from './withdrawal'
+import { SIGNUPS_CLOSED_MESSAGE, refusesNewSignup } from './signups-closed'
 import { ensureRikTables } from './rik/sync'
 import {
   EGN_TAKEN_SQL,
@@ -112,6 +113,8 @@ export const saveSignup = createServerFn({ method: 'POST' })
     // Never take over another record by its e-mail: only the code (checkEmailCode, /vhod) brings its session here.
     const decision = saveDecision(data.email, bySession, byEmail)
     if (decision.kind === 'refuse') return { ok: false as const, reason: decision.reason, message: decision.message }
+    // Signups are closed (signups-closed.ts): only an existing record saves; nothing new is created.
+    if (refusesNewSignup(decision.kind)) return { ok: false as const, reason: 'signups-closed' as const, message: SIGNUPS_CLOSED_MESSAGE }
     // email_confirmed is the server's to set (checkEmailCode), never the form's.
     data = decision.kind === 'own' ? { ...data, email: decision.email, emailConfirmed: decision.emailConfirmed } : { ...data, emailConfirmed: false }
     if (decision.kind === 'own' && decision.renameFrom !== undefined) {

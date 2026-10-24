@@ -19,6 +19,7 @@ import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signup
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
+import { SIGNUPS_CLOSED } from '../signup/signups-closed'
 import { ensureReferralCode, updateProfile, useProfile, markOwnSignup } from '../signup/store'
 
 export const Route = createFileRoute('/profil')({ component: ProfilePage })
@@ -215,11 +216,20 @@ function ProfilePage() {
   if (!profile.email) {
     return (
       <div className="grid gap-4">
-        <PageIntro title="Още нямаш профил" lede="Влез с имейла, ако вече си се записал. Иначе се запиши. Сигнал можеш да изпратиш и без профил." />
+        <PageIntro
+          title="Още нямаш профил"
+          lede={
+            SIGNUPS_CLOSED
+              ? 'Влез с имейла, ако вече си се записал. Записването на доброволци приключи. Сигнал можеш да изпратиш и без профил.'
+              : 'Влез с имейла, ако вече си се записал. Иначе се запиши. Сигнал можеш да изпратиш и без профил.'
+          }
+        />
         <ProfileSignIn />
-        <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
-          Запиши се
-        </Link>
+        {SIGNUPS_CLOSED ? null : (
+          <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
+            Запиши се
+          </Link>
+        )}
         <p className="text-sm leading-7">
           <Link to="/signal">Подай сигнал</Link>
           {isProtocolDay() ? (
@@ -301,7 +311,7 @@ function ProfilePage() {
           </section>
           <section className="grid gap-4 border-t border-[var(--line)] pt-6">
             <h2 className="text-xl font-black text-[#444]">Покани</h2>
-            {inviteLink ? <ShareSignup link={inviteLink} count={referralCount} /> : null}
+            {inviteLink && !SIGNUPS_CLOSED ? <ShareSignup link={inviteLink} count={referralCount} /> : null}
             {profile.companions.length > 0 ? (
               <ul className="grid gap-2">
                 {profile.companions.map((person) => {
@@ -320,7 +330,11 @@ function ProfilePage() {
               </ul>
             ) : (
               <p className="leading-7">
-                {inviteLink ? 'Още няма поканени. Сподели линка, за да дойдат с теб.' : 'Още няма поканени. Поканата се появява, след като потвърдиш имейла.'}
+                {SIGNUPS_CLOSED
+                  ? 'Записването на доброволци приключи.'
+                  : inviteLink
+                    ? 'Още няма поканени. Сподели линка, за да дойдат с теб.'
+                    : 'Още няма поканени. Поканата се появява, след като потвърдиш имейла.'}
               </p>
             )}
           </section>

@@ -27,6 +27,7 @@ import { DeskBadge, SectionPersonRow } from './-section-person-row'
 import { useDebouncedQuery } from './-debounced-query'
 import { BrevoSectionsExportPanel } from './-brevo-sections-export'
 import { BrevoSyncPanel } from './-brevo-sync-panel'
+import { SectionsPeopleExportPanel } from './-sections-people-export'
 import { brevoSectionsScope } from '../../signup/brevo-sections-export'
 import { adminPrioritySections, type PrioritySectionView } from '../../signup/priority-sections-admin'
 import { orderByPriority, type PriorityCoverage, type PriorityInfo } from '../../signup/priority-sections'
@@ -73,6 +74,7 @@ export function SectionsPage() {
   const canEdit = access.permissions.edit
   const canPublish = access.permissions.publish
   const canExport = access.permissions.exportCampaign
+  const canExportInternal = access.permissions.exportInternal
   const brevoScope = brevoSectionsScope(search)
 
   const commitQuery = useCallback(
@@ -338,6 +340,7 @@ export function SectionsPage() {
           Покажи МИР
         </button>
       </form>
+      {canExportInternal ? <SectionsPeopleExportPanel setMessage={setMessage} /> : null}
       {canExport ? (
         <>
           <BrevoSectionsExportPanel

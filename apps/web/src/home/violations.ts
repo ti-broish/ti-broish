@@ -124,6 +124,14 @@ export function inSegment(item: FeedItem, segment: string) {
   return false
 }
 
+/**
+ * The signals listed for a МИР: its own feed when loaded, else what is already loaded, both kept to the МИР.
+ * The API's feed for 23/24/25 also returns Sofia signals without a section, which belong to no single МИР.
+ */
+export function segmentItems(regionItems: FeedItem[] | null, loaded: FeedItem[], segment: string) {
+  return (regionItems ?? loaded).filter((item) => inSegment(item, segment))
+}
+
 /** 0 for none, then 1–5 by share of the busiest region. */
 export function heatLevel(count: number, max: number) {
   if (count <= 0 || max <= 0) return 0

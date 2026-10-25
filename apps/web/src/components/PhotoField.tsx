@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { takeFiles } from '../signup/photo-files'
 import { compressPhoto } from '../signup/photos'
 import type { PhotoInput } from '../signup/reports-validate'
 
@@ -14,8 +15,8 @@ export function PhotoField({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  async function add(list: FileList | null) {
-    if (!list?.length) return
+  async function add(list: File[]) {
+    if (!list.length) return
     setBusy(true)
     setError('')
     const next = [...photos]
@@ -43,8 +44,7 @@ export function PhotoField({
           multiple
           disabled={busy}
           onChange={(event) => {
-            void add(event.target.files)
-            event.target.value = ''
+            void add(takeFiles(event.target))
           }}
         />
       </label>

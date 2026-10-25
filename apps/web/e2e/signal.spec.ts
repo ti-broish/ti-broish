@@ -109,6 +109,16 @@ test('a signal goes to the API: pictures first, then the violation', async ({ pa
   await expect(page.getByRole('link', { name: /Председателят не записа/ })).toBeVisible()
 })
 
+test('picking several photos at once keeps all of them', async ({ page }) => {
+  await fillSignal(page)
+  await page.locator('input[type=file]').setInputFiles([
+    { name: 'one.png', mimeType: 'image/png', buffer: PNG },
+    { name: 'two.png', mimeType: 'image/png', buffer: PNG },
+    { name: 'three.png', mimeType: 'image/png', buffer: PNG },
+  ])
+  await expect(page.getByText('3 снимки.')).toBeVisible()
+})
+
 test('API validation errors show in Bulgarian and nothing is stored as sent', async ({ page }) => {
   const seen = await mockApi(page, {
     status: 400,

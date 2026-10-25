@@ -1,6 +1,7 @@
 import { Link, createFileRoute, useRouterState } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ViolationsMap } from '../components/ViolationsMap'
+import { WhenProtocolOpen } from '../components/WhenProtocolOpen'
 import { regionName } from '../home/regions'
 import { segmentItems, type Counts, type FeedItem } from '../home/violations'
 import { useRegistration } from '../signup/use-registration'
@@ -170,9 +171,16 @@ function HomePage() {
           Президентски избори, 25 октомври 2026 г. Картата и списъкът показват сигналите, които екипът на Ти Броиш е прегледал и
           публикувал.
         </p>
-        <a href={signalHref} className="brand-button">
-          Подай сигнал
-        </a>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <a href={signalHref} className="brand-button sm:flex-1">
+            Подай сигнал
+          </a>
+          <WhenProtocolOpen>
+            <Link to="/protokol" className="brand-button sm:flex-1">
+              Изпрати протокол
+            </Link>
+          </WhenProtocolOpen>
+        </div>
         {settled ? (
           <p>
             Вече си записан. <Link to="/profil">Към профила</Link>

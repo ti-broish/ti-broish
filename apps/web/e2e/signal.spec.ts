@@ -94,7 +94,7 @@ test('a signal goes to the API: pictures first, then the violation', async ({ pa
   expect(seen.violations).toEqual([
     {
       town: 68134,
-      description: 'Председателят не записа забележката в протокола.',
+      description: 'Район: Младост\n\nПредседателят не записа забележката в протокола.',
       name: 'Иван Иванов',
       email: 'ivan@example.com',
       phone: '+359888123456',
@@ -181,7 +181,7 @@ test('linked name and email win over the profile and reach the API with the prof
   expect(seen.violations).toEqual([
     {
       town: 68134,
-      description: 'Председателят не записа забележката в протокола.',
+      description: 'Район: Младост\n\nПредседателят не записа забележката в протокола.',
       name: 'Мария Петрова',
       email: 'maria.link@example.com',
       phone: '+359888123456',

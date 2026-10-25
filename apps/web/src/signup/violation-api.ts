@@ -5,6 +5,7 @@
 import type { ViolationPayload } from './reports-validate'
 import type { StoredPhoto } from './reports-validate'
 import { tibroishApi } from './api-base'
+import { describedSignal } from './place-line'
 
 /** api.tibroish.bg in production, d1tapi.tibroish.bg on staging (src/signup/api-base.ts). */
 export function violationsApi() {
@@ -44,7 +45,7 @@ export interface ViolationBody {
 export function violationBody(payload: ViolationPayload, pictureIds: string[]): ViolationBody {
   const body: ViolationBody = {
     town: Number(payload.place.townId),
-    description: payload.description,
+    description: describedSignal(payload.place, payload.description),
     name: payload.name,
     email: payload.email,
     phone: apiPhone(payload.phone),

@@ -14,7 +14,8 @@ export default defineConfig({
     timeout: 180_000,
     stdout: 'pipe',
     // Signups are closed in production (src/signup/signups-closed.ts). The specs keep the signup flow covered.
-    env: { VITE_SIGNUPS_OPEN: '1' },
+    // VITE_RESULTS_FIXTURES: the map and unit pages read fixed data (src/home/results-fixtures.ts), not api.tibroish.bg.
+    env: { VITE_SIGNUPS_OPEN: '1', VITE_RESULTS_FIXTURES: '1' },
     stderr: 'pipe',
   },
 })

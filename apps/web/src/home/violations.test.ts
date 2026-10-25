@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { demoItems } from './demo'
 import { REGION_PATHS } from './region-paths'
 import { REGION_CODES } from './regions'
-import { countItems, heatLevel, inSegment, regionOf, toFeedItem, validAfter, validSegment, type ApiViolation } from './violations'
+import { countItems, inSegment, regionOf, toFeedItem, validAfter, validSegment, type ApiViolation } from './violations'
 import { clearViolationsCache, demoAllowed, handleViolations, loadOverview } from './violations.server'
 
 const town = (regions: string[], extra: Partial<NonNullable<ApiViolation['town']>> = {}) => ({
@@ -36,7 +36,7 @@ describe('violations on the map', () => {
       toFeedItem(item('d', { town: town(['23', '24', '25']) })),
     ]
     expect(Object.keys(feed[0]).sort()).toEqual(
-      ['country', 'createdAt', 'id', 'municipality', 'municipalityKey', 'region', 'section', 'text', 'town', 'video'].sort(),
+      ['country', 'createdAt', 'id', 'municipality', 'municipalityKey', 'place', 'region', 'section', 'text', 'town', 'video'].sort(),
     )
     expect(feed[0].text).toBe('Текст')
     const counts = countItems(feed)
@@ -54,12 +54,6 @@ describe('violations on the map', () => {
     for (const bad of ['00', '33', '1', '123', '23461', '2346120011', '../x', '']) expect(validSegment(bad)).toBe(false)
     expect(validAfter(ULID)).toBe(true)
     expect(validAfter('x; drop')).toBe(false)
-  })
-
-  it('grades colours against the busiest region', () => {
-    expect(heatLevel(0, 10)).toBe(0)
-    expect(heatLevel(1, 10)).toBe(1)
-    expect(heatLevel(10, 10)).toBe(5)
   })
 
   it('has an outline for every МИР', () => {

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as UnitRouteImport } from './routes/$unit'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AdminRouteRouteImport } from './routes/admin/route'
 import { Route as FaqRouteImport } from './routes/faq'
@@ -42,6 +43,7 @@ import { Route as PostsIndexRouteImport } from './routes/posts.index'
 import { Route as PostsSlugRouteImport } from './routes/posts.$slug'
 import { Route as ProfilPalnomoshtnoDotpdfRouteImport } from './routes/profil_.palnomoshtno[.]pdf'
 import { Route as RCodeRouteImport } from './routes/r.$code'
+import { Route as ViolationIdRouteImport } from './routes/violation.$id'
 import { Route as AdminIazPersonIdRouteImport } from './routes/admin/iaz.$personId'
 import { Route as AdminPalnomoshtniPodpisaniRouteImport } from './routes/admin/palnomoshtni_.podpisani'
 import { Route as AdminPalnomoshtniUploadRouteImport } from './routes/admin/palnomoshtni_.upload'
@@ -53,6 +55,11 @@ import { Route as AdminSignupsPersonIdPalnomoshtnoDotpdfRouteImport } from './ro
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UnitRoute = UnitRouteImport.update({
+  id: '/$unit',
+  path: '/$unit',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -216,6 +223,11 @@ const RCodeRoute = RCodeRouteImport.update({
   path: '/r/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ViolationIdRoute = ViolationIdRouteImport.update({
+  id: '/violation/$id',
+  path: '/violation/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminIazPersonIdRoute = AdminIazPersonIdRouteImport.update({
   id: '/iaz/$personId',
   path: '/iaz/$personId',
@@ -257,6 +269,7 @@ const AdminSignupsPersonIdPalnomoshtnoDotpdfRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
+  '/$unit': typeof UnitRoute
   '/about': typeof AboutRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
@@ -285,6 +298,7 @@ export interface FileRoutesByFullPath {
   '/posts/$slug': typeof PostsSlugRoute
   '/profil/palnomoshtno.pdf': typeof ProfilPalnomoshtnoDotpdfRoute
   '/r/$code': typeof RCodeRoute
+  '/violation/$id': typeof ViolationIdRoute
   '/admin/': typeof AdminIndexRoute
   '/izprateni/': typeof IzprateniIndexRoute
   '/posts/': typeof PostsIndexRoute
@@ -298,6 +312,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/$unit': typeof UnitRoute
   '/about': typeof AboutRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
@@ -325,6 +340,7 @@ export interface FileRoutesByTo {
   '/posts/$slug': typeof PostsSlugRoute
   '/profil/palnomoshtno.pdf': typeof ProfilPalnomoshtnoDotpdfRoute
   '/r/$code': typeof RCodeRoute
+  '/violation/$id': typeof ViolationIdRoute
   '/admin': typeof AdminIndexRoute
   '/izprateni': typeof IzprateniIndexRoute
   '/posts': typeof PostsIndexRoute
@@ -340,6 +356,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteRouteWithChildren
+  '/$unit': typeof UnitRoute
   '/about': typeof AboutRoute
   '/faq': typeof FaqRoute
   '/instructions': typeof InstructionsRoute
@@ -368,6 +385,7 @@ export interface FileRoutesById {
   '/posts/$slug': typeof PostsSlugRoute
   '/profil_/palnomoshtno.pdf': typeof ProfilPalnomoshtnoDotpdfRoute
   '/r/$code': typeof RCodeRoute
+  '/violation/$id': typeof ViolationIdRoute
   '/admin/': typeof AdminIndexRoute
   '/izprateni/': typeof IzprateniIndexRoute
   '/posts/': typeof PostsIndexRoute
@@ -384,6 +402,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/$unit'
     | '/about'
     | '/faq'
     | '/instructions'
@@ -412,6 +431,7 @@ export interface FileRouteTypes {
     | '/posts/$slug'
     | '/profil/palnomoshtno.pdf'
     | '/r/$code'
+    | '/violation/$id'
     | '/admin/'
     | '/izprateni/'
     | '/posts/'
@@ -425,6 +445,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/$unit'
     | '/about'
     | '/faq'
     | '/instructions'
@@ -452,6 +473,7 @@ export interface FileRouteTypes {
     | '/posts/$slug'
     | '/profil/palnomoshtno.pdf'
     | '/r/$code'
+    | '/violation/$id'
     | '/admin'
     | '/izprateni'
     | '/posts'
@@ -466,6 +488,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/$unit'
     | '/about'
     | '/faq'
     | '/instructions'
@@ -494,6 +517,7 @@ export interface FileRouteTypes {
     | '/posts/$slug'
     | '/profil_/palnomoshtno.pdf'
     | '/r/$code'
+    | '/violation/$id'
     | '/admin/'
     | '/izprateni/'
     | '/posts/'
@@ -509,6 +533,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRouteRoute: typeof AdminRouteRouteWithChildren
+  UnitRoute: typeof UnitRoute
   AboutRoute: typeof AboutRoute
   FaqRoute: typeof FaqRoute
   InstructionsRoute: typeof InstructionsRoute
@@ -530,6 +555,7 @@ export interface RootRouteChildren {
   PokanaCodeRoute: typeof PokanaCodeRoute
   ProfilPalnomoshtnoDotpdfRoute: typeof ProfilPalnomoshtnoDotpdfRoute
   RCodeRoute: typeof RCodeRoute
+  ViolationIdRoute: typeof ViolationIdRoute
   IzprateniIndexRoute: typeof IzprateniIndexRoute
 }
 
@@ -540,6 +566,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$unit': {
+      id: '/$unit'
+      path: '/$unit'
+      fullPath: '/$unit'
+      preLoaderRoute: typeof UnitRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -766,6 +799,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/violation/$id': {
+      id: '/violation/$id'
+      path: '/violation/$id'
+      fullPath: '/violation/$id'
+      preLoaderRoute: typeof ViolationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/iaz/$personId': {
       id: '/admin/iaz/$personId'
       path: '/iaz/$personId'
@@ -872,6 +912,7 @@ const PostsRouteWithChildren = PostsRoute._addFileChildren(PostsRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRouteRoute: AdminRouteRouteWithChildren,
+  UnitRoute: UnitRoute,
   AboutRoute: AboutRoute,
   FaqRoute: FaqRoute,
   InstructionsRoute: InstructionsRoute,
@@ -893,6 +934,7 @@ const rootRouteChildren: RootRouteChildren = {
   PokanaCodeRoute: PokanaCodeRoute,
   ProfilPalnomoshtnoDotpdfRoute: ProfilPalnomoshtnoDotpdfRoute,
   RCodeRoute: RCodeRoute,
+  ViolationIdRoute: ViolationIdRoute,
   IzprateniIndexRoute: IzprateniIndexRoute,
 }
 export const routeTree = rootRouteImport

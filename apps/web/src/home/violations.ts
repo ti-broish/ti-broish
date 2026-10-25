@@ -40,6 +40,8 @@ export interface FeedItem {
   /** Region + municipality code (4 digits), or null when unknown. */
   municipalityKey: string | null
   section: string | null
+  /** The section's address, as the API gives it (section.place). */
+  place?: string | null
   demo?: boolean
 }
 
@@ -96,6 +98,7 @@ export function toFeedItem(item: ApiViolation): FeedItem {
     region,
     municipalityKey: municipalityKeyOf(item, region),
     section: sectionId && SECTION_ID.test(sectionId) ? sectionId : null,
+    place: sectionId && SECTION_ID.test(sectionId) ? (item.section?.place ?? '').trim() || null : null,
   }
 }
 
@@ -122,20 +125,6 @@ export function inSegment(item: FeedItem, segment: string) {
   if (item.section) return item.section.startsWith(segment)
   if (segment.length === 4) return item.municipalityKey === segment
   return false
-}
-
-/**
- * The signals listed for a МИР: its own feed when loaded, else what is already loaded, both kept to the МИР.
- * The API's feed for 23/24/25 also returns Sofia signals without a section, which belong to no single МИР.
- */
-export function segmentItems(regionItems: FeedItem[] | null, loaded: FeedItem[], segment: string) {
-  return (regionItems ?? loaded).filter((item) => inSegment(item, segment))
-}
-
-/** 0 for none, then 1–5 by share of the busiest region. */
-export function heatLevel(count: number, max: number) {
-  if (count <= 0 || max <= 0) return 0
-  return Math.max(1, Math.min(5, Math.ceil((count / max) * 5)))
 }
 
 export function isProductionHost(hostname: string) {

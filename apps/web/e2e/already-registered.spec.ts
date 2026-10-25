@@ -84,7 +84,7 @@ test('an empty profile can still start signup', async ({ page }) => {
 test('the home page leads to signals, not to a new signup', async ({ page }) => {
   await seedProfile(page, {})
   await page.goto('/')
-  await expect(page.locator('main').getByRole('link', { name: 'Подай сигнал' })).toBeVisible()
+  await expect(page.locator('main').getByRole('link', { name: 'Подай сигнал', exact: true })).toBeVisible()
   await expect(page.locator('main').getByRole('link', { name: 'Запиши се' })).toHaveCount(0)
   await expect(page.locator('main').getByText('Вече си записан')).toHaveCount(0)
 })

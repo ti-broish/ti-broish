@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { isProtocolDay } from '../src/signup/election'
 
 test('the top nav matches the short menu and the footer links to contact', async ({ page }) => {
   await page.goto('/')
@@ -18,7 +19,8 @@ test('the top nav matches the short menu and the footer links to contact', async
   await expect(nav).not.toContainText('Извън страната')
   const footer = page.locator('footer')
   await expect(footer).not.toContainText('team@tibroish.bg')
-  await expect(footer).not.toContainText('Изпрати протокол')
+  // On election and protocol days the footer does offer „Изпрати протокол“ (SiteChrome, isProtocolDay).
+  if (!isProtocolDay()) await expect(footer).not.toContainText('Изпрати протокол')
   for (const [name, href] of [
     ['Facebook', 'https://www.facebook.com/tibroish/'],
     ['Instagram', 'https://www.instagram.com/tibroish.bg/'],
@@ -33,8 +35,10 @@ test('the top nav matches the short menu and the footer links to contact', async
   await page.getByRole('link', { name: 'въпросите и отговорите' }).click()
   await expect(page.getByRole('heading', { name: 'Въпроси и отговори' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Страницата „Извън страната“' })).toBeVisible()
-  await page.goto('/protokol')
-  await expect(page.getByRole('heading', { name: 'Протоколът се праща в изборния ден' })).toBeVisible()
+  if (!isProtocolDay()) {
+    await page.goto('/protokol')
+    await expect(page.getByRole('heading', { name: 'Протоколът се праща в изборния ден' })).toBeVisible()
+  }
   await page.goto('/neshto-si')
   await expect(page.getByRole('heading', { name: 'Няма такава страница' })).toBeVisible()
   await expect(page.getByText('Not Found')).toHaveCount(0)

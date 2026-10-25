@@ -117,8 +117,10 @@ describe('/api/violations', () => {
     const fail = async () => {
       throw new Error('no upstream for demo')
     }
+    // In production ?demo=1 is ignored: it asks the real API (here down, so 502) and never returns samples.
     const prod = await handleViolations(new Request('https://tibroish.bg/api/violations?demo=1'), env, noWait, fail)
-    expect(prod.status).toBe(404)
+    expect(prod.status).toBe(502)
+    expect(((await prod.json()) as { demo?: boolean }).demo).toBeUndefined()
     const staging = await handleViolations(new Request('https://d1t.tibroish.bg/api/violations?demo=1'), env, noWait, fail)
     const body = (await staging.json()) as { demo: boolean; items: { demo: boolean; text: string }[] }
     expect(body.demo).toBe(true)

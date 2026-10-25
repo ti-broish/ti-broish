@@ -170,8 +170,8 @@ export async function handleViolations(
   if (segment && !validSegment(segment)) return json({ error: 'segment' }, 400)
   if (after && !validAfter(after)) return json({ error: 'after' }, 400)
 
-  if (url.searchParams.get('demo') === '1') {
-    if (!demoAllowed(env, url)) return json({ error: 'demo' }, 404)
+  // ?demo=1 where sample data is not allowed (production) is ignored: real signals, never fake ones.
+  if (url.searchParams.get('demo') === '1' && demoAllowed(env, url)) {
     const items = demoItems()
     const listed = segment ? items.filter((item) => inSegment(item, segment)) : items
     const snapshot: Snapshot = {

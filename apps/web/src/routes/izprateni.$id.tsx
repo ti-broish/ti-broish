@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
 import { placeLabel } from '../signup/model'
 import { getReport, type ReportDetail } from '../signup/reports'
+import { fetchOwnProtocol, protocolStatusLabel, type ApiProtocol } from '../signup/protocol-api'
+import { readReports } from '../signup/report-memory'
 import { fetchOwnViolation, violationStatusLabel, type ApiViolation } from '../signup/violation-api'
 
 export const Route = createFileRoute('/izprateni/$id')({
@@ -19,16 +21,20 @@ function ReportPage() {
   const { secret } = Route.useSearch()
   const [report, setReport] = useState<ReportDetail | null | undefined>(undefined)
   const [apiReport, setApiReport] = useState<ApiViolation | null>(null)
+  const [apiProtocol, setApiProtocol] = useState<ApiProtocol | null>(null)
 
   useEffect(() => {
     let cancelled = false
     void getReport({ data: { id, secret } })
       .catch(() => null)
       .then(async (stored) => {
-        // Signals sent to the API (since this change) are read back from the API with their secret.
-        const fromApi = stored ? null : await fetchOwnViolation(id, secret)
+        // Signals and protocols sent to the API are read back from the API with their secret.
+        const kind = readReports().find((item) => item.id === id)?.kind
+        const fromApi = stored || kind === 'protocol' ? null : await fetchOwnViolation(id, secret)
+        const protocol = stored || fromApi || kind === 'violation' ? null : await fetchOwnProtocol(id, secret)
         if (cancelled) return
         setApiReport(fromApi)
+        setApiProtocol(protocol)
         setReport(stored)
       })
     return () => {
@@ -37,6 +43,27 @@ function ReportPage() {
   }, [id, secret])
 
   if (report === undefined) return <p>Зареждаме…</p>
+  if (!report && apiProtocol) {
+    return (
+      <div className="grid gap-4">
+        <PageIntro title="Протокол" lede={apiProtocol.createdAt ? new Date(apiProtocol.createdAt).toLocaleString('bg-BG') : ''} />
+        <p className="rounded-2xl bg-[#eee] px-4 py-3">
+          {protocolStatusLabel(apiProtocol.status)}. Номер: <span className="font-mono">{apiProtocol.id}</span>
+        </p>
+        {apiProtocol.sectionId ? <p>Секция {apiProtocol.sectionId}</p> : null}
+        <ul className="grid gap-3">
+          {apiProtocol.pictures.map((src) => (
+            <li key={src}>
+              <img src={src} alt="" className="w-full rounded-xl" />
+            </li>
+          ))}
+        </ul>
+        <Link to="/izprateni" className="brand-button">
+          Назад към изпратените
+        </Link>
+      </div>
+    )
+  }
   if (!report && apiReport) {
     return (
       <div className="grid gap-4">

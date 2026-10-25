@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { isProtocolDay } from '../signup/election'
+import { WhenProtocolOpen } from './WhenProtocolOpen'
 import { SIGNUPS_CLOSED } from '../signup/signups-closed'
 import { useRegistration } from '../signup/use-registration'
 
@@ -101,11 +101,11 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
           <Link to="/signal" className="font-bold text-[#333] no-underline">
             Подай сигнал
           </Link>
-          {isProtocolDay() ? (
+          <WhenProtocolOpen>
             <Link to="/protokol" className="font-bold text-[#333] no-underline">
               Изпрати протокол
             </Link>
-          ) : null}
+          </WhenProtocolOpen>
           <Link to="/privacy-notice" className="font-bold text-[#333] no-underline">
             Поверителност
           </Link>

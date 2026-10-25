@@ -5,7 +5,7 @@ import { SignalPartnerBanner, partnerClass } from '../components/SignalPartner'
 import { PhotoField } from '../components/PhotoField'
 import { PlacesPicker } from '../components/PlacesPicker'
 import { loadSignup } from '../signup/db'
-import { isProtocolDay } from '../signup/election'
+import { WhenProtocolOpen } from '../components/WhenProtocolOpen'
 import { placeLabel, placeReady, validEmail, validPhone, type HomePlace } from '../signup/model'
 import { recaptchaToken } from '../signup/recaptcha'
 import { rememberReport } from '../signup/report-memory'
@@ -88,11 +88,11 @@ function SignalPage() {
         <button type="button" className="brand-button" onClick={() => setSent(null)}>
           Изпрати друг сигнал
         </button>
-        {isProtocolDay() ? (
+        <WhenProtocolOpen>
           <Link to="/protokol" className="brand-button">
             Изпрати протокол
           </Link>
-        ) : null}
+        </WhenProtocolOpen>
       </div>
     )
   }

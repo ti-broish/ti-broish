@@ -1,7 +1,7 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
 import { SIGNUPS_CLOSED } from '../signup/signups-closed'
-import { isProtocolDay } from '../signup/election'
+import { WhenProtocolOpen } from '../components/WhenProtocolOpen'
 
 export const Route = createFileRoute('/instructions')({ component: InstructionsPage })
 
@@ -41,13 +41,13 @@ function InstructionsPage() {
         <li>Не пречиш на работата на СИК. Ако видиш нарушение, не го отминавай.</li>
         <li>Работата свършва, когато имаш копие от протокола.</li>
         <li>
-          Ако СИК не отстрани нарушението, подаваш го от <Link to="/signal">сигнала</Link>. Копието от протокола се праща в изборния ден
-          {isProtocolDay() ? (
+          Ако СИК не отстрани нарушението, подаваш го от <Link to="/signal">сигнала</Link>. Копието от протокола се праща след 20:00 ч., когато секциите затворят
+          <WhenProtocolOpen>
             <>
               {' '}
               от <Link to="/protokol">протокола</Link>
             </>
-          ) : null}
+          </WhenProtocolOpen>
           . Работи и без профил.
         </li>
       </ul>

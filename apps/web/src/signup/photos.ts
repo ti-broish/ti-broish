@@ -1,9 +1,18 @@
 import type { PhotoInput } from './reports-validate'
 
-const MAX_EDGE = 1400
-const MAX_BYTES = 260_000
+export interface PhotoLimits {
+  maxEdge: number
+  maxBytes: number
+  quality: number
+}
 
-export async function compressPhoto(file: File): Promise<PhotoInput> {
+/** Signals: small photos, they only need to show what happened. */
+export const SIGNAL_PHOTO: PhotoLimits = { maxEdge: 1400, maxBytes: 260_000, quality: 0.62 }
+/** Protocols: the numbers must stay readable, like the old site (which sent up to 4000 px / 2 MB). */
+export const PROTOCOL_PHOTO: PhotoLimits = { maxEdge: 2400, maxBytes: 700_000, quality: 0.85 }
+
+export async function compressPhoto(file: File, limits: PhotoLimits = SIGNAL_PHOTO): Promise<PhotoInput> {
+  const { maxEdge: MAX_EDGE, maxBytes: MAX_BYTES } = limits
   if (!file.type.startsWith('image/')) throw new Error('Файлът не е снимка.')
   const bitmap = await createImageBitmap(file).catch(() => {
     throw new Error('Снимката не се чете. Използвай JPG или PNG.')
@@ -16,10 +25,10 @@ export async function compressPhoto(file: File): Promise<PhotoInput> {
   if (!context) throw new Error('Снимката не се чете.')
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
   bitmap.close?.()
-  let quality = 0.62
+  let quality = limits.quality
   let blob = await canvasToJpeg(canvas, quality)
   while (blob.size > MAX_BYTES && quality > 0.35) {
-    quality -= 0.12
+    quality -= 0.1
     blob = await canvasToJpeg(canvas, quality)
   }
   if (blob.size > MAX_BYTES) throw new Error('Снимката е твърде голяма. Опитай с друга.')

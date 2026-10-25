@@ -2,7 +2,7 @@ export interface RememberedReport {
   id: string
   secret: string
   kind: 'violation' | 'protocol' | 'call'
-  /** 'api' for signals sent to api.tibroish.bg; absent for older reports kept in D1. */
+  /** 'api' for signals and protocols sent to the Ти Броиш API; absent for older reports kept in D1. */
   source?: 'api'
   createdAt?: string
   title?: string

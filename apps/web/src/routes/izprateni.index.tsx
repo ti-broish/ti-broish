@@ -1,7 +1,7 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
-import { isProtocolDay } from '../signup/election'
+import { WhenProtocolOpen } from '../components/WhenProtocolOpen'
 import { readReports } from '../signup/report-memory'
 import { listReports, type ReportSummary } from '../signup/reports'
 
@@ -21,7 +21,7 @@ function SentPage() {
         id: item.id,
         kind: item.kind,
         createdAt: item.createdAt ?? '',
-        title: item.title || 'Сигнал',
+        title: item.title || (item.kind === 'protocol' ? 'Протокол' : 'Сигнал'),
         photoCount: item.photoCount ?? 0,
       }))
     const stored = known.filter((item) => item.source !== 'api')
@@ -40,11 +40,11 @@ function SentPage() {
       <Link to="/signal" className="brand-button">
         Подай сигнал
       </Link>
-      {isProtocolDay() ? (
+      <WhenProtocolOpen>
         <Link to="/protokol" className="brand-button">
           Изпрати протокол
         </Link>
-      ) : null}
+      </WhenProtocolOpen>
       {items === null ? <p>Зареждаме…</p> : null}
       {items?.length === 0 ? <p>Още няма изпратени от този браузър.</p> : null}
       <ul className="grid gap-3">

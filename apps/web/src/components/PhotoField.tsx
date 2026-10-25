@@ -1,28 +1,33 @@
 import { useState } from 'react'
-import { compressPhoto } from '../signup/photos'
+import { compressPhoto, SIGNAL_PHOTO, type PhotoLimits } from '../signup/photos'
 import type { PhotoInput } from '../signup/reports-validate'
 
 export function PhotoField({
   photos,
   onChange,
   minimum = 0,
+  maximum = 8,
+  limits = SIGNAL_PHOTO,
 }: {
   photos: PhotoInput[]
   onChange: (photos: PhotoInput[]) => void
   minimum?: number
+  maximum?: number
+  limits?: PhotoLimits
 }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  async function add(list: FileList | null) {
-    if (!list?.length) return
+  // Takes a copy of the files: the input is cleared right after the change event, which empties a live FileList.
+  async function add(list: File[]) {
+    if (!list.length) return
     setBusy(true)
     setError('')
     const next = [...photos]
     try {
       for (const file of list) {
-        if (next.length >= 8) break
-        next.push(await compressPhoto(file))
+        if (next.length >= maximum) break
+        next.push(await compressPhoto(file, limits))
       }
       onChange(next)
     } catch (caught) {
@@ -43,7 +48,7 @@ export function PhotoField({
           multiple
           disabled={busy}
           onChange={(event) => {
-            void add(event.target.files)
+            void add(Array.from(event.target.files ?? []))
             event.target.value = ''
           }}
         />

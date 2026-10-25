@@ -64,7 +64,7 @@ const FIELD_MESSAGES: [RegExp, string][] = [
 ]
 
 /** Bulgarian text for an API error body ({ message: string | string[] }). */
-export function apiErrorMessage(status: number, body: unknown): string {
+export function apiErrorMessage(status: number, body: unknown, subject = 'Сигналът'): string {
   const raw = (body as { message?: unknown } | null)?.message
   const messages = (Array.isArray(raw) ? raw : [raw]).filter((item): item is string => typeof item === 'string')
   const out: string[] = []
@@ -75,8 +75,8 @@ export function apiErrorMessage(status: number, body: unknown): string {
   if (out.length > 0) return out.join(' ')
   if (status === 413) return 'Снимките са твърде големи. Махни някоя и опитай пак.'
   if (status === 429) return 'Твърде много опити. Изчакай минута и опитай пак.'
-  if (status >= 500 || status === 0) return 'Сигналът не беше изпратен. Системата не отговаря, опитай пак след малко.'
-  return 'Сигналът не беше изпратен. Провери полетата и опитай пак.'
+  if (status >= 500 || status === 0) return `${subject} не беше изпратен. Системата не отговаря, опитай пак след малко.`
+  return `${subject} не беше изпратен. Провери полетата и опитай пак.`
 }
 
 async function postJson(fetcher: Fetch, path: string, body: unknown, recaptchaToken?: string) {

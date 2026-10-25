@@ -22,6 +22,9 @@ test('the top nav matches the short menu and the footer links to contact', async
   // From 20:00 on election day until 12:00 the next day the footer offers „Изпрати протокол“ (SiteChrome, isProtocolOpen).
   if (isProtocolOpen()) await expect(footer).toContainText('Изпрати протокол')
   else await expect(footer).not.toContainText('Изпрати протокол')
+  // The home page shows the same big button next to „Подай сигнал“ while the window is open.
+  const homeProtocol = page.locator('main a.brand-button[href="/protokol"]')
+  await expect(homeProtocol).toHaveCount(isProtocolOpen() ? 1 : 0)
   for (const [name, href] of [
     ['Facebook', 'https://www.facebook.com/tibroish/'],
     ['Instagram', 'https://www.instagram.com/tibroish.bg/'],

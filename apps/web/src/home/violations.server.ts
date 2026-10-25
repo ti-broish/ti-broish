@@ -1,7 +1,9 @@
-// /api/violations: published signals for the home page, fetched by the worker from api.tibroish.bg.
+// /api/violations: published signals for the home page, fetched by the worker from api.tibroish.bg
+// (d1tapi.tibroish.bg on staging, src/signup/api-base.ts).
 // The old API has no cache and no rate limit, and its CORS list has no preview hosts, so the browser
 // never calls it for the feed. Every colo keeps a short-lived copy (isolate memory + Cache API) and
 // refreshes it in the background, so the API sees at most a few requests a minute per colo.
+import { tibroishApi } from '../signup/api-base'
 import { demoItems } from './demo'
 import {
   FEED_PAGE_SIZE,
@@ -16,7 +18,7 @@ import {
   type FeedItem,
 } from './violations'
 
-export const UPSTREAM = 'https://api.tibroish.bg'
+export const UPSTREAM = tibroishApi()
 
 /** Serve without refetching for this long. */
 const FRESH_MS = 45_000

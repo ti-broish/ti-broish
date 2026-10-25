@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { validateViolation } from './reports-validate'
-import { apiErrorMessage, apiPhone, sendViolation, violationBody, VIOLATIONS_API } from './violation-api'
+import { apiErrorMessage, apiPhone, sendViolation, violationBody } from './violation-api'
+
+const VIOLATIONS_API = 'https://api.tibroish.bg'
 
 const place = {
   regionCode: '23',

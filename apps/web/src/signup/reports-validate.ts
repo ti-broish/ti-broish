@@ -55,12 +55,6 @@ export interface ViolationPayload {
 /** The API accepts 20 to 2000 characters. */
 export const VIOLATION_DESCRIPTION_MAX = 2000
 
-export interface ProtocolInput {
-  email: string
-  note: string
-  photos: PhotoInput[]
-}
-
 export interface CallInput {
   name: string
   phone: string
@@ -95,15 +89,6 @@ export function validateViolation(input: ViolationInput): { payload: ViolationPa
     payload: { name, email, phone, description, place: { ...place, townId: place.townId } },
     photos,
   }
-}
-
-export function validateProtocol(input: ProtocolInput) {
-  const email = cleanText(input.email, 200)
-  const note = cleanText(input.note, 1000)
-  if (email && !validEmail(email)) return 'Имейлът не е валиден.'
-  const photos = cleanPhotos(input.photos, 4, 8)
-  if (typeof photos === 'string') return photos
-  return { payload: { email, note }, photos }
 }
 
 export function validateCall(input: CallInput) {

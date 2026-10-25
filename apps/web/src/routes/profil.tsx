@@ -14,7 +14,7 @@ import { applyCantReachReport } from '../signup/cant-reach'
 import { reportCantReach, saveSignup } from '../signup/db'
 import { selfRestoreSignup } from '../signup/admin-unregister-actions'
 import { applyLoadedSession, beginSessionLoad, invalidateSessionLoad } from '../signup/use-registration'
-import { isProtocolDay } from '../signup/election'
+import { WhenProtocolOpen } from '../components/WhenProtocolOpen'
 import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signupGap, validEmail, type Profile } from '../signup/model'
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
@@ -232,12 +232,12 @@ function ProfilePage() {
         )}
         <p className="text-sm leading-7">
           <Link to="/signal">Подай сигнал</Link>
-          {isProtocolDay() ? (
+          <WhenProtocolOpen>
             <>
               {' · '}
               <Link to="/protokol">Изпрати протокол</Link>
             </>
-          ) : null}
+          </WhenProtocolOpen>
         </p>
         <AnonymousCall />
       </div>
@@ -348,12 +348,12 @@ function ProfilePage() {
         <StaffNote />
         <p>
           <Link to="/signal">Подай сигнал</Link>
-          {isProtocolDay() ? (
+          <WhenProtocolOpen>
             <>
               {' · '}
               <Link to="/protokol">Изпрати протокол</Link>
             </>
-          ) : null}
+          </WhenProtocolOpen>
           {' · '}
           <Link to="/izprateni">Изпратените</Link>
         </p>

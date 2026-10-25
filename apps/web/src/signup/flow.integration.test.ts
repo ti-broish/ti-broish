@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { emptyProfile, nextAssignment, normalizeCallRequest, profileView, registrationSettled, resumeSignupStep, signupGap, stepsFor, type Companion, type HomePlace } from './model'
 import { companionRows, signupColumns } from './record'
-import { validateCall, validateProtocol, validateViolation } from './reports-validate'
-import { isProtocolDay } from './election'
+import { validateCall, validateViolation } from './reports-validate'
+import { checkProtocol } from './protocol-api'
 import { placeSummaries } from './sections'
 
 const home: HomePlace = {
@@ -132,15 +132,6 @@ describe('signup flow', () => {
   })
 })
 
-describe('protocol day', () => {
-  it('is only the two election dates in Sofia', () => {
-    expect(isProtocolDay(new Date('2026-10-25T09:00:00Z'))).toBe(true)
-    expect(isProtocolDay(new Date('2026-11-01T09:00:00Z'))).toBe(true)
-    expect(isProtocolDay(new Date('2026-10-24T09:00:00Z'))).toBe(false)
-    expect(isProtocolDay(new Date('2026-09-27T09:00:00Z'))).toBe(false)
-  })
-})
-
 describe('section addresses and reports', () => {
   it('counts paper and machine sections that share one address', () => {
     const summaries = placeSummaries([
@@ -166,10 +157,9 @@ describe('section addresses and reports', () => {
       photos: [],
     })
     expect(typeof accepted).not.toBe('string')
-    expect(validateProtocol({ email: '', note: '', photos: [] })).toMatch(/4/)
+    expect(checkProtocol('', [])).toMatch(/4/)
     expect(validateCall({ name: 'Иван', phone: '0888', email: '', message: '' })).toMatch(/телефон/)
     const jpeg = { contentType: 'image/jpeg', data: `/9j/${'A'.repeat(40)}` }
-    const protocol = validateProtocol({ email: 'ivan@example.com', note: 'Протокол', photos: [jpeg, jpeg, jpeg, jpeg] })
-    expect(typeof protocol).not.toBe('string')
+    expect(checkProtocol('ivan@example.com', [jpeg, jpeg, jpeg, jpeg])).toBeNull()
   })
 })

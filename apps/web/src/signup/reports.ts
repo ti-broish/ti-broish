@@ -2,13 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { getCookie } from '@tanstack/react-start/server'
 import { env } from 'cloudflare:workers'
 import type { HomePlace } from './model'
-import {
-  validateCall,
-  validateProtocol,
-  type CallInput,
-  type ProtocolInput,
-  type StoredPhoto,
-} from './reports-validate'
+import { validateCall, type CallInput, type StoredPhoto } from './reports-validate'
 
 const COOKIE = 'tb_session'
 
@@ -102,18 +96,9 @@ async function insertReport(
   return { ok: true as const, id, secret }
 }
 
-// Signals (violations) are no longer written here. /signal sends them to the Ти Броиш API
-// (see violation-api.ts) so the team sees them in upravitel. Older violation rows stay readable below.
-
-export const submitProtocol = createServerFn({ method: 'POST' })
-  .validator((input: ProtocolInput) => input)
-  .handler(async ({ data }) => {
-    const db = await database()
-    if (!db) return fail('Записът не е достъпен в момента. Опитай пак.')
-    const parsed = validateProtocol(data)
-    if (typeof parsed === 'string') return fail(parsed)
-    return insertReport(db, 'protocol', parsed.payload.email, parsed.payload, parsed.photos)
-  })
+// Signals and protocols are no longer written here. /signal and /protokol send them to the Ти Броиш API
+// (violation-api.ts, protocol-api.ts) so the team sees them in upravitel and the protocols reach validation.
+// Older violation and protocol rows stay readable below; the tables are kept.
 
 export const submitCall = createServerFn({ method: 'POST' })
   .validator((input: CallInput) => input)

@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { isProtocolDay } from '../signup/election'
+import { WhenProtocolOpen } from './WhenProtocolOpen'
 
 export function ElectionActions() {
   return (
@@ -7,11 +7,11 @@ export function ElectionActions() {
       <Link to="/signal" className="brand-button">
         Подай сигнал
       </Link>
-      {isProtocolDay() ? (
+      <WhenProtocolOpen>
         <Link to="/protokol" className="brand-button">
           Изпрати протокол
         </Link>
-      ) : null}
+      </WhenProtocolOpen>
       <Link to="/izprateni" className="brand-button">
         Изпратените от теб
       </Link>

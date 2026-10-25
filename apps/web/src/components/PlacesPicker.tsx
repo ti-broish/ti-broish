@@ -15,6 +15,7 @@ import {
 } from '../signup/geo'
 import type { HomePlace } from '../signup/model'
 import { sofiaMir } from '../signup/rules'
+import { placeWithAddress, placeWithSection, sectionChoices } from '../signup/section-choice'
 import { placeSummaries } from '../signup/sections'
 
 const inputClass =
@@ -27,6 +28,7 @@ export function PlacesPicker({
   footnote,
   onGeography,
   lockedMir = null,
+  pickSection = false,
 }: {
   value: HomePlace | null
   onChange: (place: HomePlace | null) => void
@@ -34,6 +36,8 @@ export function PlacesPicker({
   footnote?: string
   onGeography?: (info: { districts: CityRegion[]; sections: PollingSection[] }) => void
   lockedMir?: string | null
+  /** Signals: after an address with several sections, ask for the section number (required). */
+  pickSection?: boolean
 }) {
   const [regions, setRegions] = useState<ElectionRegion[]>([])
   const [countries, setCountries] = useState<Country[]>([])
@@ -120,9 +124,17 @@ export function PlacesPicker({
         cancelled = true
       }
     }
+    let cancelled = false
     void fetchSections({ data: { townId: value.townId, cityRegionCode: value.cityRegionCode } })
-      .then((data) => setSections(data))
-      .catch(() => setSections([]))
+      .then((data) => {
+        if (!cancelled) setSections(data)
+      })
+      .catch(() => {
+        if (!cancelled) setSections([])
+      })
+    return () => {
+      cancelled = true
+    }
   }, [value?.townId, value?.cityRegionCode, abroad])
 
   useEffect(() => {
@@ -167,14 +179,15 @@ export function PlacesPicker({
     autoSectionFor.current = sectionKey
     const group = groups[0]
     if (!group) return
-    onChangeRef.current({
-      ...value,
-      sectionId: undefined,
-      sectionPlace: group.place,
-      paperCount: group.paper,
-      machineCount: group.machine,
-    })
-  }, [sections, value])
+    onChangeRef.current(placeWithAddress(value, group, pickSection))
+  }, [sections, value, pickSection])
+
+  useEffect(() => {
+    // A saved address (profile, link) with a single section: set that section too.
+    if (!pickSection || abroad || !value?.sectionPlace || value.sectionId) return
+    const group = placeSummaries(sections).find((item) => item.place === value.sectionPlace)
+    if (group?.sections.length === 1) onChangeRef.current(placeWithAddress(value, group, true))
+  }, [abroad, pickSection, sections, value])
 
   function setRegion(code: string) {
     const next = regions.find((item) => item.code === code)
@@ -197,6 +210,8 @@ export function PlacesPicker({
     .filter((item) => !lockedMir || value?.regionCode !== 'sofia-merged' || sofiaMir(item.name) === lockedMir)
     .sort((a, b) => a.name.localeCompare(b.name, 'bg'))
   const addresses = placeSummaries(sections)
+  const chosenAddress = addresses.find((item) => item.place === value?.sectionPlace)
+  const numbers = sectionChoices(chosenAddress)
   const districtKey = districts.map((item) => item.code).join(',')
   const sectionKey = sections.map((item) => item.id).join(',')
   const onGeographyRef = useRef(onGeography)
@@ -416,13 +431,7 @@ export function PlacesPicker({
             value={value.sectionPlace ?? ''}
             onChange={(event) => {
               const group = addresses.find((item) => item.place === event.target.value)
-              onChange({
-                ...(value as HomePlace),
-                sectionId: undefined,
-                sectionPlace: group?.place,
-                paperCount: group ? group.paper : null,
-                machineCount: group ? group.machine : null,
-              })
+              onChange(placeWithAddress(value as HomePlace, group, pickSection))
             }}
           >
             <option value="">Без конкретен адрес</option>
@@ -430,6 +439,25 @@ export function PlacesPicker({
               <option key={group.place} value={group.place}>
                 {group.place} · {group.sections.length} секции, {group.paper} хартиени, {group.machine} машинни
                 {group.unknown > 0 ? `, ${group.unknown} без брой избиратели` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      {pickSection && !abroad && numbers.length > 0 ? (
+        <label className="grid gap-1.5 text-sm font-semibold">
+          Номер на секция
+          <select
+            className={inputClass}
+            value={value?.sectionId ?? ''}
+            required
+            onChange={(event) => onChange(placeWithSection(value as HomePlace, chosenAddress, event.target.value))}
+          >
+            <option value="">Избери</option>
+            {numbers.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
               </option>
             ))}
           </select>

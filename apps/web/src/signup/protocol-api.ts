@@ -2,8 +2,8 @@
 // so they reach the validation queue and the results:
 // POST /pictures for each photo (data URL), POST /protocols { pictures: [ids] },
 // then, only if an email was given, PATCH /protocols/:id/contact { email, secret }.
-// The browser calls the API directly (CORS allows any origin). The API base is per host (api-base.ts).
-import { tiBroishApi } from './api-base'
+// The browser calls the API directly (CORS allows any origin). api.tibroish.bg in production, d1tapi.tibroish.bg on staging (api-base.ts).
+import { tibroishApi } from './api-base'
 import { validEmail } from './model'
 import type { PhotoInput } from './reports-validate'
 import { apiErrorMessage } from './violation-api'
@@ -61,7 +61,7 @@ export async function sendProtocol(email: string, photos: PhotoInput[], options:
   const invalid = checkProtocol(email, photos)
   if (invalid) return { ok: false, message: invalid }
   const fetcher: Fetch = options.fetch ?? ((input, init) => fetch(input, init))
-  const api = options.api ?? tiBroishApi()
+  const api = options.api ?? tibroishApi()
   const token = async (action: string) => (options.recaptcha ? await options.recaptcha(action).catch(() => '') : '')
 
   const pictureIds: string[] = []
@@ -111,7 +111,7 @@ export async function fetchOwnProtocol(
   id: string,
   secret: string,
   fetcher: Fetch = (input, init) => fetch(input, init),
-  api = tiBroishApi(),
+  api = tibroishApi(),
 ): Promise<ApiProtocol | null> {
   if (!id || !secret) return null
   try {

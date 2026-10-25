@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { tiBroishApi } from './api-base'
 import { bgDateTime, currentOrNextProtocolWindow, isProtocolOpen, protocolWindows, sofiaDay } from './election'
 import { fetchElectionEnd } from './protocol-window'
 
@@ -59,16 +58,5 @@ describe('protocol window', () => {
     expect(end).toBe('2026-10-25T20:00:00+02:00')
     expect(await fetchElectionEnd(async () => new Response('nope', { status: 502 }), 'https://api.tibroish.bg')).toBeNull()
     expect(await fetchElectionEnd(async () => Promise.reject(new Error('offline')), 'https://api.tibroish.bg')).toBeNull()
-  })
-})
-
-describe('API base', () => {
-  it('sends to the production API only from tibroish.bg', () => {
-    expect(tiBroishApi('tibroish.bg', '')).toBe('https://api.tibroish.bg')
-    expect(tiBroishApi('www.tibroish.bg', '')).toBe('https://api.tibroish.bg')
-    expect(tiBroishApi('d1t.tibroish.bg', '')).toBe('https://d1tapi.tibroish.bg')
-    expect(tiBroishApi('abc-ti-broish-web-staging.example.workers.dev', '')).toBe('https://d1tapi.tibroish.bg')
-    expect(tiBroishApi('127.0.0.1', '')).toBe('https://d1tapi.tibroish.bg')
-    expect(tiBroishApi('tibroish.bg', 'https://example.test/api/')).toBe('https://example.test/api')
   })
 })

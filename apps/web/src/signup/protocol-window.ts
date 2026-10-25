@@ -3,7 +3,8 @@
 // and re-checks the clock every 30 seconds, so a page left open at 19:59 shows the link at 20:00.
 // Off production (staging, previews, local dev), ?protokol-test=1 opens the window for this browser tab.
 import { useEffect, useState } from 'react'
-import { isProductionHost, tiBroishApi } from './api-base'
+import { isProductionHost } from '../home/violations'
+import { tibroishApi } from './api-base'
 import { currentOrNextProtocolWindow, isProtocolOpen, protocolWindows } from './election'
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>
@@ -13,7 +14,7 @@ const TICK_MS = 30_000
 
 let metaRequest: Promise<string | null> | null = null
 
-export async function fetchElectionEnd(fetcher: Fetch = (input, init) => fetch(input, init), api = tiBroishApi()) {
+export async function fetchElectionEnd(fetcher: Fetch = (input, init) => fetch(input, init), api = tibroishApi()) {
   try {
     const response = await fetcher(`${api}/results/meta.json`, { headers: { Accept: 'application/json' } })
     if (!response.ok) return null

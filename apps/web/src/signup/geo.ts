@@ -1,8 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import type { Geometry } from 'geojson'
+import { tibroishApi } from './api-base'
 import { chooseDistrictOutline, districtLabel, keepDistrictGeometry, nominatimSearchQuery } from './outlines'
-
-const API = 'https://api.tibroish.bg'
 
 export interface Municipality {
   code: string
@@ -40,7 +39,7 @@ export interface Country {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API}/${path}`, {
+  const response = await fetch(`${tibroishApi()}/${path}`, {
     headers: { Accept: 'application/json', 'Accept-Language': 'bg-BG' },
   })
   if (!response.ok) throw new Error(`Грешка при зареждане (${response.status})`)

@@ -2,7 +2,7 @@ import { Link, createFileRoute, useRouterState } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ViolationsMap } from '../components/ViolationsMap'
 import { regionName } from '../home/regions'
-import { inSegment, type Counts, type FeedItem } from '../home/violations'
+import { segmentItems, type Counts, type FeedItem } from '../home/violations'
 import { useRegistration } from '../signup/use-registration'
 
 // Home: the map of published signals by МИР and the feed, from /api/violations (worker-cached).
@@ -126,7 +126,7 @@ function HomePage() {
   }, [region, base, overview?.fetchedAt])
 
   const loaded = overview ? [...overview.items, ...extra] : []
-  const items = region ? (regionItems ?? loaded.filter((item) => inSegment(item, region))) : loaded
+  const items = region ? segmentItems(regionItems, loaded, region) : loaded
   const counts = overview?.counts ?? null
   const total = counts?.total ?? 0
 

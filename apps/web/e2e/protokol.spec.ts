@@ -1,10 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
 import { isProtocolOpen } from '../src/signup/election'
 
-// /protokol sends protocols to the Ти Броиш API like the old results site. Off tibroish.bg the API is the staging
-// API (d1tapi.tibroish.bg), mocked here. ?protokol-test=1 opens the window outside 20:00–12:00 (never on tibroish.bg).
+// /protokol sends protocols to the Ти Броиш API like the old results site. `vite dev` uses the production API
+// (src/signup/api-base.ts), mocked here. ?protokol-test=1 opens the window outside 20:00–12:00 (never on tibroish.bg).
 
-const API = 'https://d1tapi.tibroish.bg'
+const API = 'https://api.tibroish.bg'
 // 8×8 red PNG; the browser turns it into a JPEG before upload.
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGM4o6SEFTEMLQkAvM5EAT6yk8sAAAAASUVORK5CYII=',
@@ -29,7 +29,7 @@ async function mockApi(page: Page) {
     seen.contact.push(route.request().postDataJSON() as Record<string, unknown>)
     await route.fulfill({ status: 202, body: '' })
   })
-  await page.context().route((url) => url.hostname === 'd1tapi.tibroish.bg' && url.pathname === '/protocols/proto-e2e', (route) =>
+  await page.context().route((url) => url.hostname === 'api.tibroish.bg' && url.pathname === '/protocols/proto-e2e', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',

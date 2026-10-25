@@ -26,6 +26,8 @@ function pageFrameClass(path: string, search: string) {
   const wideProfile = path === '/profil'
   const home = path === '/'
   if (wideMap || wideProfile || home) return 'mx-auto w-full max-w-6xl bg-white px-4 py-8'
+  // The unit and signal pages are the old results site, laid out in its 900px column (results App.js Wrapper).
+  if (/^\/(\d{2,9}|violation\/[^/]+)$/.test(path)) return 'mx-auto w-full max-w-[900px] bg-white px-4 py-8'
   return 'mx-auto w-full max-w-lg bg-white px-4 py-8'
 }
 

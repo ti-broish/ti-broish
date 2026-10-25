@@ -22,7 +22,9 @@ function ViolationPage() {
   if (!violation) {
     return (
       <div className="rs-page">
-        <h1>Сигнал {id}</h1>
+        <h1>
+          Сигнал <span className="rs-violation-id">{id}</span>
+        </h1>
         <p>Не е намерен сигнал с този номер</p>
       </div>
     )
@@ -31,7 +33,9 @@ function ViolationPage() {
   const region = violation.section?.electionRegion ?? (town?.municipality?.electionRegions?.length === 1 ? town.municipality.electionRegions[0] : null)
   return (
     <div className="rs-page rs-violation-summary">
-      <h1 style={{ wordBreak: 'break-word' }}>Сигнал {violation.id}</h1>
+      <h1>
+        Сигнал <span className="rs-violation-id">{violation.id}</span>
+      </h1>
       {violation.section ? (
         <p>
           Секция: <Link className="rs-link" to="/$unit" params={{ unit: violation.section.id }}>{violation.section.id}</Link>

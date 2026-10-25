@@ -702,6 +702,17 @@ main h1 {
   }
 }
 
+/* A signal number is 26 characters: on one line in the 900px column, broken anywhere and smaller on a phone. */
+.rs-violation-id {
+  word-break: break-all;
+}
+
+@media (max-width: 640px) {
+  .rs-violation-id {
+    font-size: 0.7em;
+  }
+}
+
 /* Crumbs */
 .rs-crumbs {
   display: flex;

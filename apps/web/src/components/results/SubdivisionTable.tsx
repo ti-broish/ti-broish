@@ -119,14 +119,18 @@ export function SubdivisionTable({ subdivisions, mode, sectionsMode }: { subdivi
   const bottomType = first.nodes?.[0]?.nodes?.[0]?.type
   const typeAt = (depth: number): RowType => (maxDepth === 3 ? (depth === 3 ? 'top' : depth === 2 ? 'middle' : 'bottom') : maxDepth === 2 && depth === 2 ? 'top' : 'bottom')
 
-  const renderAll = (nodes: Node[], depth: number): React.ReactNode[] =>
-    sortRows(nodes, mode, sectionsMode).flatMap((row) => [
-      <Row key={`${depth}-${row.node.id}-${row.node.segment}`} row={row} type={typeAt(depth)} mode={mode} sectionsMode={sectionsMode} />,
-      ...(depth <= 1 ? [] : renderAll(children(row.node), depth - 1)),
-    ])
+  // Addresses have neither an id nor a segment, so a row is keyed by its path of positions in the tree.
+  const renderAll = (nodes: Node[], depth: number, path = ''): React.ReactNode[] =>
+    sortRows(nodes, mode, sectionsMode).flatMap((row, index) => {
+      const key = `${path}${index}:${row.node.segment ?? row.node.id ?? row.node.name}`
+      return [
+        <Row key={key} row={row} type={typeAt(depth)} mode={mode} sectionsMode={sectionsMode} />,
+        ...(depth <= 1 ? [] : renderAll(children(row.node), depth - 1, `${key}/`)),
+      ]
+    })
   const renderFlat = (nodes: Node[]) =>
-    sortRows(nodes, mode, sectionsMode).map((row) => (
-      <Row key={`${row.node.id}-${row.node.segment}`} row={row} type="bottom" mode={mode} sectionsMode={sectionsMode} />
+    sortRows(nodes, mode, sectionsMode).map((row, index) => (
+      <Row key={`${index}:${row.node.segment ?? row.node.id ?? row.node.name}`} row={row} type="bottom" mode={mode} sectionsMode={sectionsMode} />
     ))
   const middle = () => subdivisions.flatMap(children)
   const bottom = () => middle().flatMap(children)

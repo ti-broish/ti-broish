@@ -151,8 +151,9 @@ function SignalPage() {
       <PlacesPicker
         value={place}
         onChange={setPlace}
-        sectionLabel="Секция"
-        footnote="Списъкът със секции е от последните избори. Секцията може да остане празна, ако сигналът е за населеното място."
+        sectionLabel="Адрес на секцията"
+        pickSection
+        footnote="Списъкът със секции е от последните избори. Адресът може да остане празен, ако сигналът е за населеното място. Ако на адреса има няколко секции, избери номера."
       />
       <label className="grid gap-1 text-sm font-semibold">
         Име

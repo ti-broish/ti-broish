@@ -1,4 +1,5 @@
 import { placeReady, validEmail, validPhone, type HomePlace } from './model'
+import { describedSignal } from './place-line'
 
 export interface PhotoInput {
   contentType: string
@@ -85,6 +86,9 @@ export function validateViolation(input: ViolationInput): { payload: ViolationPa
   if (!place || !placeReady(place)) return 'Избери населено място.'
   if (!place.townId) return 'Избери населеното място от списъка.'
   if (place.sectionId && !/^\d{9}$/.test(place.sectionId)) return 'Секцията не е валидна. Избери я пак от списъка.'
+  if (describedSignal(place, description).length > VIOLATION_DESCRIPTION_MAX) {
+    return `Описанието е твърде дълго. С адреса са най-много ${VIOLATION_DESCRIPTION_MAX} знака.`
+  }
   const photos = cleanPhotos(input.photos, 0, 6)
   if (typeof photos === 'string') return photos
   return {

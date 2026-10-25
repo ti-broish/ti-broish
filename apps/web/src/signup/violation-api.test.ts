@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { validateViolation } from './reports-validate'
-import { apiErrorMessage, apiPhone, sendViolation, violationBody, VIOLATIONS_API } from './violation-api'
+import { apiErrorMessage, apiPhone, sendViolation, violationBody } from './violation-api'
+
+const VIOLATIONS_API = 'https://api.tibroish.bg'
 
 const place = {
   regionCode: '23',
@@ -57,6 +59,23 @@ describe('signal to the API', () => {
     const body = violationBody(noSection.payload, [])
     expect(body).not.toHaveProperty('section')
     expect(body).not.toHaveProperty('pictures')
+  })
+
+  it('sends the picked section and puts the address and district on the first line', () => {
+    const parsed = valid({
+      place: { ...place, sectionId: '244601002', sectionPlace: '31 СУЧЕМ, ул. Example 1', cityRegionCode: '01', cityRegionName: 'Средец' },
+    })
+    expect(violationBody(parsed.payload, [])).toMatchObject({
+      section: '244601002',
+      description: 'Адрес: 31 СУЧЕМ, ул. Example 1, район Средец\n\nПредседателят не записа забележката в протокола.',
+    })
+  })
+
+  it('counts the address line in the description limit', () => {
+    const base = { name: 'Иван', email: 'ivan@example.com', phone: '0888123456', photos: [] }
+    const withAddress = { ...place, sectionPlace: '31 СУЧЕМ', cityRegionName: 'Средец' }
+    expect(validateViolation({ ...base, place, description: 'а'.repeat(2000) })).not.toBeTypeOf('string')
+    expect(validateViolation({ ...base, place: withAddress, description: 'а'.repeat(2000) })).toMatch(/С адреса/)
   })
 
   it('refuses what the API would refuse', () => {

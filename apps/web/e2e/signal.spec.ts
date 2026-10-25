@@ -94,7 +94,7 @@ test('a signal goes to the API: pictures first, then the violation', async ({ pa
   expect(seen.violations).toEqual([
     {
       town: 68134,
-      description: 'Председателят не записа забележката в протокола.',
+      description: 'Район: Младост\n\nПредседателят не записа забележката в протокола.',
       name: 'Иван Иванов',
       email: 'ivan@example.com',
       phone: '+359888123456',
@@ -107,6 +107,16 @@ test('a signal goes to the API: pictures first, then the violation', async ({ pa
   await expect(page.getByText('Председателят не записа забележката в протокола.')).toBeVisible()
   await page.getByRole('link', { name: 'Назад към изпратените' }).click()
   await expect(page.getByRole('link', { name: /Председателят не записа/ })).toBeVisible()
+})
+
+test('picking several photos at once keeps all of them', async ({ page }) => {
+  await fillSignal(page)
+  await page.locator('input[type=file]').setInputFiles([
+    { name: 'one.png', mimeType: 'image/png', buffer: PNG },
+    { name: 'two.png', mimeType: 'image/png', buffer: PNG },
+    { name: 'three.png', mimeType: 'image/png', buffer: PNG },
+  ])
+  await expect(page.getByText('3 снимки.')).toBeVisible()
 })
 
 test('API validation errors show in Bulgarian and nothing is stored as sent', async ({ page }) => {
@@ -171,7 +181,7 @@ test('linked name and email win over the profile and reach the API with the prof
   expect(seen.violations).toEqual([
     {
       town: 68134,
-      description: 'Председателят не записа забележката в протокола.',
+      description: 'Район: Младост\n\nПредседателят не записа забележката в протокола.',
       name: 'Мария Петрова',
       email: 'maria.link@example.com',
       phone: '+359888123456',

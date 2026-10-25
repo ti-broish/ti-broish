@@ -4,8 +4,13 @@
 // The browser calls the API directly (CORS allows tibroish.bg), so the API sees the sender's IP.
 import type { ViolationPayload } from './reports-validate'
 import type { StoredPhoto } from './reports-validate'
+import { tibroishApi } from './api-base'
+import { describedSignal } from './place-line'
 
-export const VIOLATIONS_API = 'https://api.tibroish.bg'
+/** api.tibroish.bg in production, d1tapi.tibroish.bg on staging (src/signup/api-base.ts). */
+export function violationsApi() {
+  return tibroishApi()
+}
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -40,7 +45,7 @@ export interface ViolationBody {
 export function violationBody(payload: ViolationPayload, pictureIds: string[]): ViolationBody {
   const body: ViolationBody = {
     town: Number(payload.place.townId),
-    description: payload.description,
+    description: describedSignal(payload.place, payload.description),
     name: payload.name,
     email: payload.email,
     phone: apiPhone(payload.phone),
@@ -88,7 +93,7 @@ async function postJson(fetcher: Fetch, path: string, body: unknown, recaptchaTo
   if (recaptchaToken) headers['x-recaptcha-token'] = recaptchaToken
   let response: Response
   try {
-    response = await fetcher(`${VIOLATIONS_API}/${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
+    response = await fetcher(`${violationsApi()}/${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
   } catch {
     return { status: 0, data: null as unknown }
   }
@@ -149,7 +154,7 @@ export interface ApiViolation {
 export async function fetchOwnViolation(id: string, secret: string, fetcher: Fetch = (input, init) => fetch(input, init)): Promise<ApiViolation | null> {
   if (!id || !secret) return null
   try {
-    const response = await fetcher(`${VIOLATIONS_API}/violations/${encodeURIComponent(id)}?secret=${encodeURIComponent(secret)}`, {
+    const response = await fetcher(`${violationsApi()}/violations/${encodeURIComponent(id)}?secret=${encodeURIComponent(secret)}`, {
       headers: { Accept: 'application/json', 'Accept-Language': 'bg-BG' },
     })
     if (!response.ok) return null

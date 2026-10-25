@@ -140,6 +140,40 @@ export async function sendViolation(payload: ViolationPayload, photos: StoredPho
   return { ok: true, id: created.id, secret: typeof created.secret === 'string' ? created.secret : '', pictures }
 }
 
+export interface VideoSignal {
+  section: string
+  town: number
+  description: string
+  name: string
+  email: string
+  phone: string
+}
+
+/** A signal about what the official stream from a section shows (results: Section.js, type 'video'). */
+export async function sendVideoViolation(signal: VideoSignal, options: SendOptions = {}): Promise<SendResult> {
+  const fetcher: Fetch = options.fetch ?? ((input, init) => fetch(input, init))
+  const token = options.recaptcha ? await options.recaptcha('sendViolation').catch(() => '') : ''
+  const result = await postJson(
+    fetcher,
+    'violations',
+    {
+      description: signal.description,
+      section: signal.section,
+      town: signal.town,
+      name: signal.name,
+      email: signal.email,
+      phone: apiPhone(signal.phone),
+      type: 'video',
+    },
+    token,
+  )
+  const created = result.data as { id?: unknown; secret?: unknown } | null
+  if (result.status < 200 || result.status >= 300 || typeof created?.id !== 'string') {
+    return { ok: false, message: apiErrorMessage(result.status, result.data) }
+  }
+  return { ok: true, id: created.id, secret: typeof created.secret === 'string' ? created.secret : '', pictures: [] }
+}
+
 export interface ApiViolation {
   id: string
   description: string

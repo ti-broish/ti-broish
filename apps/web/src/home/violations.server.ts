@@ -39,8 +39,11 @@ export interface Snapshot {
 type Fetcher = (url: string) => Promise<Response>
 type Env = { ALLOW_DEMO_DATA?: string }
 
-const memory = new Map<string, Snapshot>()
-const inflight = new Map<string, Promise<Snapshot>>()
+/** Anything cached here carries the time it was fetched. */
+export type Cached = { fetchedAt: number }
+
+const memory = new Map<string, Cached>()
+const inflight = new Map<string, Promise<Cached>>()
 
 async function getPage(fetcher: Fetcher, path: string): Promise<ApiViolation[]> {
   const response = await fetcher(`${UPSTREAM}${path}`)
@@ -83,15 +86,15 @@ function edgeCache(): Cache | null {
   }
 }
 
-async function readCached(key: string): Promise<Snapshot | null> {
-  const hit = memory.get(key)
+async function readCached<T extends Cached>(key: string): Promise<T | null> {
+  const hit = memory.get(key) as T | undefined
   if (hit) return hit
   const cache = edgeCache()
   if (!cache) return null
   try {
     const response = await cache.match(key)
     if (!response) return null
-    const snapshot = (await response.json()) as Snapshot
+    const snapshot = (await response.json()) as T
     memory.set(key, snapshot)
     return snapshot
   } catch {
@@ -99,7 +102,7 @@ async function readCached(key: string): Promise<Snapshot | null> {
   }
 }
 
-async function writeCached(key: string, snapshot: Snapshot) {
+async function writeCached(key: string, snapshot: Cached) {
   memory.set(key, snapshot)
   const cache = edgeCache()
   if (!cache) return
@@ -115,8 +118,8 @@ async function writeCached(key: string, snapshot: Snapshot) {
   }
 }
 
-function refresh(key: string, load: () => Promise<Snapshot>) {
-  const running = inflight.get(key)
+function refresh<T extends Cached>(key: string, load: () => Promise<T>): Promise<T> {
+  const running = inflight.get(key) as Promise<T> | undefined
   if (running) return running
   const next = load()
     .then(async (snapshot) => {
@@ -128,13 +131,13 @@ function refresh(key: string, load: () => Promise<Snapshot>) {
   return next
 }
 
-export async function cachedSnapshot(
+export async function cachedSnapshot<T extends Cached>(
   key: string,
-  load: () => Promise<Snapshot>,
+  load: () => Promise<T>,
   waitUntil: (promise: Promise<unknown>) => void,
   now = Date.now(),
-): Promise<Snapshot> {
-  const cached = await readCached(key)
+): Promise<T> {
+  const cached = await readCached<T>(key)
   if (cached) {
     const age = now - cached.fetchedAt
     if (age < FRESH_MS) return cached

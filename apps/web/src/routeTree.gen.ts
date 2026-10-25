@@ -33,6 +33,7 @@ import { Route as AdminPalnomoshtniRouteImport } from './routes/admin/palnomosht
 import { Route as AdminRikRouteImport } from './routes/admin/rik'
 import { Route as AdminSectionsRouteImport } from './routes/admin/sections'
 import { Route as AdminSignupsRouteImport } from './routes/admin/signups'
+import { Route as ApiViolationsRouteImport } from './routes/api.violations'
 import { Route as IzprateniIndexRouteImport } from './routes/izprateni.index'
 import { Route as IzprateniIdRouteImport } from './routes/izprateni.$id'
 import { Route as PhotosSplatRouteImport } from './routes/photos.$'
@@ -169,6 +170,11 @@ const AdminSignupsRoute = AdminSignupsRouteImport.update({
   path: '/signups',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const ApiViolationsRoute = ApiViolationsRouteImport.update({
+  id: '/api/violations',
+  path: '/api/violations',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IzprateniIndexRoute = IzprateniIndexRouteImport.update({
   id: '/izprateni/',
   path: '/izprateni/',
@@ -272,6 +278,7 @@ export interface FileRoutesByFullPath {
   '/admin/rik': typeof AdminRikRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
+  '/api/violations': typeof ApiViolationsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
   '/photos/$': typeof PhotosSplatRoute
   '/pokana/$code': typeof PokanaCodeRoute
@@ -311,6 +318,7 @@ export interface FileRoutesByTo {
   '/admin/rik': typeof AdminRikRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
+  '/api/violations': typeof ApiViolationsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
   '/photos/$': typeof PhotosSplatRoute
   '/pokana/$code': typeof PokanaCodeRoute
@@ -353,6 +361,7 @@ export interface FileRoutesById {
   '/admin/rik': typeof AdminRikRoute
   '/admin/sections': typeof AdminSectionsRoute
   '/admin/signups': typeof AdminSignupsRoute
+  '/api/violations': typeof ApiViolationsRoute
   '/izprateni/$id': typeof IzprateniIdRoute
   '/photos/$': typeof PhotosSplatRoute
   '/pokana/$code': typeof PokanaCodeRoute
@@ -396,6 +405,7 @@ export interface FileRouteTypes {
     | '/admin/rik'
     | '/admin/sections'
     | '/admin/signups'
+    | '/api/violations'
     | '/izprateni/$id'
     | '/photos/$'
     | '/pokana/$code'
@@ -435,6 +445,7 @@ export interface FileRouteTypes {
     | '/admin/rik'
     | '/admin/sections'
     | '/admin/signups'
+    | '/api/violations'
     | '/izprateni/$id'
     | '/photos/$'
     | '/pokana/$code'
@@ -476,6 +487,7 @@ export interface FileRouteTypes {
     | '/admin/rik'
     | '/admin/sections'
     | '/admin/signups'
+    | '/api/violations'
     | '/izprateni/$id'
     | '/photos/$'
     | '/pokana/$code'
@@ -512,6 +524,7 @@ export interface RootRouteChildren {
   SignupRoute: typeof SignupRoute
   VhodRoute: typeof VhodRoute
   ZnachkaRoute: typeof ZnachkaRoute
+  ApiViolationsRoute: typeof ApiViolationsRoute
   IzprateniIdRoute: typeof IzprateniIdRoute
   PhotosSplatRoute: typeof PhotosSplatRoute
   PokanaCodeRoute: typeof PokanaCodeRoute
@@ -690,6 +703,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSignupsRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/api/violations': {
+      id: '/api/violations'
+      path: '/api/violations'
+      fullPath: '/api/violations'
+      preLoaderRoute: typeof ApiViolationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/izprateni/': {
       id: '/izprateni/'
       path: '/izprateni'
@@ -867,6 +887,7 @@ const rootRouteChildren: RootRouteChildren = {
   SignupRoute: SignupRoute,
   VhodRoute: VhodRoute,
   ZnachkaRoute: ZnachkaRoute,
+  ApiViolationsRoute: ApiViolationsRoute,
   IzprateniIdRoute: IzprateniIdRoute,
   PhotosSplatRoute: PhotosSplatRoute,
   PokanaCodeRoute: PokanaCodeRoute,

@@ -13,6 +13,10 @@ export const votingLogistics =
 export const assignmentTiming =
   'В профила виждаш датата, на която ще разпределяме секциите: 5, 12 или 19 октомври, и 26 октомври за балотажа, на следващия ден ще има съобщение от нас, което е необходимо да потвърдиш, за да можем да задействаме процедурата по регистрация.'
 
+/** After the first round: admins assign runoff sections by hand, no fixed date and no letter. */
+export const runoffAssignmentTiming = (runoffLabel: string) =>
+  `След записването ще разпределяме секциите за балотажа на ${runoffLabel}. Секцията ще видиш в профила си.`
+
 export const groupWithYou =
   'Можеш да добавиш и други хора в група с теб, но всеки от тях е необходимо да потвърди електронната си поща.'
 

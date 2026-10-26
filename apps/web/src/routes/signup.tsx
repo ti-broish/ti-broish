@@ -7,7 +7,7 @@ import { PlacesPicker } from '../components/PlacesPicker'
 import { StaffNote } from '../components/StaffNote'
 import { TravelChoice, useTownDistricts } from '../components/TravelChoice'
 import { checkEmailCode, requestEmailCode } from '../signup/confirm-mail'
-import { assignmentTiming, groupAsCoordinator, groupWithYou, mobileTeamText, paperSectionText, votingLogistics } from '../signup/copy'
+import { assignmentTiming, runoffAssignmentTiming, groupAsCoordinator, groupWithYou, mobileTeamText, paperSectionText, votingLogistics } from '../signup/copy'
 import { leaveSignupSession, saveSignup } from '../signup/db'
 import { geocodePlace } from '../signup/geo'
 import {
@@ -1166,7 +1166,7 @@ function Review({ settled, error, onError }: { settled: boolean; error: string; 
         ) : null}
       </ul>
       <StaffNote />
-      {settled ? null : <p className="leading-7">{assignmentTiming}</p>}
+      {settled ? null : <p className="leading-7">{firstRoundPassed() ? runoffAssignmentTiming(RUNOFF_LABEL) : assignmentTiming}</p>}
       <label className="flex items-start gap-3 rounded-2xl bg-white px-4 py-4 leading-7">
         <input type="checkbox" className="mt-1" checked={profile.consent} onChange={(event) => updateProfile({ consent: event.target.checked })} />
         <span>

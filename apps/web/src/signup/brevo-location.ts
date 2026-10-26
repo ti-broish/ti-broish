@@ -1,7 +1,7 @@
 import type { SignupD1 } from './db-core'
-import { mfaAbroadSection } from './abroad-section-addresses'
+import type { AbroadSection } from './abroad-sections'
 
-/** Abroad sections (MIR 32) have no street address in the API; the place comes from the abroad sections list. */
+/** Abroad sections (MIR 32): the address comes from GET /sections/abroad, the place also from the abroad sections list. */
 export function isAbroadSection(code: string) {
   return /^32\d{7}$/.test(code)
 }
@@ -10,16 +10,16 @@ export type AbroadPlace = { country: string; city: string; placeLabel: string }
 
 /**
  * LOCATION / SECTION_PLACE for an abroad section: the section's place label (or city) and the country,
- * e.g. „Лондон (Фелтъм), Обединено кралство …“. Falls back to the town and country the person gave.
+ * e.g. „Лондон (Фелтъм), Обединено кралство …“. Then the API's abroad section (GET /sections/abroad),
+ * then the town and country the person gave.
  */
 export function abroadLocation(
   place: AbroadPlace | undefined,
   fallback: { townName?: string; countryName?: string } = {},
-  code = '',
+  section?: Pick<AbroadSection, 'label' | 'country'>,
 ) {
-  const mfa = mfaAbroadSection(code)
-  const label = (place?.placeLabel || place?.city || mfa?.place || fallback.townName || '').trim()
-  const country = (place?.country || mfa?.country || fallback.countryName || '').trim()
+  const label = (place?.placeLabel || place?.city || section?.label || fallback.townName || '').trim()
+  const country = (place?.country || section?.country || fallback.countryName || '').trim()
   if (!label) return country
   if (!country || label.includes(country)) return label
   return `${label}, ${country}`

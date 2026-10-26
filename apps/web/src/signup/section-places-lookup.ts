@@ -1,5 +1,6 @@
 import { normalizeSection } from './admin-csv'
-import { mfaAbroadSection } from './abroad-section-addresses'
+import { abroadSectionOf, loadAbroadSectionsOrNull } from './abroad-sections'
+import { tibroishApi } from './api-base'
 import {
   addressTownIds,
   assembleDirectory,
@@ -13,7 +14,6 @@ import {
   type TownRef,
 } from './section-where'
 
-const API = 'https://api.tibroish.bg'
 const HEADERS = { Accept: 'application/json', 'Accept-Language': 'bg-BG' }
 const MAX_PAIRS_PER_BATCH = 40
 const MAX_TOWN_IDS_PER_BATCH = 40
@@ -73,19 +73,21 @@ export function sectionLookupBatches(codes: string[], townIdsByCode: Record<stri
   return batches
 }
 
-/** Resolve section codes to address/area/town via api.tibroish.bg. Pair-aware batches; blanks on failure. */
+/** Resolve section codes to address/area/town via the API (tibroishApi()). Pair-aware batches; blanks on failure. */
 export async function lookupSectionPlaces(
   codes: string[],
   townIdsByCode: Record<string, number[]> = {},
 ): Promise<Record<string, SectionSpot>> {
   const places: Record<string, SectionSpot> = {}
-  // Abroad sections: the API has no address, the MFA table does.
+  // Abroad sections: all of them in one GET /sections/abroad (cached), not town by town.
   const domestic: string[] = []
+  const abroadCodes = codes.map((raw) => normalizeSection(String(raw))).filter((code) => /^32\d{7}$/.test(code))
+  const abroad = abroadCodes.length > 0 ? await loadAbroadSectionsOrNull() : null
   for (const raw of codes) {
     const code = normalizeSection(String(raw))
-    const mfa = mfaAbroadSection(code)
-    if (mfa) places[code] = { address: mfa.address, area: mfa.country, town: mfa.place }
-    else domestic.push(raw)
+    const section = abroadSectionOf(abroad, code)
+    if (section) places[code] = { address: section.address, area: section.country, town: section.label }
+    else if (!/^32\d{7}$/.test(code)) domestic.push(raw)
   }
   for (const batch of sectionLookupBatches(domestic, townIdsByCode)) {
     try {
@@ -197,7 +199,7 @@ async function loadSections(townId: number) {
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const response = await fetch(`${API}/${path}`, { headers: HEADERS, signal: AbortSignal.timeout(12_000) })
+    const response = await fetch(`${tibroishApi()}/${path}`, { headers: HEADERS, signal: AbortSignal.timeout(12_000) })
     if (!response.ok) return null
     return (await response.json()) as T
   } catch {

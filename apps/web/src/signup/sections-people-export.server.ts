@@ -1,9 +1,9 @@
 // „Секции с хора“ (admins only, the exportInternal right like „Експорт И аз“). Server only.
 // Read-only: four SELECTs (people with a section, then priority and reservations for just those
-// codes); addresses and voters come from the bundled CIK fixture, abroad from the MFA table.
+// codes); addresses and voters come from the bundled CIK fixture, abroad from the API (GET /sections/abroad).
 import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
-import { mfaAbroadSection } from './abroad-section-addresses'
+import { ABROAD_SECTIONS_UNAVAILABLE, abroadSectionOf, loadAbroadSections, type AbroadSections } from './abroad-sections'
 import { electionRegionNames } from './section-places-lookup'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 import {
@@ -63,13 +63,24 @@ export async function handleSectionsPeopleExport() {
     cikData(),
     mirNamesOrEmpty(),
   ])
+  let abroadSections: AbroadSections | null = null
+  if (codes.some((code) => code.startsWith('32'))) {
+    try {
+      abroadSections = await loadAbroadSections()
+    } catch {
+      return { ok: false as const, message: ABROAD_SECTIONS_UNAVAILABLE }
+    }
+  }
   const rows = sectionsPeopleRows({
     signups: signupRows,
     partners: partnerRows,
     priority: (priority.results ?? []) as SectionsPeoplePriorityRow[],
     taken: (taken.results ?? []) as Array<{ section_code: string; organisation: string }>,
     cik: (code) => cik.sections.get(code),
-    abroad: (code) => mfaAbroadSection(code),
+    abroad: (code) => {
+      const section = abroadSectionOf(abroadSections, code)
+      return section ? { country: section.country, place: section.label, address: section.address } : undefined
+    },
     abroadMachine: cik.machines,
     mirNames,
   })

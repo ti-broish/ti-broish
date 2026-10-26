@@ -1,6 +1,6 @@
 /**
  * Where an assigned (published) section is: its own address and settlement, looked up by the
- * exact section code (api.tibroish.bg, or the MFA table abroad), the same way the Brevo sync does.
+ * exact section code (the API, GET /sections/abroad for abroad sections), the same way the Brevo sync does.
  * Never the place the person picked when signing up: that is only their preference.
  */
 export type AssignedSectionPlace = {

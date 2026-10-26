@@ -6,7 +6,7 @@ import { validateSectionCodesExist } from './abroad-section-validate'
 import { lookupSectionPlaces } from './section-places-lookup'
 import { sectionPlaceOf } from './section-where'
 import { abroadLocation, isAbroadSection, loadAbroadPlaces } from './brevo-location'
-import { abroadSectionAddress } from './abroad-section-addresses'
+import { ABROAD_SECTIONS_UNAVAILABLE, abroadSectionOf, loadAbroadSections, loadAbroadSectionsOrNull, type AbroadSections } from './abroad-sections'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
 import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
 import { parseWithdrawnProcessed, withdrawnProcessedClause, type WithdrawnProcessedFilter } from './admin-unregister'
@@ -746,6 +746,15 @@ export async function loadBrevoSectionFields(
     if (!list.includes(person.townId)) list.push(person.townId)
     townIdsByCode[section] = list
   }
+  // Abroad addresses come from the API. Without them the sync stops instead of sending contacts without one.
+  let abroadSections: AbroadSections | null = null
+  if (codes.some(isAbroadSection)) {
+    try {
+      abroadSections = await loadAbroadSections()
+    } catch {
+      return { error: ABROAD_SECTIONS_UNAVAILABLE }
+    }
+  }
   const places = await lookupSectionPlaces(codes.filter((code) => !isAbroadSection(code)), townIdsByCode)
   const abroad = await loadAbroadPlaces(db, codes)
   const links = await designationLinks(db, people.map((person) => person.id))
@@ -753,8 +762,9 @@ export async function loadBrevoSectionFields(
     const section = normalizeSection(person.publishedSection)
     const spot = places[section] ?? { address: '', area: '', town: '' }
     const published = /^\d{9}$/.test(section)
-    const sectionPlace = isAbroadSection(section) ? abroadLocation(abroad.get(section), {}, section) : sectionPlaceOf(spot)
-    const sectionAddress = isAbroadSection(section) ? abroadSectionAddress(section) : spot.address
+    const fromApi = abroadSectionOf(abroadSections, section)
+    const sectionPlace = isAbroadSection(section) ? abroadLocation(abroad.get(section), {}, fromApi) : sectionPlaceOf(spot)
+    const sectionAddress = isAbroadSection(section) ? (fromApi?.address ?? '') : spot.address
     return {
       email: person.email,
       firstName: person.firstName,
@@ -822,6 +832,8 @@ export async function loadBrevoSectionFieldsForIds(db: Database, ids: string[]) 
   const domestic = [...codes].filter((code) => !isAbroadSection(code))
   const places = domestic.length > 0 ? await lookupSectionPlaces(domestic, townIdsByCode) : {}
   const abroad = await loadAbroadPlaces(db, [...codes])
+  // Without the API an abroad address is left blank, and designationSectionAttributes never sends a blank.
+  const abroadSections = [...codes].some(isAbroadSection) ? await loadAbroadSectionsOrNull() : null
   const out = new Map<
     string,
     { firstName: string; lastName: string; mir: string; publishedSection: string; sectionAddress: string; sectionPlace: string; location: string; role: string }
@@ -830,15 +842,16 @@ export async function loadBrevoSectionFieldsForIds(db: Database, ids: string[]) 
     const section = normalizeSection(row.published_section ?? '')
     if (!/^\d{9}$/.test(section)) continue
     const spot = places[section] ?? { address: '', area: '', town: '' }
+    const fromApi = abroadSectionOf(abroadSections, section)
     const sectionPlace = isAbroadSection(section)
-      ? abroadLocation(abroad.get(section), { townName: String(row.town_name ?? ''), countryName: String(row.country_name ?? '') }, section)
+      ? abroadLocation(abroad.get(section), { townName: String(row.town_name ?? ''), countryName: String(row.country_name ?? '') }, fromApi)
       : sectionPlaceOf(spot)
     out.set(row.id, {
       firstName: String(row.first_name ?? ''),
       lastName: String(row.last_name ?? ''),
       mir: String(row.mir ?? '') || mirFromSection(section),
       publishedSection: section,
-      sectionAddress: isAbroadSection(section) ? abroadSectionAddress(section) : (spot.address ?? ''),
+      sectionAddress: isAbroadSection(section) ? (fromApi?.address ?? '') : (spot.address ?? ''),
       sectionPlace,
       location: sectionPlace,
       role: String(row.role ?? ''),

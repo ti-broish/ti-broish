@@ -1,11 +1,12 @@
 import { normalizeSection } from './admin-csv'
 import { isAbroadSectionCode } from './abroad-coverage'
 import type { SignupD1 } from './db-core'
+import { loadAbroadSectionsOrNull } from './abroad-sections'
+import { tibroishApi } from './api-base'
 
-const API = 'https://api.tibroish.bg'
 const HEADERS = { Accept: 'application/json', 'Accept-Language': 'bg-BG' }
 
-/** Returns which of the given section codes exist in priority table and/or api.tibroish.bg. */
+/** Returns which of the given section codes exist in priority table and/or the API (tibroishApi()). */
 export async function validateSectionCodesExist(
   db: SignupD1,
   codes: readonly string[],
@@ -40,6 +41,9 @@ export async function validateSectionCodesExist(
 }
 
 async function lookupAbroadSections(codes: string[]) {
+  // One cached GET /sections/abroad; town by town only when that is unavailable.
+  const all = await loadAbroadSectionsOrNull()
+  if (all) return new Set(codes.filter((code) => Boolean(all.sections[code])))
   const byCountry = new Map<string, string[]>()
   for (const code of codes) {
     const country = code.slice(2, 5)
@@ -66,7 +70,7 @@ async function lookupAbroadSections(codes: string[]) {
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const response = await fetch(`${API}/${path}`, { headers: HEADERS, signal: AbortSignal.timeout(12_000) })
+    const response = await fetch(`${tibroishApi()}/${path}`, { headers: HEADERS, signal: AbortSignal.timeout(12_000) })
     if (!response.ok) return null
     return (await response.json()) as T
   } catch {

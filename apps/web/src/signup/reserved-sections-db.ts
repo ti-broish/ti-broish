@@ -1,5 +1,5 @@
 import type { SignupD1 } from './db-core'
-import { mfaAbroadSection } from './abroad-section-addresses'
+import { loadAbroadSectionsOrNull } from './abroad-sections'
 import { isSpecialBulgariaSection } from './stationary-sections'
 import { PARTNER_HELD_SQL, PARTNER_RESERVATION_ORG } from './partner-people-sql'
 import { conflictsFor, reservedCode, type AssignedPerson, type ExistingReservation } from './reserved-sections'
@@ -104,12 +104,15 @@ export async function loadConflicts(db: SignupD1) {
   return conflictsFor(await reservedMap(db), await loadAssignedPeople(db))
 }
 
-/** Known: a domestic code in the CIK list, or an abroad code in the MFA table or the abroad priority list. */
+/** Known: a domestic code in the CIK list, or an abroad code in the API (/sections/abroad) or the abroad priority list. */
 export async function knownSectionCheck(db: SignupD1) {
-  const abroad = await db.prepare('SELECT section_code FROM abroad_priority_sections').all<{ section_code: string }>()
+  const [abroad, fromApi] = await Promise.all([
+    db.prepare('SELECT section_code FROM abroad_priority_sections').all<{ section_code: string }>(),
+    loadAbroadSectionsOrNull(),
+  ])
   const abroadCodes = new Set((abroad.results ?? []).map((row) => reservedCode(row.section_code)))
   return (code: string) => {
-    if (code.startsWith('32')) return Boolean(mfaAbroadSection(code)) || abroadCodes.has(code)
+    if (code.startsWith('32')) return Boolean(fromApi?.sections[code]) || abroadCodes.has(code)
     return !isSpecialBulgariaSection(code)
   }
 }

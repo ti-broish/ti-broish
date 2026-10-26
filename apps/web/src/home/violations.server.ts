@@ -5,6 +5,7 @@
 // refreshes it in the background, so the API sees at most a few requests a minute per colo.
 import { tibroishApi } from '../signup/api-base'
 import { demoItems } from './demo'
+import { cachedSnapshot, clearSnapshotCache } from './snapshot-cache'
 import {
   FEED_PAGE_SIZE,
   countItems,
@@ -18,12 +19,10 @@ import {
   type FeedItem,
 } from './violations'
 
+export { cachedSnapshot, type Cached } from './snapshot-cache'
+
 export const UPSTREAM = tibroishApi()
 
-/** Serve without refetching for this long. */
-const FRESH_MS = 45_000
-/** Past FRESH_MS, serve the old copy while one refresh runs; past this, wait for the refresh. */
-const STALE_MS = 10 * 60_000
 /** The map counts at most this many pages of the full feed (50 each) per refresh. */
 export const MAX_COUNT_PAGES = 20
 
@@ -39,11 +38,6 @@ export interface Snapshot {
 type Fetcher = (url: string) => Promise<Response>
 type Env = { ALLOW_DEMO_DATA?: string }
 
-/** Anything cached here carries the time it was fetched. */
-export type Cached = { fetchedAt: number }
-
-const memory = new Map<string, Cached>()
-const inflight = new Map<string, Promise<Cached>>()
 
 async function getPage(fetcher: Fetcher, path: string): Promise<ApiViolation[]> {
   const response = await fetcher(`${UPSTREAM}${path}`)
@@ -76,77 +70,6 @@ export async function loadOverview(fetcher: Fetcher, maxPages = MAX_COUNT_PAGES)
 export async function loadList(fetcher: Fetcher, path: string, paged: boolean): Promise<Snapshot> {
   const items = (await getPage(fetcher, path)).map(toFeedItem)
   return { items, counts: null, more: paged && items.length >= FEED_PAGE_SIZE, fetchedAt: Date.now() }
-}
-
-function edgeCache(): Cache | null {
-  try {
-    return typeof caches === 'undefined' ? null : (caches as unknown as { default: Cache }).default
-  } catch {
-    return null
-  }
-}
-
-async function readCached<T extends Cached>(key: string): Promise<T | null> {
-  const hit = memory.get(key) as T | undefined
-  if (hit) return hit
-  const cache = edgeCache()
-  if (!cache) return null
-  try {
-    const response = await cache.match(key)
-    if (!response) return null
-    const snapshot = (await response.json()) as T
-    memory.set(key, snapshot)
-    return snapshot
-  } catch {
-    return null
-  }
-}
-
-async function writeCached(key: string, snapshot: Cached) {
-  memory.set(key, snapshot)
-  const cache = edgeCache()
-  if (!cache) return
-  try {
-    await cache.put(
-      key,
-      new Response(JSON.stringify(snapshot), {
-        headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${STALE_MS / 1000}` },
-      }),
-    )
-  } catch {
-    // Cache API is a no-op on workers.dev; isolate memory still helps.
-  }
-}
-
-function refresh<T extends Cached>(key: string, load: () => Promise<T>): Promise<T> {
-  const running = inflight.get(key) as Promise<T> | undefined
-  if (running) return running
-  const next = load()
-    .then(async (snapshot) => {
-      await writeCached(key, snapshot)
-      return snapshot
-    })
-    .finally(() => inflight.delete(key))
-  inflight.set(key, next)
-  return next
-}
-
-export async function cachedSnapshot<T extends Cached>(
-  key: string,
-  load: () => Promise<T>,
-  waitUntil: (promise: Promise<unknown>) => void,
-  now = Date.now(),
-): Promise<T> {
-  const cached = await readCached<T>(key)
-  if (cached) {
-    const age = now - cached.fetchedAt
-    if (age < FRESH_MS) return cached
-    if (age < STALE_MS) {
-      waitUntil(refresh(key, load).catch(() => undefined))
-      return cached
-    }
-  }
-  return refresh(key, load)
 }
 
 export function demoAllowed(env: Env, url: URL) {
@@ -207,6 +130,5 @@ export async function handleViolations(
 
 /** For tests. */
 export function clearViolationsCache() {
-  memory.clear()
-  inflight.clear()
+  clearSnapshotCache()
 }

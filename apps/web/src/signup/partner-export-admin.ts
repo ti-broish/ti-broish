@@ -5,7 +5,7 @@ import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { PARTNER_EXPORT_SQL, partnerExportCode, partnerExportCsv, type ExportPlace, type PartnerExportRow } from './partner-export'
 import { abroadLocation, isAbroadSection, loadAbroadPlaces } from './brevo-location'
-import { abroadSectionAddress } from './abroad-section-addresses'
+import { ABROAD_SECTIONS_UNAVAILABLE, abroadSectionOf, loadAbroadSections, type AbroadSections } from './abroad-sections'
 import { electionRegionNames, lookupSectionPlaces } from './section-places-lookup'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 
@@ -14,7 +14,7 @@ type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | '
 
 /**
  * „Експорт И аз“ (admins only): every active „И аз“ person, live from D1, with the section's town and
- * address from the same sources as the Brevo sync (API for Bulgaria, abroad list + MFA for МИР 32).
+ * address from the same sources as the Brevo sync (API for Bulgaria; abroad list + API /sections/abroad for МИР 32).
  * No ЕГН. Read-only: nothing is written and nothing goes to Brevo or e-mail.
  */
 export const adminPartnerExport = createServerFn({ method: 'POST' })
@@ -27,9 +27,18 @@ export const adminPartnerExport = createServerFn({ method: 'POST' })
     const domestic = codes.filter((code) => !isAbroadSection(code))
     const found = domestic.length > 0 ? await lookupSectionPlaces(domestic) : {}
     const abroad = await loadAbroadPlaces(db, codes)
+    let abroadSections: AbroadSections | null = null
+    if (codes.some(isAbroadSection)) {
+      try {
+        abroadSections = await loadAbroadSections()
+      } catch {
+        return { ok: false as const, message: ABROAD_SECTIONS_UNAVAILABLE }
+      }
+    }
     const places: Record<string, ExportPlace> = {}
     for (const code of codes) {
-      if (isAbroadSection(code)) places[code] = { town: abroadLocation(abroad.get(code), {}, code), address: abroadSectionAddress(code) }
+      const fromApi = abroadSectionOf(abroadSections, code)
+      if (isAbroadSection(code)) places[code] = { town: abroadLocation(abroad.get(code), {}, fromApi), address: fromApi?.address ?? '' }
       else {
         const spot = found[code] ?? { address: '', area: '', town: '' }
         places[code] = { town: (spot.town ?? '').trim(), address: spot.address ?? '' }

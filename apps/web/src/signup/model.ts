@@ -177,12 +177,23 @@ export function stepsFor(profile: Pick<Profile, 'role' | 'radius'>): readonly St
   return steps.filter((step) => step !== 'seats' || shouldAskSeats(profile))
 }
 
-export const ASSIGNMENT_WAVES = [
+type AssignmentWave = { iso: string; label: string; round: 'first' | 'runoff' }
+
+/**
+ * The days sections were released. People who sign up for the runoff after the last wave (26 октомври)
+ * get a section from the admins by hand, with no fixed date (see the profile's „преди балотажа“ note).
+ */
+export const ASSIGNMENT_WAVES: readonly AssignmentWave[] = [
   { iso: '2026-10-05', label: '5 октомври', round: 'first' },
   { iso: '2026-10-12', label: '12 октомври', round: 'first' },
   { iso: '2026-10-19', label: '19 октомври', round: 'first' },
   { iso: '2026-10-26', label: '26 октомври', round: 'runoff' },
-] as const
+]
+
+/** True when every wave is behind us (the returned wave from nextAssignment is in the past). */
+export function assignmentWavePassed(wave: Pick<AssignmentWave, 'iso'> | undefined, now = new Date()) {
+  return !wave || wave.iso < now.toISOString().slice(0, 10)
+}
 
 export function nextAssignment(profile: Pick<Profile, 'rounds'>, now = new Date()) {
   const relevant = ASSIGNMENT_WAVES.filter(

@@ -1157,7 +1157,7 @@ function columnsFor(
 
 /**
  * „Добави доброволец“ (Записвания): a finished signup created by staff with the names, ЕГН and home
- * place only. No e-mail code, no SIGNUPS_CLOSED check, no letter, no Brevo (staff-add-volunteer.ts).
+ * place only. No e-mail code, no signupsClosed() check, no letter, no Brevo (staff-add-volunteer.ts).
  */
 export const adminAddVolunteer = createServerFn({ method: 'POST' })
   .validator((input: Partial<AddVolunteerInput>) => parseAddVolunteerInput(input))

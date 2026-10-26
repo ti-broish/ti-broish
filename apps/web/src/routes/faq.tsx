@@ -1,12 +1,16 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
-import { SIGNUPS_CLOSED } from '../signup/signups-closed'
+import { signupsClosed } from '../signup/signups-closed'
+import { ELECTION_LABEL, RUNOFF_LABEL, firstRoundPassed } from '../signup/election'
 
 export const Route = createFileRoute('/faq')({ component: FaqPage })
 
-const questions = [
-  ['За кои избори е записването?', 'За президентските избори на 25 октомври 2026 г. и за балотажа на 1 ноември.'],
-  SIGNUPS_CLOSED
+// A function, so the signup question follows the cutoff (signups-closed.ts) on every render.
+const questions = () => [
+  firstRoundPassed()
+    ? ['За кои избори е записването?', `За балотажа на президентските избори на ${RUNOFF_LABEL} 2026 г. Първият тур беше на ${ELECTION_LABEL}.`]
+    : ['За кои избори е записването?', `За президентските избори на ${ELECTION_LABEL} 2026 г. и за балотажа на ${RUNOFF_LABEL}.`],
+  signupsClosed()
     ? ['Къде се записвам?', 'Записването на доброволци приключи. Ако вече си записан, влизаш в профила си през „Вход“ с код от имейла.']
     : ['Къде се записвам?', 'От началната страница, с бутона „Запиши се“. Имейлът се потвърждава още в началото.'],
   [
@@ -17,10 +21,12 @@ const questions = [
     'Мога ли да дойда с други хора?',
     'Да. В записването добавяш пазители, с които отивате заедно. Ако записваш хора извън групата, казваш, че си координатор. Всеки потвърждава своя имейл.',
   ],
-  [
-    'Кога ще видя секцията си?',
-    'В профила, на следващата дата: 5, 12 или 19 октомври за първия ден и 26 октомври за 1 ноември. Тогава идва и писмо.',
-  ],
+  firstRoundPassed()
+    ? ['Кога ще видя секцията си?', `В профила. Екипът определя секциите преди балотажа на ${RUNOFF_LABEL}. Ако вече имаш секция, тя си остава.`]
+    : [
+        'Кога ще видя секцията си?',
+        'В профила, на следващата дата: 5, 12 или 19 октомври за първия ден и 26 октомври за 1 ноември. Тогава идва и писмо.',
+      ],
   [
     'Защо се иска ЕГН?',
     'След като потвърдиш имейла. Трябва ни, за да те разпределим и за дигиталното пълномощно. Числото не се показва в профила и не влиза в писмата.',
@@ -35,7 +41,7 @@ function FaqPage() {
   return (
     <article className="grid gap-6">
       <PageIntro title="Въпроси и отговори" />
-      {questions.map(([title, text]) => (
+      {questions().map(([title, text]) => (
         <section key={title} className="grid gap-2">
           <h2 className="text-xl font-black text-[#444]">{title}</h2>
           <p className="text-lg leading-7">{text}</p>

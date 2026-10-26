@@ -9,7 +9,7 @@ import type { StaffAction } from './staff'
 // not go through /signup). It mirrors the SQL the team ran by hand on 22–24.10.2026: role section, both
 // days, the home place (МИР), consent and submitted set, the e-mail confirmed, the receipt marked
 // skipped, a staff note and one signup_audit line with the staff member as actor. It bypasses
-// SIGNUPS_CLOSED and the e-mail code on purpose.
+// signupsClosed() and the e-mail code on purpose.
 //
 // No mail, Brevo or confirm-link code is imported here on purpose: nothing is sent, and nothing is
 // synced. The search index follows through the signup_fts triggers (db-search.ts).

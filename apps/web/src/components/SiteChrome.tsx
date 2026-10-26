@@ -1,7 +1,7 @@
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { WhenProtocolOpen } from './WhenProtocolOpen'
-import { SIGNUPS_CLOSED } from '../signup/signups-closed'
+import { signupsClosed } from '../signup/signups-closed'
 import { useRegistration } from '../signup/use-registration'
 
 const links = [
@@ -91,7 +91,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
             <Link to="/profil" className="font-bold text-[#333] no-underline">
               Профилът ти
             </Link>
-          ) : pending ? null : SIGNUPS_CLOSED ? (
+          ) : pending ? null : signupsClosed() ? (
             <Link to="/vhod" className="font-bold text-[#333] no-underline">
               Вход
             </Link>

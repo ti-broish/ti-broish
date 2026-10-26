@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { SIGNUP_STORAGE_KEY, nextWaveLabel, seedProfile } from './helpers'
+import { SIGNUP_STORAGE_KEY, seedProfile, waitingDate } from './helpers'
 import type { HomePlace, Profile } from '../src/signup/model'
 
 test('a partner link is shown and stored as a source', async ({ page }) => {
@@ -188,7 +188,7 @@ test('a submitted profile shows the next assignment', async ({ page }) => {
     }),
   )
   await page.goto('/profil')
-  await expect(page.getByRole('heading', { name: nextWaveLabel() })).toBeVisible()
+  await expect(waitingDate(page)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Оттегли записването' })).toBeVisible()
 })
 

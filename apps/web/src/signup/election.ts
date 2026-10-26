@@ -3,7 +3,26 @@
  * The one place these dates live; the пълномощно config and the 18-years ЕГН rule read them from here.
  */
 export const ELECTION_DAY = '2026-10-25'
-export const RUNOFF_DAY = '2026-11-01'
+export const RUNOFF_DAY = '2026-11-01' // confirmed (Harry, 26.10.2026)
+
+/**
+ * The first round is over from the day after ELECTION_DAY (Sofia calendar). From then on a signup is for
+ * the runoff only: the „25 октомври“ day is not offered and the copy names RUNOFF_DAY alone.
+ */
+export function firstRoundPassed(now = new Date()) {
+  return sofiaDay(now) > ELECTION_DAY
+}
+
+const BG_MONTHS = ['януари', 'февруари', 'март', 'април', 'май', 'юни', 'юли', 'август', 'септември', 'октомври', 'ноември', 'декември']
+
+/** '2026-11-01' → '1 ноември' */
+export function bgDayMonth(isoDay: string) {
+  const [, month, day] = isoDay.split('-')
+  return `${Number(day)} ${BG_MONTHS[Number(month) - 1]}`
+}
+
+export const ELECTION_LABEL = bgDayMonth(ELECTION_DAY)
+export const RUNOFF_LABEL = bgDayMonth(RUNOFF_DAY)
 
 /** '2026-10-25' → '25.10.2026' */
 export function bgDate(isoDay: string) {

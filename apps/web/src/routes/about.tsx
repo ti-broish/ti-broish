@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
-import { SIGNUPS_CLOSED } from '../signup/signups-closed'
+import { signupsClosed } from '../signup/signups-closed'
 import { ELECTION_LABEL, RUNOFF_LABEL, firstRoundPassed } from '../signup/election'
 
 export const Route = createFileRoute('/about')({ component: AboutPage })
@@ -20,7 +20,7 @@ function AboutPage() {
       <p>
         Попълваш данните си и потвърждаваш имейла още в началото. В изборния ден влизаш най-късно час преди затварянето и оставаш до края на протокола.
       </p>
-      {SIGNUPS_CLOSED ? (
+      {signupsClosed() ? (
         <Link to="/vhod" className="brand-button">
           Вход
         </Link>

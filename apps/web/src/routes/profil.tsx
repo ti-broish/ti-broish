@@ -19,7 +19,7 @@ import { assignmentLocked, assignmentWavePassed, nextAssignment, profileView, re
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
-import { SIGNUPS_CLOSED } from '../signup/signups-closed'
+import { signupsClosed } from '../signup/signups-closed'
 import { RUNOFF_LABEL } from '../signup/election'
 import { ensureReferralCode, updateProfile, useProfile, markOwnSignup } from '../signup/store'
 
@@ -220,13 +220,13 @@ function ProfilePage() {
         <PageIntro
           title="Още нямаш профил"
           lede={
-            SIGNUPS_CLOSED
+            signupsClosed()
               ? 'Влез с имейла, ако вече си се записал. Записването на доброволци приключи. Сигнал можеш да изпратиш и без профил.'
               : 'Влез с имейла, ако вече си се записал. Иначе се запиши. Сигнал можеш да изпратиш и без профил.'
           }
         />
         <ProfileSignIn />
-        {SIGNUPS_CLOSED ? null : (
+        {signupsClosed() ? null : (
           <Link to="/signup" search={{ step: 'contact' }} className="brand-button">
             Запиши се
           </Link>
@@ -312,7 +312,7 @@ function ProfilePage() {
           </section>
           <section className="grid gap-4 border-t border-[var(--line)] pt-6">
             <h2 className="text-xl font-black text-[#444]">Покани</h2>
-            {inviteLink && !SIGNUPS_CLOSED ? <ShareSignup link={inviteLink} count={referralCount} /> : null}
+            {inviteLink && !signupsClosed() ? <ShareSignup link={inviteLink} count={referralCount} /> : null}
             {profile.companions.length > 0 ? (
               <ul className="grid gap-2">
                 {profile.companions.map((person) => {
@@ -331,7 +331,7 @@ function ProfilePage() {
               </ul>
             ) : (
               <p className="leading-7">
-                {SIGNUPS_CLOSED
+                {signupsClosed()
                   ? 'Записването на доброволци приключи.'
                   : inviteLink
                     ? 'Още няма поканени. Сподели линка, за да дойдат с теб.'
@@ -593,13 +593,14 @@ function NextStep({ profile }: { profile: Profile }) {
     )
   }
   const wave = nextAssignment(profile)
-  // Every wave is past (a runoff signup after 26 октомври, RUNOFF_LATE_ASSIGNMENT_WAVE not set): no stale date.
+  // Every wave is past (a runoff signup after 26 октомври): admins assign the section by hand, with no
+  // fixed release date and no letter, so no stale date and no promise of an e-mail.
   if (assignmentWavePassed(wave)) {
     return (
       <section className="grid content-start gap-3" aria-label="Записан си">
         <h2 className="text-3xl font-black text-[#444]">Записан си</h2>
         <p className="text-lg leading-7">Секцията още не е потвърдена.</p>
-        <p className="text-lg leading-7">Ще я видиш тук преди балотажа на {RUNOFF_LABEL} и ще получиш писмо.</p>
+        <p className="text-lg leading-7">Екипът ще ти определи секция преди балотажа на {RUNOFF_LABEL}. Ще я видиш тук, в профила.</p>
       </section>
     )
   }

@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
-import { SIGNUPS_CLOSED } from '../signup/signups-closed'
+import { signupsClosed } from '../signup/signups-closed'
 import { WhenProtocolOpen } from '../components/WhenProtocolOpen'
 
 export const Route = createFileRoute('/instructions')({ component: InstructionsPage })
@@ -81,7 +81,7 @@ function InstructionsPage() {
           </li>
         ))}
       </ul>
-      {SIGNUPS_CLOSED ? (
+      {signupsClosed() ? (
         <Link to="/vhod" className="brand-button">
           Вход
         </Link>

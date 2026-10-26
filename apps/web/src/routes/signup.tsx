@@ -41,7 +41,7 @@ import { placeSummaries } from '../signup/sections'
 import { useOutlines } from '../signup/use-outlines'
 import { markOwnSignup, ownSignupMarked, resetProfile, updateProfile, useProfile } from '../signup/store'
 import { invalidateSessionLoad, useRegistration } from '../signup/use-registration'
-import { SIGNUPS_CLOSED, SIGNUPS_CLOSED_MESSAGE } from '../signup/signups-closed'
+import { signupsClosed, SIGNUPS_CLOSED_MESSAGE } from '../signup/signups-closed'
 import { ELECTION_LABEL, RUNOFF_LABEL, firstRoundPassed } from '../signup/election'
 import type { CityRegion, PollingSection } from '../signup/geo'
 
@@ -159,7 +159,7 @@ function SignupPage() {
   if (pending) return <p>Зареждаме данните…</p>
   // Signups closed (signups-closed.ts): only a browser signed in to its own record (tb_session) goes on,
   // to finish or edit it. Everyone else sees the closed note and the way to sign in.
-  if (SIGNUPS_CLOSED && !sessionEmail) return <SignupsClosed />
+  if (signupsClosed() && !sessionEmail) return <SignupsClosed />
   if (sessionEmail && !chosen) {
     return (
       <SessionChoice
@@ -271,14 +271,14 @@ function SessionChoice({ email, onContinue }: { email: string; onContinue: () =>
     <div className="grid gap-4">
       <h1 className="text-3xl font-black text-[#444]">Влязъл си като {email}</h1>
       <p className="text-lg leading-7">
-        {SIGNUPS_CLOSED
+        {signupsClosed()
           ? 'Продължи своето записване. Записването на нови доброволци приключи.'
           : 'Продължи своето записване или запиши друг човек. Записването на друг човек започва на чисто и не променя твоето.'}
       </p>
       <button type="button" className={button} onClick={onContinue}>
         Продължи своето записване
       </button>
-      {SIGNUPS_CLOSED ? null : (
+      {signupsClosed() ? null : (
       <>
       <button
         type="button"

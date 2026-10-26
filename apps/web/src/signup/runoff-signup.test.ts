@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ELECTION_LABEL, RUNOFF_LABEL, bgDayMonth, firstRoundPassed } from './election'
-import { ASSIGNMENT_WAVES, RUNOFF_LATE_ASSIGNMENT_WAVE, assignmentWavePassed, nextAssignment } from './model'
+import { ASSIGNMENT_WAVES, assignmentWavePassed, nextAssignment } from './model'
 
 describe('signups for the runoff', () => {
   it('names the days in Bulgarian', () => {
@@ -21,11 +21,7 @@ describe('signups for the runoff', () => {
     expect(assignmentWavePassed(onWaveDay, new Date('2026-10-26T09:00:00Z'))).toBe(false)
     const later = new Date('2026-10-28T09:00:00Z')
     const wave = nextAssignment(runoffOnly, later)
-    if (RUNOFF_LATE_ASSIGNMENT_WAVE && RUNOFF_LATE_ASSIGNMENT_WAVE.iso >= '2026-10-28') {
-      expect(wave?.label).toBe(RUNOFF_LATE_ASSIGNMENT_WAVE.label)
-    } else {
-      expect(assignmentWavePassed(wave, later)).toBe(true)
-    }
+    expect(assignmentWavePassed(wave, later)).toBe(true)
   })
 
   it('keeps the waves in date order', () => {

@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { PageIntro } from '../components/SiteChrome'
-import { SIGNUPS_CLOSED } from '../signup/signups-closed'
+import { signupsClosed } from '../signup/signups-closed'
 
 export const Route = createFileRoute('/izvan-bulgaria')({ component: AbroadPage })
 
@@ -15,7 +15,7 @@ function AbroadPage() {
         За да гласуваш извън страната, подаваш отделно заявление по реда на ЦИК. Записването тук е за пазител на вота. То не те вписва в избирателния списък.
       </p>
       <p>Можеш да гласуваш само там, където обичайно гласуваш. Секцията, в която те пратим, не ти дава право на глас там.</p>
-      {SIGNUPS_CLOSED ? (
+      {signupsClosed() ? (
         <Link to="/vhod" className="brand-button">
           Вход
         </Link>

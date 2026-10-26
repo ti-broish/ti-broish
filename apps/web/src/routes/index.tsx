@@ -3,7 +3,7 @@ import { Aggregation } from '../components/results/UnitPages'
 import { signalQuery } from '../components/results/ViolationFeed'
 import { WhenProtocolOpen } from '../components/WhenProtocolOpen'
 import { loadResultsUnit } from '../home/results-fns'
-import { SIGNUPS_CLOSED } from '../signup/signups-closed'
+import { signupsClosed } from '../signup/signups-closed'
 import { useRegistration } from '../signup/use-registration'
 
 // Home: the old results site's front page (https://github.com/ti-broish/results, units/Aggregation.js):
@@ -44,7 +44,7 @@ function HomePage() {
           <p>
             Вече си записан. <Link to="/profil">Към профила</Link>
           </p>
-        ) : pending || SIGNUPS_CLOSED ? null : (
+        ) : pending || signupsClosed() ? null : (
           // The signup button (signups-closed.ts is the switch): back for the runoff.
           <Link to="/signup" search={{ step: 'contact' }} className="brand-button" data-testid="home-signup">
             Запиши се

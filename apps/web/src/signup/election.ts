@@ -3,7 +3,7 @@
  * The one place these dates live; the пълномощно config and the 18-years ЕГН rule read them from here.
  */
 export const ELECTION_DAY = '2026-10-25'
-export const RUNOFF_DAY = '2026-11-01'
+export const RUNOFF_DAY = '2026-11-01' // confirmed (Harry, 26.10.2026)
 
 /**
  * The first round is over from the day after ELECTION_DAY (Sofia calendar). From then on a signup is for

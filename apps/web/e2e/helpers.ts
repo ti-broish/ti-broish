@@ -6,8 +6,8 @@ export function nextWaveLabel(rounds: Profile['rounds'] = { first: true, runoff:
   return assignmentWavePassed(wave) ? RUNOFF_WAITING_TEXT : wave.label
 }
 
-/** Profile text once every wave is past (a runoff signup after 26.10, RUNOFF_LATE_ASSIGNMENT_WAVE unset). */
-export const RUNOFF_WAITING_TEXT = 'Ще я видиш тук преди балотажа на 1 ноември'
+/** Profile text once every wave is past (a runoff signup after 26.10, admins assign by hand). */
+export const RUNOFF_WAITING_TEXT = 'Екипът ще ти определи секция преди балотажа на 1 ноември.'
 
 /** Where /profil shows when the section comes: the wave date as a heading, or the runoff note once waves are past. */
 export function waitingDate(page: Page, rounds: Profile['rounds'] = { first: true, runoff: true }) {

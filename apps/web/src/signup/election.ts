@@ -46,13 +46,34 @@ export interface ProtocolWindow {
   closes: Date
 }
 
+/** Protocols can be sent until the end of this many days after election day (Sofia), e.g. 25.10 → 28.10 23:59:59. */
+export const PROTOCOL_DAYS_AFTER = 3
+
+/** '2026-10-25' + 3 → '2026-10-28' (calendar days, no time zone involved). */
+export function addDays(isoDay: string, days: number) {
+  const date = new Date(`${isoDay}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+/** The first instant of the Sofia calendar day after `isoDay`, i.e. right after 23:59:59 that day. */
+export function endOfSofiaDay(isoDay: string) {
+  const next = addDays(isoDay, 1)
+  // Sofia is UTC+2 or UTC+3; take whichever midnight actually falls on `next` in Sofia.
+  for (const offset of ['+02:00', '+03:00']) {
+    const candidate = new Date(`${next}T00:00:00${offset}`)
+    if (sofiaDay(candidate) === next && sofiaDay(new Date(candidate.getTime() - 1)) === isoDay) return candidate
+  }
+  return new Date(`${next}T00:00:00+02:00`)
+}
+
 /**
  * Protocols are sent from when the polls close (20:00 Sofia, UTC+2 after the clock change on 25.10)
- * until 12:00 the next day, so sections that finish counting after midnight can still send.
+ * until the end of the third day after election day (`daysAfter`), so late counts and re-sends still get in.
  */
 const PROTOCOL_WINDOWS = [
-  { day: ELECTION_DAY, opens: '2026-10-25T20:00:00+02:00', closes: '2026-10-26T12:00:00+02:00' },
-  { day: RUNOFF_DAY, opens: '2026-11-01T20:00:00+02:00', closes: '2026-11-02T12:00:00+02:00' },
+  { day: ELECTION_DAY, opens: '2026-10-25T20:00:00+02:00', daysAfter: PROTOCOL_DAYS_AFTER },
+  { day: RUNOFF_DAY, opens: '2026-11-01T20:00:00+02:00', daysAfter: PROTOCOL_DAYS_AFTER },
 ]
 
 /**
@@ -63,13 +84,13 @@ export function protocolWindows(endOfElectionDay?: string | null): ProtocolWindo
   const end = endOfElectionDay ? new Date(endOfElectionDay) : null
   const endValid = end && !Number.isNaN(end.getTime())
   return PROTOCOL_WINDOWS.map((window) => {
-    const closes = new Date(window.closes)
+    const closes = endOfSofiaDay(addDays(window.day, window.daysAfter))
     const fromMeta = endValid && sofiaDay(end) === window.day && end < closes
     return { day: window.day, opens: fromMeta ? end : new Date(window.opens), closes }
   })
 }
 
-/** True while protocols can be sent: from the polls closing until 12:00 Sofia the next day. */
+/** True while protocols can be sent: from the polls closing until the end of the third day after election day. */
 export function isProtocolOpen(now = new Date(), endOfElectionDay?: string | null) {
   return protocolWindows(endOfElectionDay).some((window) => now >= window.opens && now < window.closes)
 }
@@ -84,4 +105,9 @@ export function bgDateTime(date: Date) {
   const time = new Intl.DateTimeFormat('bg-BG', { timeZone: 'Europe/Sofia', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date)
   const day = new Intl.DateTimeFormat('bg-BG', { timeZone: 'Europe/Sofia', day: 'numeric', month: 'long' }).format(date)
   return `${time} ч. на ${day}`
+}
+
+/** '28 октомври' for a window's last day (closes is the midnight right after it), in Sofia time. */
+export function bgLastDay(closes: Date) {
+  return new Intl.DateTimeFormat('bg-BG', { timeZone: 'Europe/Sofia', day: 'numeric', month: 'long' }).format(new Date(closes.getTime() - 1))
 }

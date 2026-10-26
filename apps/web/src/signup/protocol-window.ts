@@ -1,4 +1,4 @@
-// When „Изпрати протокол“ shows: from the polls closing (20:00 Sofia) until 12:00 the next day (election.ts).
+// When „Изпрати протокол“ shows: from the polls closing (20:00 Sofia) until the end of the third day after (election.ts).
 // The browser also reads endOfElectionDayTimestamp from the API's /results/meta.json, like the old results site,
 // and re-checks the clock every 30 seconds, so a page left open at 19:59 shows the link at 20:00.
 // Off production (staging, previews, local dev), ?protokol-test=1 opens the window for this browser tab.

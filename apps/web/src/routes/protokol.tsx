@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { PageIntro } from '../components/SiteChrome'
 import { PhotoField } from '../components/PhotoField'
 import { loadSignup } from '../signup/db'
-import { bgDateTime } from '../signup/election'
+import { bgDateTime, bgLastDay } from '../signup/election'
 import { PROTOCOL_PHOTO } from '../signup/photos'
 import { checkProtocol, PROTOCOL_PHOTOS_MAX, PROTOCOL_PHOTOS_MIN, sendProtocol } from '../signup/protocol-api'
 import { useProtocolWindow } from '../signup/protocol-window'
@@ -75,7 +75,7 @@ function ProtocolPage() {
           title={opensLater ? `Протоколът се праща от ${bgDateTime(next.opens)}` : 'Изпращането на протоколи приключи'}
           lede={
             opensLater
-              ? `Изпращането се отваря, когато секциите затворят, и е отворено до ${bgDateTime(next.closes)}. Дотогава можеш да подадеш сигнал за нарушение.`
+              ? `Изпращането се отваря, когато секциите затворят, и е отворено до края на ${bgLastDay(next.closes)}. Дотогава можеш да подадеш сигнал за нарушение.`
               : 'Благодарим на всички, които изпратиха протокол. Сигнал за нарушение можеш да подадеш и сега.'
           }
         />

@@ -19,7 +19,7 @@ test('the top nav matches the short menu and the footer links to contact', async
   await expect(nav).not.toContainText('Извън страната')
   const footer = page.locator('footer')
   await expect(footer).not.toContainText('team@tibroish.bg')
-  // From 20:00 on election day until 12:00 the next day the footer offers „Изпрати протокол“ (SiteChrome, isProtocolOpen).
+  // From 20:00 on election day until the end of the third day after the footer offers „Изпрати протокол“ (SiteChrome, isProtocolOpen).
   if (isProtocolOpen()) await expect(footer).toContainText('Изпрати протокол')
   else await expect(footer).not.toContainText('Изпрати протокол')
   // The home page shows the same big button next to „Подай сигнал“ while the window is open.

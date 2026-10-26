@@ -3,6 +3,7 @@ import { Aggregation } from '../components/results/UnitPages'
 import { signalQuery } from '../components/results/ViolationFeed'
 import { WhenProtocolOpen } from '../components/WhenProtocolOpen'
 import { loadResultsUnit } from '../home/results-fns'
+import { SIGNUPS_CLOSED } from '../signup/signups-closed'
 import { useRegistration } from '../signup/use-registration'
 
 // Home: the old results site's front page (https://github.com/ti-broish/results, units/Aggregation.js):
@@ -23,7 +24,7 @@ export const Route = createFileRoute('/')({
 function HomePage() {
   const { meta, unit } = Route.useLoaderData()
   const searchStr = useRouterState({ select: (state) => state.location.searchStr })
-  const { settled } = useRegistration()
+  const { settled, pending } = useRegistration()
 
   return (
     <div className="grid gap-4">
@@ -43,7 +44,12 @@ function HomePage() {
           <p>
             Вече си записан. <Link to="/profil">Към профила</Link>
           </p>
-        ) : null}
+        ) : pending || SIGNUPS_CLOSED ? null : (
+          // The signup button (signups-closed.ts is the switch): back for the runoff.
+          <Link to="/signup" search={{ step: 'contact' }} className="brand-button" data-testid="home-signup">
+            Запиши се
+          </Link>
+        )}
       </header>
       {unit ? <Aggregation data={unit} /> : <p role="alert">Картата не се зареди. Опитай пак след малко.</p>}
     </div>

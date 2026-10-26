@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { HomePlace, Profile } from '../src/signup/model'
-import { nextWaveLabel, seedProfile, SIGNUP_STORAGE_KEY } from './helpers'
+import { nextWaveLabel, seedProfile, SIGNUP_STORAGE_KEY, waitingDate } from './helpers'
 
 const sofia: HomePlace = {
   regionCode: 'sofia-merged',
@@ -173,7 +173,9 @@ test('a finished signup reviews changes instead of signing up again', async ({ p
   await expect(page.getByText('Записването е за президентските избори')).toHaveCount(0)
 
   await page.goto('/signup?step=rounds')
-  await expect(page.getByText('Дните са 25 октомври и 1 ноември.')).toBeVisible()
+  // After the first round (25.10) the rounds step offers the runoff only (firstRoundPassed).
+  await expect(page.getByText('Първият тур беше на 25 октомври. Записването вече е за балотажа на 1 ноември.')).toBeVisible()
+  await expect(page.getByRole('checkbox', { name: '25 октомври' })).toHaveCount(0)
 })
 
 test('the first review still asks the person to sign up', async ({ page }) => {
@@ -191,10 +193,11 @@ test('a registered profile leads with the date, then the answers, without the na
   await seedProfile(page, registered())
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/profil')
+  // Once every wave is past (runoff signups after 26.10), the profile names the runoff instead of a stale date.
   const wave = nextWaveLabel()
   const registeredHeading = page.getByRole('heading', { name: 'Записан си' })
   await expect(registeredHeading).toBeVisible()
-  await expect(page.getByRole('heading', { name: wave })).toBeVisible()
+  await expect(waitingDate(page)).toBeVisible()
   const text = await page.locator('main').innerText()
   expect(text.indexOf('Записан си')).toBeLessThan(text.indexOf(wave))
   expect(text.indexOf(wave)).toBeLessThan(text.indexOf('Материали'))
@@ -265,7 +268,7 @@ test('an assigned profile leads with the section and the badge', async ({ page }
   await expect(page.getByRole('heading', { name: '234600101' })).toBeVisible()
   await expect(page.getByText('25 октомври и 1 ноември. Екипът вече е определил секцията.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Отпечатай значката' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: nextWaveLabel() })).toHaveCount(0)
+  await expect(waitingDate(page)).toHaveCount(0)
 })
 
 const musachevo: HomePlace = {
@@ -351,7 +354,7 @@ test('withdrawing a signup can be undone from the profile', async ({ page }) => 
   await page.getByRole('button', { name: 'Оттегли записването' }).click()
   await expect(page.getByRole('heading', { name: 'Записването е оттеглено' })).toBeVisible()
   await page.getByRole('button', { name: 'Върни записването' }).click()
-  await expect(page.getByRole('heading', { name: nextWaveLabel() })).toBeVisible()
+  await expect(waitingDate(page)).toBeVisible()
   for (const name of ['Сподели във Facebook', 'Сподели във Viber', 'Сподели в Instagram', 'Сподели в Threads', 'Сподели в X (Twitter)', 'Сподели в WhatsApp', 'Сподели в LinkedIn']) {
     const link = page.getByRole('link', { name })
     await expect(link).toBeVisible()
@@ -422,7 +425,7 @@ test('an unconfirmed email is not shown as waiting for a section', async ({ page
   await page.goto('/profil')
   await expect(page.getByRole('heading', { name: 'Записването не е готово' })).toBeVisible()
   await expect(page.getByText('Остава да потвърдиш имейла.')).toBeVisible()
-  await expect(page.getByRole('heading', { name: nextWaveLabel() })).toHaveCount(0)
+  await expect(waitingDate(page)).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Продължи записването' })).toHaveAttribute('href', /step=confirm/)
 })
 

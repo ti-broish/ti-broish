@@ -81,11 +81,11 @@ test('an empty profile can still start signup', async ({ page }) => {
   await expect(page.locator('footer').getByRole('link', { name: 'Запиши се' })).toBeVisible()
 })
 
-test('the home page leads to signals, not to a new signup', async ({ page }) => {
+test('the home page leads to signals and, while signups are open, to a new signup', async ({ page }) => {
   await seedProfile(page, {})
   await page.goto('/')
   await expect(page.locator('main').getByRole('link', { name: 'Подай сигнал', exact: true })).toBeVisible()
-  await expect(page.locator('main').getByRole('link', { name: 'Запиши се' })).toHaveCount(0)
+  await expect(page.locator('main').getByRole('link', { name: 'Запиши се' })).toHaveAttribute('href', /\/signup\?step=contact/)
   await expect(page.locator('main').getByText('Вече си записан')).toHaveCount(0)
 })
 

@@ -177,12 +177,28 @@ export function stepsFor(profile: Pick<Profile, 'role' | 'radius'>): readonly St
   return steps.filter((step) => step !== 'seats' || shouldAskSeats(profile))
 }
 
-export const ASSIGNMENT_WAVES = [
+/**
+ * OPEN QUESTION (runoff signups after 26.10.2026): the day sections are released to people who sign up for
+ * the runoff after the 26 октомври wave, e.g. { iso: '2026-10-29', label: '29 октомври' }. Left null on
+ * purpose: nobody has picked the day yet. While null, the profile says the section comes before the runoff
+ * (by letter) instead of naming a date that is already past.
+ */
+export const RUNOFF_LATE_ASSIGNMENT_WAVE = null as { iso: string; label: string } | null
+
+type AssignmentWave = { iso: string; label: string; round: 'first' | 'runoff' }
+
+export const ASSIGNMENT_WAVES: readonly AssignmentWave[] = [
   { iso: '2026-10-05', label: '5 октомври', round: 'first' },
   { iso: '2026-10-12', label: '12 октомври', round: 'first' },
   { iso: '2026-10-19', label: '19 октомври', round: 'first' },
   { iso: '2026-10-26', label: '26 октомври', round: 'runoff' },
-] as const
+  ...(RUNOFF_LATE_ASSIGNMENT_WAVE ? [{ ...RUNOFF_LATE_ASSIGNMENT_WAVE, round: 'runoff' as const }] : []),
+]
+
+/** True when every wave is behind us (the returned wave from nextAssignment is in the past). */
+export function assignmentWavePassed(wave: Pick<AssignmentWave, 'iso'> | undefined, now = new Date()) {
+  return !wave || wave.iso < now.toISOString().slice(0, 10)
+}
 
 export function nextAssignment(profile: Pick<Profile, 'rounds'>, now = new Date()) {
   const relevant = ASSIGNMENT_WAVES.filter(

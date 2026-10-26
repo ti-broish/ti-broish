@@ -42,6 +42,7 @@ import { useOutlines } from '../signup/use-outlines'
 import { markOwnSignup, ownSignupMarked, resetProfile, updateProfile, useProfile } from '../signup/store'
 import { invalidateSessionLoad, useRegistration } from '../signup/use-registration'
 import { SIGNUPS_CLOSED, SIGNUPS_CLOSED_MESSAGE } from '../signup/signups-closed'
+import { ELECTION_LABEL, RUNOFF_LABEL, firstRoundPassed } from '../signup/election'
 import type { CityRegion, PollingSection } from '../signup/geo'
 
 export const Route = createFileRoute('/signup')({
@@ -200,11 +201,16 @@ function SignupPage() {
       {current === 'review' && settled ? <p className="text-lg leading-7">Провери промените и ги запази.</p> : null}
       {current === 'contact' ? (
         settled ? (
-          <p className="text-lg leading-7">Президентските избори 2026 г. са на 25 октомври и 1 ноември. Тук променяш как да се свържем с теб.</p>
+          <p className="text-lg leading-7">
+            {firstRoundPassed() ? `Балотажът е на ${RUNOFF_LABEL}.` : `Президентските избори 2026 г. са на ${ELECTION_LABEL} и ${RUNOFF_LABEL}.`} Тук променяш как да се свържем с теб.
+          </p>
         ) : (
           <div className="grid gap-3 text-lg leading-7">
             <p>
-              Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември. След потвърждение на данните е необходимо да въведеш детайлна информация, за да можем да направим разпределение на секции.
+              {firstRoundPassed()
+                ? `Записването е за балотажа на президентските избори 2026 г. на ${RUNOFF_LABEL}.`
+                : `Записването е за президентските избори 2026 г. на ${ELECTION_LABEL} и ${RUNOFF_LABEL}.`}{' '}
+              След потвърждение на данните е необходимо да въведеш детайлна информация, за да можем да направим разпределение на секции.
             </p>
             <p>Можеш да добавиш и други хора и да отидете заедно като група.</p>
           </div>
@@ -616,6 +622,7 @@ function Choice({ selected, title, text, onClick }: { selected: boolean; title: 
 
 function Rounds({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
   const { profile } = useProfile()
+  if (firstRoundPassed()) return <RunoffOnlyRound error={error} onError={onError} onNext={onNext} />
   return (
     <form
       className="grid gap-4"
@@ -642,6 +649,42 @@ function Rounds({ error, onError, onNext }: { error: string; onError: (value: st
         1 ноември, балотаж
       </label>
       {!profile.rounds.first || !profile.rounds.runoff ? <p className="text-sm">Ако можеш, остави и двата дни. Така секцията е покрита и ако има балотаж.</p> : null}
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      <button className={button} type="submit">
+        Напред
+      </button>
+    </form>
+  )
+}
+
+/**
+ * After the first round (firstRoundPassed): only the runoff day is offered. A new signup is saved as
+ * runoff-only (rounds.first = false), so the admin lists do not count it for 25 октомври. A person already
+ * in the register keeps the first-round day they had.
+ */
+function RunoffOnlyRound({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
+  const { profile } = useProfile()
+  const keepFirst = registrationSettled(profile) && profile.rounds.first
+  return (
+    <form
+      className="grid gap-4"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!profile.rounds.runoff && !keepFirst) {
+          onError(`Записването вече е само за балотажа на ${RUNOFF_LABEL}.`)
+          return
+        }
+        if (profile.rounds.first !== keepFirst) updateProfile({ rounds: { first: keepFirst, runoff: profile.rounds.runoff } })
+        onNext()
+      }}
+    >
+      <p>
+        Първият тур беше на {ELECTION_LABEL}. Записването вече е за балотажа на {RUNOFF_LABEL}.
+      </p>
+      <label className="flex gap-3 rounded-2xl bg-white px-4 py-3">
+        <input type="checkbox" checked={profile.rounds.runoff} onChange={(event) => updateProfile({ rounds: { ...profile.rounds, runoff: event.target.checked } })} />
+        {RUNOFF_LABEL}, балотаж
+      </label>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button className={button} type="submit">
         Напред

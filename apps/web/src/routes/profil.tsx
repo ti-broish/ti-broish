@@ -15,11 +15,12 @@ import { reportCantReach, saveSignup } from '../signup/db'
 import { selfRestoreSignup } from '../signup/admin-unregister-actions'
 import { applyLoadedSession, beginSessionLoad, invalidateSessionLoad } from '../signup/use-registration'
 import { WhenProtocolOpen } from '../components/WhenProtocolOpen'
-import { assignmentLocked, nextAssignment, profileView, resumeSignupStep, signupGap, validEmail, type Profile } from '../signup/model'
+import { assignmentLocked, assignmentWavePassed, nextAssignment, profileView, resumeSignupStep, signupGap, validEmail, type Profile } from '../signup/model'
 import { locationEditable, mirOf } from '../signup/rules'
 import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
 import { SIGNUPS_CLOSED } from '../signup/signups-closed'
+import { RUNOFF_LABEL } from '../signup/election'
 import { ensureReferralCode, updateProfile, useProfile, markOwnSignup } from '../signup/store'
 
 export const Route = createFileRoute('/profil')({ component: ProfilePage })
@@ -592,6 +593,16 @@ function NextStep({ profile }: { profile: Profile }) {
     )
   }
   const wave = nextAssignment(profile)
+  // Every wave is past (a runoff signup after 26 октомври, RUNOFF_LATE_ASSIGNMENT_WAVE not set): no stale date.
+  if (assignmentWavePassed(wave)) {
+    return (
+      <section className="grid content-start gap-3" aria-label="Записан си">
+        <h2 className="text-3xl font-black text-[#444]">Записан си</h2>
+        <p className="text-lg leading-7">Секцията още не е потвърдена.</p>
+        <p className="text-lg leading-7">Ще я видиш тук преди балотажа на {RUNOFF_LABEL} и ще получиш писмо.</p>
+      </section>
+    )
+  }
   return (
     <section className="grid content-start gap-3" aria-label="Записан си">
       <h2 className="text-3xl font-black text-[#444]">Записан си</h2>

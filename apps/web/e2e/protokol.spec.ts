@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { isProtocolOpen } from '../src/signup/election'
 
 // /protokol sends protocols to the Ти Броиш API like the old results site. `vite dev` uses the production API
-// (src/signup/api-base.ts), mocked here. ?protokol-test=1 opens the window outside 20:00–12:00 (never on tibroish.bg).
+// (src/signup/api-base.ts), mocked here. ?protokol-test=1 opens the window outside the window (20:00 on election day until the end of the third day after) (never on tibroish.bg).
 
 const API = 'https://api.tibroish.bg'
 // 8×8 red PNG; the browser turns it into a JPEG before upload.

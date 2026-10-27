@@ -297,6 +297,8 @@ export interface AdminPerson {
   draftSection: string
   publishedSection: string
   hasEgn: boolean
+  /** Another active (not withdrawn) signup has the same ЕГН (egn-in-use.ts); which one is not said. */
+  egnShared?: boolean
   notes: string
   callRequestedAt: string
   callMessage: string

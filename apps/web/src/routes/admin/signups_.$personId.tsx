@@ -332,6 +332,11 @@ function PersonFacts({
         <dt className="font-bold">ЕГН</dt>
         <dd>
           <EgnReveal personId={person.id} hasEgn={person.hasEgn} canReveal={canRevealEgn} onRevealed={onEgnRevealed} />
+          {person.egnShared ? (
+            <p className="mt-1 inline-block rounded-full bg-[#fde8e8] px-2 py-0.5 text-xs font-bold text-[#8f1d1d]" data-testid="egn-shared">
+              Същото ЕГН е и в друго активно записване
+            </p>
+          ) : null}
         </dd>
       </div>
       <Fact label="Желано място (от записването)" value={where || 'Няма избрано място'} />

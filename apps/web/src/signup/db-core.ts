@@ -1,3 +1,4 @@
+import { EGN_KEY_INDEX } from './egn-in-use'
 import { migrateCompanionColumns } from './db-core-migrate-companions'
 import { DESIGNATION_HIGH_WATER_SEED, DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_NUMBER_UNIQUE_INDEX_SQL } from './designation-number'
 import { ensureSearchIndex } from './db-search'
@@ -161,6 +162,8 @@ const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_abroad_priority_country ON abroad_priority_sections(country)',
   'CREATE INDEX IF NOT EXISTS idx_abroad_priority_city ON abroad_priority_sections(city)',
   'CREATE INDEX IF NOT EXISTS idx_abroad_priority_tier ON abroad_priority_sections(tier_letter)',
+  // The duplicate-ЕГН lookup (egn-in-use.ts). Not UNIQUE: existing rows may already share an ЕГН.
+  EGN_KEY_INDEX,
 ]
 
 export interface SignupRow {

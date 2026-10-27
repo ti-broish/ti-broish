@@ -21,6 +21,7 @@ import { rememberReport } from '../signup/report-memory'
 import { submitCall } from '../signup/reports'
 import { signupsClosed } from '../signup/signups-closed'
 import { RUNOFF_LABEL } from '../signup/election'
+import { volunteerNotice } from '../signup/copy'
 import { ensureReferralCode, updateProfile, useProfile, markOwnSignup } from '../signup/store'
 
 export const Route = createFileRoute('/profil')({ component: ProfilePage })
@@ -367,9 +368,7 @@ function ProfilePage() {
             Оттегли записването
           </button>
         ) : null}
-        <p className="text-sm leading-6">
-          Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.
-        </p>
+        <p className="text-sm leading-6">{volunteerNotice}</p>
       </section>
     </div>
   )

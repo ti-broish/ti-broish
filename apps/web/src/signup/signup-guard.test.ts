@@ -40,6 +40,11 @@ describe('saveSignup never takes over a record by its e-mail', () => {
     expect(decision.kind === 'own' && decision.row.id).toBe('own-row')
   })
 
+  it('says nothing for the row a code request just made: the form goes on to the code step', () => {
+    const awaiting: EmailRow = { id: 'fresh', session_token: 'fresh-token', imported: 0, email_confirmed: 0 }
+    expect(saveDecision('fresh@example.com', null, awaiting)).toEqual({ kind: 'refuse', reason: 'awaiting-code', message: '' })
+  })
+
   it('starts a new record for a new e-mail without a session', () => {
     expect(saveDecision('new@example.com', null, null)).toEqual({ kind: 'new' })
   })

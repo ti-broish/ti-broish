@@ -61,5 +61,6 @@ export function useRegistration() {
   const settled = ready && registrationSettled(profile)
   const pending = !ready || (profileIsBlank(profile) && !settled && !remoteDone)
   /** The e-mail of the record this browser's tb_session holds, once loaded ('' without one). */
-  return { settled, pending, sessionEmail }
+  /** sessionChecked: the session load has answered, so sessionEmail is final. */
+  return { settled, pending, sessionEmail, sessionChecked: remoteDone }
 }

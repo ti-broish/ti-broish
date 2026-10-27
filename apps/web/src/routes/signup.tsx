@@ -1,14 +1,15 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { IdentityChangeConfirm, type IdentityPending } from '../components/IdentityChangeConfirm'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { BulgariaMap, type MapPoint } from '../components/BulgariaMap'
 import { PartnerBanner } from '../components/PartnerBanner'
 import { PlacesPicker } from '../components/PlacesPicker'
 import { StaffNote } from '../components/StaffNote'
 import { TravelChoice, useTownDistricts } from '../components/TravelChoice'
 import { checkEmailCode, requestEmailCode } from '../signup/confirm-mail'
-import { assignmentTiming, runoffAssignmentTiming, groupAsCoordinator, groupWithYou, mobileTeamText, paperSectionText, votingLogistics } from '../signup/copy'
-import { leaveSignupSession, saveSignup } from '../signup/db'
+import { assignmentTiming, runoffAssignmentTiming, groupAsCoordinator, groupWithYou, mobileTeamText, paperSectionText, signupScope, volunteerNotice, votingLogistics } from '../signup/copy'
+import { contactErrors, type ContactField } from '../signup/contact-errors'
+import { egnInUse, leaveSignupSession, saveSignup } from '../signup/db'
 import { geocodePlace } from '../signup/geo'
 import {
   EXPERIENCE,
@@ -23,7 +24,7 @@ import {
   registrationSettled,
   resumeSignupStep,
   signupGap,
-  roleLabel,
+  roleTitle,
   stepsFor,
   travelOutline,
   travelsOutside,
@@ -56,11 +57,24 @@ const button = 'brand-button disabled:opacity-40'
 const ghost = 'flex min-h-14 w-full items-center justify-center rounded-[20px] border border-[#ddd] bg-white px-5 text-xl font-bold text-[#333]'
 const field = 'min-h-11 w-full rounded-xl border border-[#ddd] bg-white px-3'
 
+// Autosaves still on their way. „Запиши друг човек“ waits for them before it signs out: a save's
+// response sets tb_session again, so one landing after the sign-out put the old session right back
+// (and the reload showed the same prompt again).
+const savesInFlight = new Set<Promise<unknown>>()
+function trackSave<T>(pending: Promise<T>) {
+  savesInFlight.add(pending)
+  void pending.catch(() => undefined).finally(() => savesInFlight.delete(pending))
+  return pending
+}
+function savesSettled() {
+  return Promise.allSettled([...savesInFlight])
+}
+
 function SignupPage() {
   const { step } = Route.useSearch()
   const navigate = useNavigate()
   const { profile, ready } = useProfile()
-  const { pending, sessionEmail } = useRegistration()
+  const { pending, sessionEmail, sessionChecked } = useRegistration()
   const [error, setError] = useState('')
   const [saveNotice, setSaveNotice] = useState('')
   const [identityPending, setIdentityPending] = useState<IdentityPending | null>(null)
@@ -79,13 +93,16 @@ function SignupPage() {
       referredBy: current.referredBy || found.referredBy,
     }))
   }, [])
+  // No autosave until this browser's session is known and, with one, the person has chosen to go on
+  // with it: the prompt must not write anything (and a save in flight would undo „Запиши друг човек“).
+  const awaitingChoice = !sessionChecked || (Boolean(sessionEmail) && !chosen)
   useEffect(() => {
-    if (!ready || !profile.email.includes('@')) return
+    if (!ready || awaitingChoice || !profile.email.includes('@')) return
     const handle = window.setTimeout(() => {
       const counted = signupGap(profile) === null && !profile.withdrawn
       const payload = counted ? { ...profile, submitted: true } : profile
       if (counted && !profile.submitted) updateProfile({ submitted: true })
-      void saveSignup({ data: payload }).then((result) => {
+      void trackSave(saveSignup({ data: payload })).then((result) => {
         if (!result.ok) {
           // A refused save (someone else's e-mail, another session) says why instead of failing quietly.
           setSaveNotice('reason' in result && result.reason ? result.message : '')
@@ -103,7 +120,7 @@ function SignupPage() {
       })
     }, 600)
     return () => window.clearTimeout(handle)
-  }, [profile, ready])
+  }, [profile, ready, awaitingChoice])
   const [companion, setCompanion] = useState<Companion>(blankCompanion())
   const [unsentCompanionLinks, setUnsentCompanionLinks] = useState<{ email: string; link: string }[]>([])
   const steps = stepsFor(profile)
@@ -113,6 +130,10 @@ function SignupPage() {
   const settled = useReviewCopy(current, profile, ready)
   const [entrance, setEntrance] = useState<{ id: StepId; dir: 'forward' | 'back' } | null>(null)
   const seenStep = useRef(index)
+  // A refused save speaks for the step it happened on; the next step starts clean.
+  useEffect(() => {
+    setSaveNotice('')
+  }, [current])
   useEffect(() => {
     if (seenStep.current === index) return
     const dir = index < seenStep.current ? 'back' : 'forward'
@@ -180,7 +201,8 @@ function SignupPage() {
       {settled ? <p className="text-lg leading-7">Вече си записан. Тук променяш записването.</p> : null}
       <h1 className="text-3xl font-black text-[#444]">{titles[current]}</h1>
       <PartnerBanner source={profile.source} />
-      {saveNotice ? (
+      {/* The step's own message (e.g. the ЕГН step's) is not repeated here. */}
+      {saveNotice && saveNotice !== error ? (
         <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 leading-7 text-red-800">
           {saveNotice} <Link to="/vhod">Вход с код</Link>
         </p>
@@ -207,9 +229,7 @@ function SignupPage() {
         ) : (
           <div className="grid gap-3 text-lg leading-7">
             <p>
-              {firstRoundPassed()
-                ? `Записването е за балотажа на президентските избори 2026 г. на ${RUNOFF_LABEL}.`
-                : `Записването е за президентските избори 2026 г. на ${ELECTION_LABEL} и ${RUNOFF_LABEL}.`}{' '}
+              {signupScope(firstRoundPassed(), ELECTION_LABEL, RUNOFF_LABEL)}{' '}
               След потвърждение на данните е необходимо да въведеш детайлна информация, за да можем да направим разпределение на секции.
             </p>
             <p>Можеш да добавиш и други хора и да отидете заедно като група.</p>
@@ -262,8 +282,8 @@ function SignupsClosed() {
 
 /**
  * A browser that already holds a record (tb_session) chooses: go on with that record, or start a new
- * person. The second clears this browser's draft and session, so the next save is a new record and
- * never writes over the signed-in one.
+ * person. One browser holds one session, so a new person means signing this one out first; the signed-in
+ * record itself is not touched. The sign-out waits for any autosave still in flight (see savesInFlight).
  */
 function SessionChoice({ email, onContinue }: { email: string; onContinue: () => void }) {
   const [leaving, setLeaving] = useState(false)
@@ -271,36 +291,35 @@ function SessionChoice({ email, onContinue }: { email: string; onContinue: () =>
     <div className="grid gap-4">
       <h1 className="text-3xl font-black text-[#444]">Влязъл си като {email}</h1>
       <p className="text-lg leading-7">
-        {signupsClosed()
-          ? 'Продължи своето записване. Записването на нови доброволци приключи.'
-          : 'Продължи своето записване или запиши друг човек. Записването на друг човек започва на чисто и не променя твоето.'}
+        {signupsClosed() ? 'Можеш да продължиш своето записване. Записването на нови доброволци приключи.' : 'Какво искаш да направиш?'}
       </p>
-      <button type="button" className={button} onClick={onContinue}>
+      <button type="button" className={button} onClick={onContinue} disabled={leaving}>
         Продължи своето записване
       </button>
       {signupsClosed() ? null : (
-      <>
-      <button
-        type="button"
-        className={ghost}
-        disabled={leaving}
-        onClick={() => {
-          setLeaving(true)
-          void leaveSignupSession()
-            .catch(() => undefined)
-            .then(() => {
-              resetProfile()
-              invalidateSessionLoad()
-              window.location.assign('/signup?step=contact')
-            })
-        }}
-      >
-        Запиши друг човек
-      </button>
-      <p className="text-sm leading-7">
-        След това този браузър вече не е влязъл като {email}. Влизаш отново през <Link to="/vhod">/vhod</Link> с код от имейла. Ако си от екипа, добавяй други хора от администрацията („Хора, въведени от екипа“ в Записвания).
-      </p>
-      </>
+        <>
+          <button
+            type="button"
+            className={ghost}
+            disabled={leaving}
+            onClick={() => {
+              setLeaving(true)
+              void savesSettled()
+                .then(() => leaveSignupSession())
+                .catch(() => undefined)
+                .then(() => {
+                  resetProfile()
+                  invalidateSessionLoad()
+                  window.location.assign('/signup?step=contact')
+                })
+            }}
+          >
+            {leaving ? 'Излизаме от профила…' : 'Запиши друг човек'}
+          </button>
+          <p className="text-sm leading-7">
+            За да запишеш друг човек, този браузър излиза от профила ти. Твоето записване остава както е. После влизаш отново от <Link to="/vhod">Вход</Link> с код по имейла. Ако си от екипа, добавяй хора от администрацията („Хора, въведени от екипа“ в Записвания).
+          </p>
+        </>
       )}
     </div>
   )
@@ -312,18 +331,21 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
   const confirmedEmail = useRef(profile.emailConfirmed ? profile.email.trim().toLowerCase() : '')
   const typed = profile.email.trim().toLowerCase()
   const changing = Boolean(confirmedEmail.current) && typed !== confirmedEmail.current
+  // Shown after the first „Изпрати“ and recomputed as the person types, so a fixed field clears at once.
+  const [checked, setChecked] = useState(false)
+  const fieldErrors = contactErrors(profile)
+  const shown = (key: ContactField) => (checked ? fieldErrors[key] : '')
   return (
     <form
       className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
         if (sending) return
-        if (!validName(profile.firstName) || !validName(profile.middleName) || !validName(profile.lastName)) {
-          onError('Трите имена са на кирилица.')
-          return
-        }
-        if (!validEmail(profile.email) || !validPhone(profile.phone)) {
-          onError('Нужни са валидни имейл и телефон.')
+        setChecked(true)
+        onError('')
+        if (Object.values(fieldErrors).some(Boolean)) {
+          const first = (Object.keys(fieldErrors) as ContactField[]).find((key) => fieldErrors[key])
+          if (first) document.getElementById(`contact-${first}`)?.focus()
           return
         }
         if (confirmedEmail.current && !changing) {
@@ -373,21 +395,18 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
       }}
     >
       <LegalNotice />
-      <NameFields />
-      <label className="grid gap-1 text-sm font-semibold">
-        Имейл
-        <input
-          className={field}
-          inputMode="email"
-          autoComplete="email"
-          value={profile.email}
-          onChange={(event) => updateProfile({ email: event.target.value })}
-        />
-      </label>
-      <label className="grid gap-1 text-sm font-semibold">
-        Телефон
-        <input className={field} inputMode="tel" autoComplete="tel" placeholder="08xxxxxxxx" value={profile.phone} onChange={(event) => updateProfile({ phone: event.target.value })} />
-      </label>
+      <p className="text-sm leading-6 text-[#555]">
+        Всички полета са задължителни <RequiredMark />.
+      </p>
+      <NameFields errors={{ firstName: shown('firstName'), middleName: shown('middleName'), lastName: shown('lastName') }} />
+      <ContactInput id="contact-email" label="Имейл" error={shown('email')}>
+        {(props) => <input {...props} className={field} inputMode="email" autoComplete="email" value={profile.email} onChange={(event) => updateProfile({ email: event.target.value })} />}
+      </ContactInput>
+      <ContactInput id="contact-phone" label="Телефон" error={shown('phone')}>
+        {(props) => (
+          <input {...props} className={field} inputMode="tel" autoComplete="tel" placeholder="08xxxxxxxx" value={profile.phone} onChange={(event) => updateProfile({ phone: event.target.value })} />
+        )}
+      </ContactInput>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button className={button} type="submit" disabled={sending}>
         {changing || !confirmedEmail.current ? (sending ? 'Изпращаме кода…' : 'Изпрати код за потвърждение') : 'Напред'}
@@ -396,7 +415,36 @@ function Contact({ error, onError, onMailFailed, onNext }: { error: string; onEr
   )
 }
 
-function NameFields() {
+function RequiredMark() {
+  return (
+    <span aria-hidden="true" className="text-red-700">
+      *
+    </span>
+  )
+}
+
+type InputA11y = { id: string; 'aria-required': true; 'aria-invalid': boolean; 'aria-describedby'?: string }
+
+/** A required contact field: the label with its *, the input, and the field's own message under it. */
+function ContactInput({ id, label, error, children }: { id: string; label: string; error: string; children: (props: InputA11y) => ReactNode }) {
+  return (
+    <div className="grid gap-1">
+      {/* The * sits beside the label, not in it, so the field's name stays „Име“ (aria-required says the rest). */}
+      <div className="flex items-baseline gap-1 text-sm font-semibold">
+        <label htmlFor={id}>{label}</label>
+        <RequiredMark />
+      </div>
+      {children({ id, 'aria-required': true, 'aria-invalid': Boolean(error), ...(error ? { 'aria-describedby': `${id}-error` } : {}) })}
+      {error ? (
+        <p id={`${id}-error`} className="text-sm text-red-700">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function NameFields({ errors }: { errors: Record<'firstName' | 'middleName' | 'lastName', string> }) {
   const { profile } = useProfile()
   const fields = [
     ['firstName', 'Име', 'given-name'],
@@ -406,10 +454,9 @@ function NameFields() {
   return (
     <>
       {fields.map(([key, label, autoComplete]) => (
-        <label key={key} className="grid gap-1 text-sm font-semibold">
-          {label}
-          <input className={field} autoComplete={autoComplete} value={profile[key]} onChange={(event) => updateProfile({ [key]: event.target.value })} />
-        </label>
+        <ContactInput key={key} id={`contact-${key}`} label={label} error={errors[key]}>
+          {(props) => <input {...props} className={field} autoComplete={autoComplete} value={profile[key]} onChange={(event) => updateProfile({ [key]: event.target.value })} />}
+        </ContactInput>
       ))}
     </>
   )
@@ -545,11 +592,14 @@ function Confirm({
 
 function EgnStep({ error, onError, onNext }: { error: string; onError: (value: string) => void; onNext: () => void }) {
   const { profile } = useProfile()
+  const [checking, setChecking] = useState(false)
   return (
     <form
       className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
+        if (checking) return
+        onError('')
         if (!validEgn(profile.egn)) {
           onError('ЕГН е 10 цифри и трябва да е валидно.')
           return
@@ -558,7 +608,15 @@ function EgnStep({ error, onError, onNext }: { error: string; onError: (value: s
           onError(UNDERAGE_MESSAGE)
           return
         }
-        onNext()
+        // One active signup per ЕГН (egn-in-use.ts); saveSignup refuses it too.
+        setChecking(true)
+        void egnInUse({ data: { egn: profile.egn } })
+          .then((result) => {
+            if (result.taken) onError(result.message)
+            else onNext()
+          })
+          .catch(() => onNext())
+          .finally(() => setChecking(false))
       }}
     >
       <p className="leading-7">ЕГН ни трябва, след като потвърдиш имейла, за да те разпределим и за дигиталното пълномощно. Числото не се показва в профила.</p>
@@ -566,8 +624,12 @@ function EgnStep({ error, onError, onNext }: { error: string; onError: (value: s
         ЕГН
         <input className={field} inputMode="numeric" autoComplete="off" maxLength={10} value={profile.egn} onChange={(event) => updateProfile({ egn: event.target.value.replace(/\D/g, '').slice(0, 10) })} />
       </label>
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      <button className={button} type="submit">
+      {error ? (
+        <p role="alert" className="text-sm text-red-700">
+          {error}
+        </p>
+      ) : null}
+      <button className={button} type="submit" disabled={checking}>
         Напред
       </button>
     </form>
@@ -1132,7 +1194,7 @@ function Review({ settled, error, onError }: { settled: boolean; error: string; 
         <li>
           {profile.email} · {profile.phone}
         </li>
-        <li>{roleLabel(profile.role, profile.mobileTeam)}</li>
+        <li>{roleTitle(profile.role, profile.mobileTeam)}</li>
         <li>
           Президентски избори 2026 г.
           {profile.rounds.first ? ' · 25 октомври' : ''}
@@ -1170,7 +1232,7 @@ function Review({ settled, error, onError }: { settled: boolean; error: string; 
       <label className="flex items-start gap-3 rounded-2xl bg-white px-4 py-4 leading-7">
         <input type="checkbox" className="mt-1" checked={profile.consent} onChange={(event) => updateProfile({ consent: event.target.checked })} />
         <span>
-          Разбирам, че това е доброволна дейност без заплащане и че ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев. Прочетох{' '}
+          Разбирам, че това е доброволна дейност без заплащане и че ще бъда представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев. Прочетох{' '}
           <Link to="/privacy-notice">декларацията за поверителност</Link>.
         </span>
       </label>
@@ -1205,7 +1267,7 @@ function useReviewCopy(step: string, profile: Profile, ready: boolean) {
 function LegalNotice() {
   return (
     <p className="rounded-xl bg-[#eee] px-3 py-3 text-sm leading-6 text-[#333]">
-      Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.
+      {volunteerNotice}
     </p>
   )
 }

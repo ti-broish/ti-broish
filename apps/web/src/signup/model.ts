@@ -1,4 +1,5 @@
 import { CALL_MESSAGE_MAX, type CantReachSection } from './cant-reach'
+import { inPlace } from './copy'
 
 export type { CantReachSection }
 
@@ -472,6 +473,14 @@ export function roleLabel(role: Role | null, mobileTeam = false) {
   return 'Секция'
 }
 
+/** The role as the person chose it on the role step, for the review and the profile. */
+export function roleTitle(role: Role | null, mobileTeam = false) {
+  if (role === 'mobile' || mobileTeam) return 'Мобилен екип'
+  if (role === 'video') return 'Видеонаблюдение от вкъщи'
+  if (role === 'section') return 'Секция с гласуване на хартия'
+  return 'Още не е избрана'
+}
+
 export function codeFor(email: string) {
   let n = 0
   for (const char of email.trim().toLowerCase()) n = (n * 33 + char.charCodeAt(0)) >>> 0
@@ -496,19 +505,19 @@ export function radiusOptions(place: HomePlace | null): { id: Radius; label: str
   if (!place) return []
   if (place.regionCode === '32') {
     return [
-      { id: 'settlement', label: place.townName ? `Само в ${place.townName}` : 'Само в града' },
-      { id: 'region', label: place.countryName ? `В ${place.countryName}` : 'В държавата' },
+      { id: 'settlement', label: place.townName ? `Само ${inPlace(place.townName)}` : 'Само в града' },
+      { id: 'region', label: place.countryName ? inPlace(place.countryName, true) : 'В държавата' },
       { id: 'distant', label: 'И в други държави' },
     ]
   }
   const options: { id: Radius; label: string }[] = []
   if (place.cityRegionName) {
-    options.push({ id: 'cityRegion', label: `Само в ${place.cityRegionName}` })
+    options.push({ id: 'cityRegion', label: `Само ${inPlace(place.cityRegionName)}` })
     options.push({ id: 'nearby', label: 'В избрани райони наблизо' })
   }
   options.push({
     id: 'settlement',
-    label: place.townName ? `В ${place.townName}` : 'В населеното място',
+    label: place.townName ? inPlace(place.townName, true) : 'В населеното място',
   })
   options.push({
     id: 'municipality',
@@ -516,7 +525,7 @@ export function radiusOptions(place: HomePlace | null): { id: Radius; label: str
   })
   options.push({
     id: 'region',
-    label: place.regionName.includes('София') ? `В ${place.regionName}` : `В област ${place.regionName}`,
+    label: place.regionName.includes('София') ? inPlace(place.regionName, true) : `В област ${place.regionName}`,
   })
   options.push({ id: 'distant', label: 'И в други области' })
   return options

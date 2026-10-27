@@ -22,7 +22,8 @@ export function StaffNote() {
           onChange={(event) => updateProfile({ notes: event.target.value })}
         />
       </label>
-      <label className="flex items-start gap-3 leading-7">
+      {/* Its own box, so the checkbox never reads as the note's text (the note is the field above). */}
+      <label className="flex items-start gap-3 rounded-2xl border border-[#ddd] bg-white px-4 py-3 leading-7">
         <input
           type="checkbox"
           className="mt-1"
@@ -39,7 +40,7 @@ export function StaffNote() {
             }
           }}
         />
-        <span>Поискай обаждане от екипа{profile.phone ? ` на ${profile.phone}` : ''}.</span>
+        <span>Искам екипът да ми се обади{profile.phone ? ` на ${profile.phone}` : ''}.</span>
       </label>
       {asking ? (
         <label className="grid gap-1 text-sm font-semibold">

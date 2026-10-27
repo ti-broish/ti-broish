@@ -47,5 +47,5 @@ test('the top nav matches the short menu and the footer links to contact', async
   await expect(page.getByRole('heading', { name: 'Няма такава страница' })).toBeVisible()
   await expect(page.getByText('Not Found')).toHaveCount(0)
   await page.getByRole('link', { name: 'Към началото' }).click()
-  await expect(page.getByRole('heading', { name: 'Президентски избори 25.10.2026' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Президентски избори 2026' })).toBeVisible()
 })

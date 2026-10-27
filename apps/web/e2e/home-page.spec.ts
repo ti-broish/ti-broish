@@ -14,5 +14,5 @@ test('the logo inside the app leads to the home map', async ({ page }) => {
   await page.goto('/faq')
   await page.locator('.site-header-inner a').first().click()
   await expect(page).toHaveURL('/')
-  await expect(page.getByRole('heading', { name: 'Президентски избори 25.10.2026' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Президентски избори 2026' })).toBeVisible()
 })

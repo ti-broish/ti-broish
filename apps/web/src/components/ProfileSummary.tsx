@@ -1,11 +1,11 @@
-import { EXPERIENCE, placeLabel, radiusOptions, roleLabel, scopeForRadius, type Companion, type Profile } from '../signup/model'
+import { EXPERIENCE, placeLabel, radiusOptions, roleTitle, scopeForRadius, type Companion, type Profile } from '../signup/model'
 
 export function profileFacts(profile: Profile): { label: string; value: string }[] {
   return [
     { label: 'Име', value: fullName(profile) },
     { label: 'Имейл', value: profile.email.trim() || 'Липсва' },
     { label: 'Телефон', value: profile.phone.trim() || 'Липсва' },
-    { label: 'Роля', value: profile.role ? roleLabel(profile.role, profile.mobileTeam) : 'Още не е избрана' },
+    { label: 'Роля', value: roleTitle(profile.role, profile.mobileTeam) },
     { label: 'Дни', value: daysValue(profile) },
     { label: 'Желано място', value: preferredPlace(profile) },
     { label: 'Пътуване', value: travelValue(profile) },

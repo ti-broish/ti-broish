@@ -7,6 +7,7 @@ import { normalizeCallRequest, signupGap, type Profile } from './model'
 import { companionsForSignup, syncCompanions } from './companion-lifecycle'
 import { deliverMail, isDevMailHost } from './mail'
 import { egnAgeProblem, egnProblem, signupColumns } from './record'
+import { EGN_IN_USE_MESSAGE, egnDigits, egnNeedsCheck, egnUsedElsewhere } from './egn-in-use'
 import { receiptClaimed, signupReceiptMail } from './receipt'
 import { sessionCookieSecure } from './session-cookie'
 import { SELF_WITHDRAW_REASON } from './admin-unregister'
@@ -146,6 +147,20 @@ export const saveSignup = createServerFn({ method: 'POST' })
         : null
       const ageProblem = egnAgeProblem(data.egn, stored?.egn)
       if (ageProblem) return { ok: false as const, message: ageProblem }
+    }
+    // One active signup per ЕГН (egn-in-use.ts). Only a new or changed ЕГН is checked.
+    if (egnDigits(data.egn)) {
+      const stored = existing
+        ? await db.prepare(`SELECT COALESCE(egn, '') AS egn FROM signups WHERE id = ?`).bind(existing.id).first<{ egn: string }>()
+        : null
+      if (egnNeedsCheck(data.egn, stored?.egn) && (await egnUsedElsewhere(db, data.egn, existing?.id ?? null))) {
+        // A browser without a session (decision 'new') never reaches the ЕГН step; its ЕГН is dropped
+        // quietly so the answer does not tell a stranger which ЕГН are already registered.
+        if (!existing) {
+          data = { ...data, egn: '' }
+          columns = signupColumns(data)
+        } else return { ok: false as const, reason: 'egn-taken' as const, message: EGN_IN_USE_MESSAGE }
+      }
     }
     const id = existing?.id ?? crypto.randomUUID()
     const token = existing?.session_token ?? crypto.randomUUID()
@@ -415,6 +430,18 @@ export const reportCantReach = createServerFn({ method: 'POST' })
       callRequestedAt: saved.callRequestedAt,
       cantReachSection: saved.cantReachSection,
     }
+  })
+
+/** The ЕГН step's check before „Напред“: signed-in sessions only, and only a yes/no answer. */
+export const egnInUse = createServerFn({ method: 'POST' })
+  .validator((input: { egn: string }) => ({ egn: egnDigits(String(input?.egn ?? '')).slice(0, 10) }))
+  .handler(async ({ data }) => {
+    const db = await signupDatabase()
+    const cookie = getCookie(SESSION_COOKIE)
+    if (!db || !cookie || data.egn.length !== 10) return { taken: false as const }
+    const own = await db.prepare('SELECT id, COALESCE(egn, \'\') AS egn FROM signups WHERE session_token = ?').bind(cookie).first<{ id: string; egn: string }>()
+    if (!own || !egnNeedsCheck(data.egn, own.egn)) return { taken: false as const }
+    return (await egnUsedElsewhere(db, data.egn, own.id)) ? { taken: true as const, message: EGN_IN_USE_MESSAGE } : { taken: false as const }
   })
 
 export const loadSignup = createServerFn({ method: 'GET' }).handler(async () => {

@@ -1,4 +1,6 @@
-import { EXPERIENCE, placeLabel, radiusOptions, roleLabel, type Profile } from './model'
+import { signupScope, volunteerNotice } from './copy'
+import { ELECTION_LABEL, RUNOFF_LABEL, firstRoundPassed } from './election'
+import { EXPERIENCE, placeLabel, radiusOptions, roleTitle, type Profile } from './model'
 
 /** D1's meta.changes includes the signup search trigger, so a claimed row is any positive count. */
 export function receiptClaimed(changes: number | null) {
@@ -14,7 +16,7 @@ export function signupReceiptMail(profile: Profile, profileUrl: string) {
   const lines = [
     name ? `Име: ${name}` : '',
     profile.phone.trim() ? `Телефон: ${profile.phone.trim()}` : '',
-    `Роля: ${roleLabel(profile.role, profile.mobileTeam)}`,
+    `Роля: ${roleTitle(profile.role, profile.mobileTeam)}`,
     days.length > 0 ? `Дни: ${days.join(' и ')}` : '',
     experience ? `Опит: ${experience}` : '',
     profile.place ? `Място: ${placeLabel(profile.place)}` : '',
@@ -30,8 +32,8 @@ export function signupReceiptMail(profile: Profile, profileUrl: string) {
     ...lines,
     'Секцията още не е определена. Ще я видиш в профила, когато я публикуваме.',
     `Отвори профила: ${profileUrl}`,
-    'Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември.',
-    'Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.',
+    signupScope(firstRoundPassed(), ELECTION_LABEL, RUNOFF_LABEL),
+    volunteerNotice,
   ].join('\n\n')
   const href = escapeHtml(profileUrl)
   const html = [
@@ -40,8 +42,8 @@ export function signupReceiptMail(profile: Profile, profileUrl: string) {
     ...lines.map((line) => `<p>${escapeHtml(line)}</p>`),
     '<p>Секцията още не е определена. Ще я видиш в профила, когато я публикуваме.</p>',
     `<p><a href="${href}">Отвори профила</a></p>`,
-    '<p>Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември.</p>',
-    '<p>Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.</p>',
+    `<p>${escapeHtml(signupScope(firstRoundPassed(), ELECTION_LABEL, RUNOFF_LABEL))}</p>`,
+    `<p>${escapeHtml(volunteerNotice)}</p>`,
   ].join('')
   return {
     to: profile.email.trim(),

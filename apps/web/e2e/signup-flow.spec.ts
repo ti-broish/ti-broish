@@ -44,7 +44,27 @@ test('latin names are rejected on the first screen', async ({ page }) => {
   await page.getByLabel('Имейл').fill('ivan@example.com')
   await page.getByLabel('Телефон').fill('0888123456')
   await page.getByRole('button', { name: 'Изпрати код за потвърждение' }).click()
-  await expect(page.getByText('Трите имена са на кирилица.')).toBeVisible()
+  await expect(page.getByText('Имената трябва да са на кирилица.')).toHaveCount(3)
+  await expect(page.getByLabel('Име', { exact: true })).toHaveAttribute('aria-invalid', 'true')
+  await expect(page.getByLabel('Име', { exact: true })).toHaveAttribute('aria-required', 'true')
+})
+
+test('each contact field says what is missing and clears once it is fixed', async ({ page }) => {
+  await page.goto('/signup?step=contact')
+  await expect(page.getByText('Всички полета са задължителни')).toBeVisible()
+  await page.getByLabel('Име', { exact: true }).fill('Иван')
+  await page.getByLabel('Фамилия').fill('Иванов')
+  await page.getByLabel('Имейл').fill('ivan@example')
+  await page.getByLabel('Телефон').fill('0888123456')
+  await page.getByRole('button', { name: 'Изпрати код за потвърждение' }).click()
+  await expect(page.getByText('Въведи презиме.')).toBeVisible()
+  await expect(page.getByText(/Провери имейла/)).toBeVisible()
+  await expect(page.getByText('Въведи име.')).toHaveCount(0)
+  await page.getByLabel('Презиме').fill('Петров')
+  await expect(page.getByText('Въведи презиме.')).toHaveCount(0)
+  await expect(page.getByLabel('Презиме')).toHaveAttribute('aria-invalid', 'false')
+  await page.getByLabel('Имейл').fill('ivan@example.com')
+  await expect(page.getByText(/Провери имейла/)).toHaveCount(0)
 })
 
 // Separate contexts. The first visit autosaves a session; a second seed in the
@@ -345,7 +365,7 @@ test('cannot reach the assigned section appends to an open call request', async 
   await expect(page.getByLabel('За какво е обаждането')).toHaveValue(
     'За секцията · Не мога да стигна до секция 234600101: Няма транспорт',
   )
-  await expect(page.getByRole('checkbox', { name: /Поискай обаждане/ })).toBeChecked()
+  await expect(page.getByRole('checkbox', { name: /Искам екипът да ми се обади/ })).toBeChecked()
 })
 
 test('withdrawing a signup can be undone from the profile', async ({ page }) => {

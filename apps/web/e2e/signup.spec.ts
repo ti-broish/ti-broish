@@ -5,7 +5,7 @@ import type { HomePlace, Profile } from '../src/signup/model'
 test('a partner link is shown and stored as a source', async ({ page }) => {
   await page.goto('/signup?source=iaz.bg&step=contact')
   await expect(page.getByText('Гюров, Кандев и аз')).toBeVisible()
-  await expect(page.getByText('президентските избори 2026 г.')).toBeVisible()
+  await expect(page.getByText(/Записването е за (балотажа на )?президентските избори/)).toBeVisible()
   await page.getByLabel('Име', { exact: true }).fill('Иван')
   await page.getByLabel('Презиме').fill('Иванов')
   await page.getByLabel('Фамилия').fill('Иванов')
@@ -63,7 +63,7 @@ test('a partner ref is shown and stored as a source', async ({ page }) => {
 test('a valid personal number reaches how you guard the vote', async ({ page }) => {
   await page.goto('/signup?source=iaz.bg&step=contact')
   await expect(page.getByText('Гюров, Кандев и аз')).toBeVisible()
-  await expect(page.getByText('президентските избори 2026 г.')).toBeVisible()
+  await expect(page.getByText(/Записването е за (балотажа на )?президентските избори/)).toBeVisible()
   await page.getByLabel('Име', { exact: true }).fill('Иван')
   await page.getByLabel('Презиме').fill('Иванов')
   await page.getByLabel('Фамилия').fill('Иванов')
@@ -71,7 +71,8 @@ test('a valid personal number reaches how you guard the vote', async ({ page }) 
   await page.getByLabel('Телефон').fill('0888123456')
   await page.getByRole('button', { name: 'Изпрати код за потвърждение' }).click()
   await page.getByRole('button', { name: 'Продължи с този код' }).click()
-  await page.getByLabel('ЕГН').fill('0041010002')
+  // An ЕГН no other e2e signup holds: one active signup per ЕГН (egn-in-use.ts).
+  await page.getByLabel('ЕГН').fill('0041010717')
   await page.getByRole('button', { name: 'Напред' }).click()
   await expect(page.getByRole('heading', { name: 'Как ще пазиш вота' })).toBeVisible()
   await expect(page.getByRole('button', { name: /Секция с гласуване на хартия/ })).toBeVisible()

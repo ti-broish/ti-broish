@@ -56,6 +56,26 @@ test.describe('a typed e-mail never takes over someone else’s record', () => {
     expect(await sessionCookie(page.context())).not.toBe(STAFF.session)
   })
 
+  test('the „Влязъл си като“ prompt saves nothing, so one click on „Запиши друг човек“ signs out', async ({ page }) => {
+    await signIn(page, STAFF.session)
+    const saves: string[] = []
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && isServerFn(request.url(), 'saveSignup')) saves.push(request.url())
+    })
+    await page.goto('/signup?step=contact')
+    await expect(page.getByRole('heading', { name: `Влязъл си като ${STAFF.email}` })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText('Какво искаш да направиш?')).toBeVisible()
+    await expect(page.getByText(/излиза от профила ти/)).toBeVisible()
+    // The old autosave fired 600 ms after the load, and its answer set tb_session back after the sign-out.
+    await page.waitForTimeout(1500)
+    expect(saves).toEqual([])
+    await page.getByRole('button', { name: 'Запиши друг човек' }).click()
+    await expect(page.getByRole('heading', { name: 'Как да се свържем с теб' })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('heading', { name: /Влязъл си като/ })).toHaveCount(0)
+    await expect(page.getByLabel('Име', { exact: true })).toHaveValue('')
+    expect(await sessionCookie(page.context())).toBe('')
+  })
+
   test('another e-mail typed in a signed-in browser is refused, not swapped for the session’s', async ({ page }) => {
     await signIn(page, STAFF.session)
     await seedProfile(page, { firstName: 'Иво', middleName: 'Петров', lastName: 'Петров', email: OTHER_EMAIL, phone: '0888111222', emailConfirmed: true })
@@ -95,6 +115,12 @@ function names(id: string) {
 async function sessionCookie(context: BrowserContext) {
   const cookie = (await context.cookies(BASE)).find((item) => item.name === 'tb_session')
   return cookie?.value ?? ''
+}
+
+function isServerFn(url: string, name: string) {
+  const match = url.match(/\/_serverFn\/([^/?]+)/)
+  if (!match) return false
+  return Buffer.from(match[1]!.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8').includes(`"export":"${name}`)
 }
 
 /** Resolves when a call to the server function `name` (e.g. saveSignup) has answered. */

@@ -136,6 +136,23 @@ export const mapNodesType = (nodesType: string | undefined) => {
   }
 }
 
+/**
+ * The election's own name, from the API (e.g. „Президентски избори 25.10.2026“), shown site-wide
+ * with the year only: „Президентски избори 2026“, since the same pages now cover the runoff too.
+ */
+export function electionLabel(name: string) {
+  return name.replace(/\s*\b\d{1,2}\.\d{1,2}\.(\d{4})(\s*г\.)?\s*$/u, ' $1').trim()
+}
+
+/** The API's unit with the election's name (the country unit and the first crumb) as electionLabel. */
+export function withElectionLabel<T extends { type: string; name: string; crumbs?: Crumb[] }>(unit: T): T {
+  return {
+    ...unit,
+    name: unit.type === 'election' ? electionLabel(unit.name) : unit.name,
+    ...(unit.crumbs ? { crumbs: unit.crumbs.map((crumb) => (crumb.type === 'election' ? { ...crumb, name: electionLabel(crumb.name) } : crumb)) } : {}),
+  }
+}
+
 /** The unit's heading, as the results site writes it. */
 export function unitTitle(data: Pick<ResultsUnit, 'type' | 'id' | 'name'>) {
   return data.type === 'electionRegion' ? `${data.id}. ${data.name}` : `${mapNodeType(data.type)} ${data.name}`

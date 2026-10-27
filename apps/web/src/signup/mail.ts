@@ -1,5 +1,7 @@
 import { getRequestHost } from '@tanstack/react-start/server'
 import { env } from 'cloudflare:workers'
+import { signupScope, volunteerNotice } from './copy'
+import { ELECTION_LABEL, RUNOFF_LABEL, firstRoundPassed } from './election'
 
 const FROM = { email: 'noreply@tibroish.bg', name: 'Ти Броиш' }
 
@@ -10,19 +12,36 @@ export interface OutboundMail {
   html: string
 }
 
-export function confirmCodeMail(email: string, code: string): OutboundMail {
+/** The scope line every volunteer letter carries: the runoff alone once the first round is over. */
+function scopeLine(now = new Date()) {
+  return signupScope(firstRoundPassed(now), ELECTION_LABEL, RUNOFF_LABEL)
+}
+
+export function confirmCodeMail(email: string, code: string, now = new Date()): OutboundMail {
   const text = [
     'Здравей,',
-    `Кодът за потвърждение е ${code}.`,
-    'Въведи го в записването, за да продължиш.',
-    'Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември.',
-    'Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.',
+    'Твоят код за потвърждение е:',
+    code,
+    'Въведи го в Ти Броиш, за да продължиш. Кодът важи, докато не поискаш нов.',
+    scopeLine(now),
+    volunteerNotice,
+    'Ако не си ти, просто игнорирай това писмо.',
+    'Екипът на Ти Броиш',
   ].join('\n\n')
   return {
     to: email,
     subject: 'Код за потвърждение — Ти Броиш',
     text,
-    html: `<p>Здравей,</p><p>Кодът за потвърждение е <strong>${escapeHtml(code)}</strong>.</p><p>Въведи го в записването, за да продължиш.</p><p>Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември.</p><p>Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.</p>`,
+    html: [
+      '<p>Здравей,</p>',
+      '<p>Твоят код за потвърждение е:</p>',
+      `<p style="font-size:32px;font-weight:bold;letter-spacing:6px;font-family:monospace;margin:16px 0">${escapeHtml(code)}</p>`,
+      '<p>Въведи го в Ти Броиш, за да продължиш. Кодът важи, докато не поискаш нов.</p>',
+      `<p>${escapeHtml(scopeLine(now))}</p>`,
+      `<p>${escapeHtml(volunteerNotice)}</p>`,
+      '<p>Ако не си ти, просто игнорирай това писмо.</p>',
+      '<p>Екипът на Ти Броиш</p>',
+    ].join(''),
   }
 }
 
@@ -47,15 +66,15 @@ export function importConfirmMail(email: string, link: string): OutboundMail {
     'Здравей,',
     'Екипът те записа като пазител на вота.',
     `Отвори линка, за да потвърдиш имейла или да промениш данните: ${link}`,
-    'Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември.',
-    'Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.',
+    scopeLine(),
+    volunteerNotice,
   ].join('\n\n')
   const href = escapeHtml(link)
   return {
     to: email,
     subject: 'Потвърди данните си — Ти Броиш',
     text,
-    html: `<p>Здравей,</p><p>Екипът те записа като пазител на вота.</p><p><a href="${href}">Потвърди имейла или промени данните</a></p><p>Ако линкът не се отваря, копирай този адрес:<br>${href}</p><p>Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември.</p><p>Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.</p>`,
+    html: `<p>Здравей,</p><p>Екипът те записа като пазител на вота.</p><p><a href="${href}">Потвърди имейла или промени данните</a></p><p>Ако линкът не се отваря, копирай този адрес:<br>${href}</p><p>${escapeHtml(scopeLine())}</p><p>${escapeHtml(volunteerNotice)}</p>`,
   }
 }
 
@@ -64,15 +83,15 @@ export function companionConfirmMail(email: string, link: string): OutboundMail 
     'Здравей,',
     'Поканиха те в група в Ти Броиш.',
     `Отвори линка, за да потвърдиш, че си в групата: ${link}`,
-    'Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември.',
-    'Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.',
+    scopeLine(),
+    volunteerNotice,
   ].join('\n\n')
   const href = escapeHtml(link)
   return {
     to: email,
     subject: 'Потвърди, че си в групата — Ти Броиш',
     text,
-    html: `<p>Здравей,</p><p>Поканиха те в група в Ти Броиш.</p><p><a href="${href}">Потвърди, че си в групата</a></p><p>Ако линкът не се отваря, копирай този адрес:<br>${href}</p><p>Записването е за президентските избори 2026 г. на 25 октомври и 1 ноември.</p><p>Това е доброволна дейност без заплащане. Ще бъдете представител на Инициативния комитет за кандидат-президентската двойка Андрей Гюров и Георги Кандев.</p>`,
+    html: `<p>Здравей,</p><p>Поканиха те в група в Ти Броиш.</p><p><a href="${href}">Потвърди, че си в групата</a></p><p>Ако линкът не се отваря, копирай този адрес:<br>${href}</p><p>${escapeHtml(scopeLine())}</p><p>${escapeHtml(volunteerNotice)}</p>`,
   }
 }
 

@@ -1,7 +1,7 @@
 // Results units, the election meta and one published signal, fetched by the worker from api.tibroish.bg
 // (d1tapi.tibroish.bg on staging, src/signup/api-base.ts) and cached per colo like /api/violations.
 import { UPSTREAM, cachedSnapshot } from './violations.server'
-import { validUnit, type ElectionMeta, type PublicViolation, type ResultsUnit } from './results'
+import { electionLabel, validUnit, withElectionLabel, type ElectionMeta, type PublicViolation, type ResultsUnit } from './results'
 import { validAfter } from './violations'
 
 type Fetcher = (url: string) => Promise<Response>
@@ -37,13 +37,13 @@ export async function loadUnit(unit: string, waitUntil: WaitUntil, fetcher: Fetc
   if (!validUnit(unit) || unit === 'meta') return null
   const path = `/results/${unit}.json`
   const loaded = await cachedSnapshot(cacheKey(path), () => getJson<ResultsUnit>(fetcher, path), waitUntil)
-  return loaded.data
+  return loaded.data ? withElectionLabel(loaded.data) : null
 }
 
 export async function loadMeta(waitUntil: WaitUntil, fetcher: Fetcher = defaultFetcher): Promise<ElectionMeta | null> {
   const path = '/results/meta.json'
   const loaded = await cachedSnapshot(cacheKey(path), () => getJson<ElectionMeta>(fetcher, path), waitUntil)
-  return loaded.data
+  return loaded.data ? { ...loaded.data, name: electionLabel(loaded.data.name) } : null
 }
 
 /** Only the fields the public signal page shows; never the description or contact details. */

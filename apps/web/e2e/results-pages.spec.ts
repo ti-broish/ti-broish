@@ -33,7 +33,7 @@ const signals = [item('01KAAAAAAAAAAAAAAAAAAAAAA1', '03', 'Сигнал от В�
 test('the home page has the map, the regions and the feed, and the signal link keeps the partner', async ({ page }) => {
   await mockFeed(page, signals)
   await page.goto('/?origin=iaz')
-  await expect(page.getByRole('heading', { name: 'Президентски избори 25.10.2026' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Президентски избори 2026' })).toBeVisible()
   await expect(page.locator('svg#bulgaria-map path')).toHaveCount(32)
   await expect(page.getByRole('button', { name: 'Сигнали', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('heading', { name: 'Избирателни райони' })).toBeVisible()
@@ -65,7 +65,7 @@ test('a region on the map opens its page, with breadcrumbs down to a section', a
   await expect(page).toHaveURL('/030600001')
   await expect(page.getByRole('heading', { name: 'Секция 030600001' })).toBeVisible()
   const crumbs = page.getByRole('navigation', { name: 'Навигация' })
-  await expect(crumbs.getByRole('link', { name: 'Президентски избори 25.10.2026' })).toHaveAttribute('href', '/')
+  await expect(crumbs.getByRole('link', { name: 'Президентски избори 2026' })).toHaveAttribute('href', '/')
   await expect(crumbs.getByRole('link', { name: 'Варна' }).first()).toHaveAttribute('href', '/03')
   await expect(page.getByRole('heading', { name: 'Местоположение' })).toBeVisible()
   await expect(page.getByText('Висок')).toBeVisible()

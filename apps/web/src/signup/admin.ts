@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { egnUsedElsewhere } from './egn-in-use'
 import { SECTION_STATE_SQL, isSectionState, sectionCountsFrom, sectionCountsSql, type SectionState } from './section-state'
 import { getCookie, getRequestUrl, setCookie } from '@tanstack/react-start/server'
 import { brevoSectionsCsv, campaignCsv, distributionWhere, exportWithdrawnGuard, internalCsv, mirFromSection, normalizeSection, OPEN_CALL_SQL, parsePeopleCsv, rosterWhere, type BrevoSectionFields, type RosterFields, type RosterView } from './admin-csv'
@@ -1388,7 +1389,8 @@ export const adminPerson = createServerFn({ method: 'POST' })
     if (!row) return { ok: false as const, message: 'Няма такъв човек.' }
     try {
       const previousSection = row.withdrawn === 1 ? await previousSectionFromAudit(access.db, row.id) : ''
-      return { ok: true as const, person: openedPerson(row, previousSection), changes: await loadAudit(access.db, row.id) }
+      const egnShared = row.egn ? await egnUsedElsewhere(access.db, row.egn, row.id) : false
+      return { ok: true as const, person: { ...openedPerson(row, previousSection), egnShared }, changes: await loadAudit(access.db, row.id) }
     } catch {
       return { ok: false as const, message: 'Този запис не се чете.' }
     }

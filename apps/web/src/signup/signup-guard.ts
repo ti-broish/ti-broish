@@ -31,7 +31,7 @@ export function sessionEmailMessage(sessionEmail: string) {
   return `Този браузър е влязъл като ${sessionEmail}. За друг човек избери „Запиши друг човек“ в началото на записването.`
 }
 
-export type SaveRefusal = 'signin' | 'pending-letter' | 'other-record' | 'session-email'
+export type SaveRefusal = 'signin' | 'pending-letter' | 'other-record' | 'session-email' | 'awaiting-code'
 
 export type SaveDecision =
   | { kind: 'refuse'; reason: SaveRefusal; message: string }
@@ -59,6 +59,9 @@ export function saveDecision(typedEmail: string, bySession: SessionRow | null, b
   }
   if (byEmail) {
     if (byEmail.imported && !byEmail.email_confirmed) return { kind: 'refuse', reason: 'pending-letter', message: PENDING_LETTER_MESSAGE }
+    // The row requestEmailCode made a moment ago for this very form: the person is on their way to the
+    // code step, so nothing is saved yet and nothing is shown (the code puts this row's session here).
+    if (!byEmail.imported && !byEmail.email_confirmed) return { kind: 'refuse', reason: 'awaiting-code', message: '' }
     return { kind: 'refuse', reason: 'signin', message: SIGN_IN_MESSAGE }
   }
   return { kind: 'new' }

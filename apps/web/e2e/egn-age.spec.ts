@@ -75,8 +75,10 @@ test.describe('18 years on election day', () => {
 
   test('an existing record with an under-18 ЕГН still saves, but cannot switch to another one', async ({ page }) => {
     await page.context().addCookies([{ name: 'tb_session', value: OLD.session, url: 'http://127.0.0.1:3000', httpOnly: true, sameSite: 'Lax' }])
-    const saved = savedWith(page, 'saveSignup')
     await page.goto('/signup?step=review')
+    // The „Влязъл си като“ prompt saves nothing; going on with the own record does.
+    const saved = savedWith(page, 'saveSignup')
+    await page.getByRole('button', { name: 'Продължи своето записване' }).click({ timeout: 30_000 })
     const first = await saved
     expect(await first.text()).not.toContain(UNDERAGE)
     const request = first.request()

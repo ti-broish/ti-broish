@@ -52,7 +52,7 @@ import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './
 type Database = SignupD1
 export type DesignationDenial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
 
-interface ListedPerson {
+export interface ListedPerson {
   designationMir?: string
   assignedSection?: string
   id: string
@@ -387,8 +387,28 @@ export async function handleDesignationNumber() {
     ...(await listPartnerPeople(access.db)),
   ]
   const noMir = sectionless.filter((row) => !row.mir).length
-  const issuedOn = todayInSofia()
-  const now = new Date().toISOString()
+  const result = await numberListed(access.db, listed, access.email)
+  return {
+    ok: true as const,
+    assigned: result.assigned,
+    skippedDuplicates: result.skippedDuplicates,
+    skippedCovered: result.skippedCovered,
+    updated: result.assigned + result.datesFilled,
+    noMir,
+    message: numberingMessage(result.assigned, result.skippedDuplicates, result.skippedCovered, noMir),
+  }
+}
+
+export type NumberingResult = { assigned: number; skippedDuplicates: number; skippedCovered: number; datesFilled: number; assignedIds: string[] }
+
+/**
+ * Number everyone in `listed` who has none yet (per-МИР MAX+1 from 501, inside each UPDATE), with
+ * the one-ЕГН-one-пълномощно guard and one audit line each, and fill missing issue dates. Shared by
+ * „Номерирай“ and the published-section pipeline. Safe to run twice: numbered rows are skipped.
+ */
+export async function numberListed(db: Database, listed: ListedPerson[], actor: string, now = new Date()): Promise<NumberingResult> {
+  const issuedOn = todayInSofia(now)
+  const stamp = now.toISOString()
   const ordered = [...listed].sort((a, b) => {
     const section = a.section.localeCompare(b.section)
     if (section) return section
@@ -396,7 +416,6 @@ export async function handleDesignationNumber() {
     if (created) return created
     return a.id.localeCompare(b.id)
   })
-  // Per-МИР MAX+1 from 501 inside each UPDATE, so concurrent runs cannot collide.
   const unnumbered = ordered.filter((row) => row.number == null && designationMirOf(row.section))
   // One person, one пълномощно: an ЕГН that already holds a number (either table), or that came up
   // earlier in this run (volunteers first), is skipped. The UPDATEs check the same, so parallel runs are safe.
@@ -408,62 +427,71 @@ export async function handleDesignationNumber() {
       covered: row.covered,
       withdrawn: Boolean(row.withdrawnAt),
     })),
-    await loadHolders(access.db),
+    unnumbered.length > 0 ? await loadHolders(db) : [],
   )
   const toAssign = unnumbered.filter((row) => guard.allowed.has(row.id))
   // Partner people share the counter (PARTNER_DESIGNATION_ASSIGN_SQL), so numbers never collide.
   // Each UPDATE is followed by its audit line, written only when that UPDATE numbered the row.
   const assignStatements = toAssign.flatMap((row) => [
-    access.db
-      .prepare(row.partner ? PARTNER_DESIGNATION_ASSIGN_SQL : DESIGNATION_ASSIGN_SQL)
-      .bind(designationMirOf(row.section), issuedOn, now, row.id),
-    access.db
-      .prepare(designationNumberAuditSql(row.partner ? 'partner_people' : 'signups'))
-      .bind(crypto.randomUUID(), access.email, now, row.id),
+    db.prepare(row.partner ? PARTNER_DESIGNATION_ASSIGN_SQL : DESIGNATION_ASSIGN_SQL).bind(designationMirOf(row.section), issuedOn, stamp, row.id),
+    db.prepare(designationNumberAuditSql(row.partner ? 'partner_people' : 'signups')).bind(crypto.randomUUID(), actor, stamp, row.id),
   ])
   const dateStatements = ordered
     .filter((row) => row.number != null && !row.issuedAt)
     .map((row) =>
-      access.db
-        .prepare(
-          `UPDATE ${row.partner ? 'partner_people' : 'signups'} SET designation_issued_at = ?, updated_at = ? WHERE id = ? AND designation_issued_at IS NULL`,
-        )
-        .bind(issuedOn, now, row.id),
+      db
+        .prepare(`UPDATE ${row.partner ? 'partner_people' : 'signups'} SET designation_issued_at = ?, updated_at = ? WHERE id = ? AND designation_issued_at IS NULL`)
+        .bind(issuedOn, stamp, row.id),
     )
-  await runSqlBatches(access.db, [...assignStatements, ...dateStatements])
+  await runSqlBatches(db, [...assignStatements, ...dateStatements])
   // Count what really got a number: a parallel run may have taken an ЕГН in between.
-  const after = toAssign.length
-    ? await countNumbered(access.db, toAssign.map((row) => row.id))
-    : 0
-  const assigned = after
-  const duplicates = guard.skipped.filter((row) => row.reason === 'duplicate').length + (toAssign.length - after)
-  const covered = guard.skipped.filter((row) => row.reason === 'covered').length
+  const assignedIds = toAssign.length ? await numberedIds(db, toAssign.map((row) => row.id)) : []
   return {
-    ok: true as const,
-    assigned,
-    skippedDuplicates: duplicates,
-    skippedCovered: covered,
-    updated: assigned + dateStatements.length,
-    noMir,
-    message: numberingMessage(assigned, duplicates, covered, noMir),
+    assigned: assignedIds.length,
+    skippedDuplicates: guard.skipped.filter((row) => row.reason === 'duplicate').length + (toAssign.length - assignedIds.length),
+    skippedCovered: guard.skipped.filter((row) => row.reason === 'covered').length,
+    datesFilled: dateStatements.length,
+    assignedIds,
   }
 }
 
-async function countNumbered(db: Database, ids: string[]) {
-  let total = 0
+/** Ids that hold a number now, from both tables. */
+async function numberedIds(db: Database, ids: string[]) {
+  const out: string[] = []
   for (let start = 0; start < ids.length; start += 50) {
     const part = ids.slice(start, start + 50)
     const marks = part.map(() => '?').join(', ')
-    const row = await db
+    const rows = await db
       .prepare(
-        `SELECT (SELECT COUNT(*) FROM signups WHERE id IN (${marks}) AND designation_number IS NOT NULL)
-              + (SELECT COUNT(*) FROM partner_people WHERE id IN (${marks}) AND designation_number IS NOT NULL) AS n`,
+        `SELECT id FROM signups WHERE id IN (${marks}) AND designation_number IS NOT NULL
+         UNION ALL SELECT id FROM partner_people WHERE id IN (${marks}) AND designation_number IS NOT NULL`,
       )
       .bind(...part, ...part)
-      .first<{ n: number }>()
-    total += Number(row?.n ?? 0)
+      .all<{ id: string }>()
+    out.push(...(rows.results ?? []).map((row) => row.id))
   }
-  return total
+  return out
+}
+
+/**
+ * People with a published section for the pipeline: active volunteers (published_section) and active
+ * „И аз“ (section_published), optionally only `ids`. Same row shape as „Номерирай“ reads.
+ */
+export async function listPublishedPeople(db: Database, ids: string[] | null): Promise<ListedPerson[]> {
+  const scoped = ids !== null
+  const json = JSON.stringify(ids ?? [])
+  if (scoped && ids!.length === 0) return []
+  const volunteers = await db
+    .prepare(`${LIST_SQL} AND COALESCE(published_section, '') != ''${scoped ? ' AND id IN (SELECT value FROM json_each(?))' : ''}`)
+    .bind(...(scoped ? [json] : []))
+    .all<RawListed>()
+  const partners = await db
+    .prepare(
+      `${PARTNER_LIST_SQL} WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL${scoped ? ' AND id IN (SELECT value FROM json_each(?))' : ''}`,
+    )
+    .bind(...(scoped ? [json] : []))
+    .all<RawListed>()
+  return [...(volunteers.results ?? []), ...(partners.results ?? [])].map(fromRaw)
 }
 
 export async function handleDesignationHealth() {

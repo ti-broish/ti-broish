@@ -11,6 +11,8 @@ import { isSectionHeldAbort } from './partner-people-sql'
 import { withPickedIds } from './section-state'
 import { describePublishPreview } from './publish-preview'
 import { previewPartnerPublish, publishPartnerDrafts } from './partner-publish'
+import { advanceAfterPublish } from './published-pipeline'
+import { describeAdvance } from './published-pipeline-sql'
 
 type Database = SignupD1
 type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | 'nodb'; email: string; message: string }
@@ -99,6 +101,7 @@ export const adminPublish = createServerFn({ method: 'POST' })
     ).all<{ id: string; email: string; mir: string; region: string; radius: string; distant_region_codes: string; travel_municipalities: string; draft_section: string } & DesignationColumns>()
     const now = new Date().toISOString()
     let published = 0
+    const publishedIds: string[] = []
     const blocked: Array<{ email: string; section: string; warning: string }> = []
     for (const row of rows.results ?? []) {
       const section = normalizeSection(row.draft_section)
@@ -118,14 +121,18 @@ export const adminPublish = createServerFn({ method: 'POST' })
         continue
       }
       published += 1
+      publishedIds.push(row.id)
     }
     // The whole view (not a row or the picked rows): „И аз“ partner drafts in the same scope go out too,
     // through the partner publish path (section_published + „И аз“ reservation; no email, no Brevo).
-    const partners = data.ids && data.ids.length > 0 ? { published: 0, blocked: [] } : await publishPartnerDrafts(db, { view: data.view, mir: data.mir }, now)
+    const partners = data.ids && data.ids.length > 0 ? { published: 0, ids: [] as string[], blocked: [] } : await publishPartnerDrafts(db, { view: data.view, mir: data.mir }, now)
+    // Everyone who just got a published section: numbered, into the signing queue, Brevo contact (volunteers). No mail.
+    const advance = await advanceAfterPublish(db, [...publishedIds, ...partners.ids], access.email)
     return {
       ok: true as const,
       published,
       blocked,
+      advance: describeAdvance(advance).trim(),
       partnersPublished: partners.published,
       partnersBlocked: partners.blocked.map((row) => ({ section: row.section, warning: row.reason })),
     }

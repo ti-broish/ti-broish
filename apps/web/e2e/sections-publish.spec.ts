@@ -3,8 +3,14 @@ import { expect, test } from '@playwright/test'
 
 const WEB_DIR = new URL('.', import.meta.url).pathname.replace(/e2e\/$/, '')
 const STAFF = { id: 'e2e-pub-staff', email: 'pub.staff-e2e@example.com', session: 'e2e-pub-staff-session' }
-const A = { id: 'e2e-pub-a', email: 'pub.a-e2e@example.com', section: '234600301' }
-const B = { id: 'e2e-pub-b', email: 'pub.b-e2e@example.com', section: '234600302' }
+// Synthetic ЕГН with a valid checksum, so numbering treats them as two different people.
+function egn(stem: string) {
+  const weights = [2, 4, 8, 5, 10, 9, 7, 3, 6]
+  const sum = [...stem].reduce((total, digit, index) => total + Number(digit) * weights[index]!, 0)
+  return `${stem}${(sum % 11) % 10}`
+}
+const A = { id: 'e2e-pub-a', email: 'pub.a-e2e@example.com', section: '234600301', egn: egn('790303301') }
+const B = { id: 'e2e-pub-b', email: 'pub.b-e2e@example.com', section: '234600302', egn: egn('790303302') }
 
 test.describe('Секции: three states, publish a row or the picked rows, unpublish (no email)', () => {
   test.beforeAll(async ({ browser }) => {
@@ -42,6 +48,14 @@ test.describe('Секции: three states, publish a row or the picked rows, unp
     }).toPass({ timeout: 40_000 })
     expect(d1(`SELECT published_section FROM signups WHERE id = '${A.id}'`)[0]).toMatchObject({ published_section: A.section })
     expect(d1(`SELECT published_section FROM signups WHERE id = '${B.id}'`)[0]).toMatchObject({ published_section: null })
+    // Published → numbered in the section's МИР and in „Само новите“ for signing; B (draft) is not.
+    expect(d1(`SELECT designation_mir, designation_number IS NOT NULL AS numbered, designation_signing_generated_at FROM signups WHERE id = '${A.id}'`)[0]).toMatchObject({
+      designation_mir: '23',
+      numbered: 1,
+      designation_signing_generated_at: null,
+    })
+    expect(d1(`SELECT designation_number FROM signups WHERE id = '${B.id}'`)[0]).toMatchObject({ designation_number: null })
+    await expect(page.getByText(/Напред: Номерирани 1;.*Без писма\./)).toBeVisible()
     await expect(page.getByTestId('state-published')).toContainText('(1)')
 
     await expect(async () => {
@@ -51,6 +65,7 @@ test.describe('Секции: three states, publish a row or the picked rows, unp
       await expect(page.getByTestId('state-draft')).toContainText('(0)', { timeout: 5_000 })
     }).toPass({ timeout: 40_000 })
     expect(d1(`SELECT published_section FROM signups WHERE id = '${B.id}'`)[0]).toMatchObject({ published_section: B.section })
+    expect(d1(`SELECT designation_number IS NOT NULL AS numbered FROM signups WHERE id = '${B.id}'`)[0]).toMatchObject({ numbered: 1 })
     await expect(page.getByTestId('state-draft')).toContainText('(0)')
 
     await page.getByTestId('state-published').click()
@@ -72,10 +87,10 @@ test.describe('Секции: three states, publish a row or the picked rows, unp
 })
 
 function seed() {
-  const person = (p: { id: string; email: string; section: string }, n: number) => `(
+  const person = (p: { id: string; email: string; section: string; egn: string }, n: number) => `(
   '${p.id}', '${p.email}', NULL, 'e2epub${n}',
   '{"firstName":"Публ${n}","lastName":"Тестов","email":"${p.email}","role":"section","rounds":{"first":true,"runoff":true}}',
-  1, 0, 1, '', 'section', '23', '23', 'гр. София', 'ул. Публикуване ${n}', '${p.section}', NULL, 0, '', 1, 1, 'cityRegion', datetime('now'), datetime('now'))`
+  1, 0, 1, '${p.egn}', 'section', '23', '23', 'гр. София', 'ул. Публикуване ${n}', '${p.section}', NULL, 0, '', 1, 1, 'cityRegion', datetime('now'), datetime('now'))`
   d1(`DELETE FROM signup_audit WHERE signup_id IN ('${A.id}', '${B.id}');
 DELETE FROM signups WHERE id IN ('${STAFF.id}', '${A.id}', '${B.id}');
 UPDATE signups SET draft_section = NULL WHERE draft_section IN ('${A.section}', '${B.section}') OR published_section IN ('${A.section}', '${B.section}');

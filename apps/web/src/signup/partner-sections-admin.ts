@@ -5,6 +5,8 @@ import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { fetchApiJson } from './distribute-plan'
 import { isSectionHeldAbort } from './partner-people-sql'
 import { describePartnerPublish, partnerHolderOf, publishPartnerDrafts } from './partner-publish'
+import { advanceAfterPublish } from './published-pipeline'
+import { describeAdvance } from './published-pipeline-sql'
 import { designationMirMessage, designationMirMismatch } from './designation-mir-guard'
 import {
   PARTNER_ALSO_VOLUNTEER_SQL,
@@ -219,11 +221,13 @@ export const adminPartnerPublish = createServerFn({ method: 'POST' })
     if (!access.ok) return access
     const db = access.db
     const result = await publishPartnerDrafts(db, { ids: data.ids })
+    // Numbered in the section's МИР and into the signing queue. Never our Brevo, never mail.
+    const advance = await advanceAfterPublish(db, result.ids, access.email)
     return {
       ok: true as const,
       published: result.published,
       blocked: result.blocked,
-      message: describePartnerPublish(result),
+      message: `${describePartnerPublish(result)}${describeAdvance(advance)}`,
     }
   })
 

@@ -49,6 +49,8 @@ import { COVERED_LABEL, WITHDRAWN_PARTNER_LABEL, duplicateBadge } from '../../si
 import { PartnerImportPanel } from './-partner-import-panel'
 import { PersonName } from './-person-name'
 import { SignedWavesPanel } from './-signed-waves-panel'
+import { adminAdvancePublished, adminPipelineCounts } from '../../signup/published-pipeline-admin'
+import type { PipelineCounts } from '../../signup/published-pipeline-sql'
 
 export const Route = createFileRoute('/admin/palnomoshtni')({
   component: PalnomoshtniPage,
@@ -88,6 +90,7 @@ function PalnomoshtniPage() {
   const [retrying, setRetrying] = useState<string[]>([])
   const [volunteersNoMir, setVolunteersNoMir] = useState<Array<{ id: string; name: string; reason: string }>>([])
   const [volunteersAwaitingMir, setVolunteersAwaitingMir] = useState(0)
+  const [pipeline, setPipeline] = useState<PipelineCounts | null>(null)
 
   const reload = useCallback(() => {
     void adminDesignationStatus({ data: { mir, q } }).then((result) => {
@@ -106,6 +109,7 @@ function PalnomoshtniPage() {
       setVolunteersNoMir('volunteersNoMir' in result && result.volunteersNoMir ? result.volunteersNoMir : [])
       setVolunteersAwaitingMir('volunteersAwaitingMir' in result ? Number(result.volunteersAwaitingMir ?? 0) : 0)
     })
+    void adminPipelineCounts().then((result) => setPipeline(result.ok ? result.counts : null))
   }, [mir, q])
 
   useEffect(() => {
@@ -309,7 +313,33 @@ function PalnomoshtniPage() {
           >
             Номерирай
           </button>
+          <button
+            type="button"
+            className={adminGhost}
+            data-testid="advance-published"
+            disabled={!canExport || busy}
+            title={!canExport ? EXPORT_REASON : 'Всеки с публикувана секция: номер, в „Само новите“ за подпис и контакт в Brevo (доброволци). Без писма. Става и само при публикуване, и на всеки час.'}
+            onClick={() => {
+              setBusy(true)
+              setMessage('')
+              void adminAdvancePublished()
+                .then((result) => {
+                  setMessage(result.message)
+                  if (result.ok) reload()
+                })
+                .finally(() => setBusy(false))
+            }}
+          >
+            Придвижи публикуваните
+          </button>
         </div>
+        {pipeline ? (
+          <p className="text-sm text-[#5c4a63]" data-testid="pipeline-counts">
+            С публикувана секция: доброволци {pipeline.volunteers} (без номер {pipeline.volunteersUnnumbered}, чакат Brevo {pipeline.volunteersBrevoPending}),
+            „И аз“ {pipeline.partners} (без номер {pipeline.partnersUnnumbered}). Номерирани и чакат ZIP за подпис: {pipeline.volunteersToSign + pipeline.partnersToSign}.
+            Публикуването ги придвижва само; на всеки час се хващат пропуснатите.
+          </p>
+        ) : null}
         <div className="grid gap-2">
           {scopeCounts ? (
             <fieldset className="grid gap-1" data-testid="sign-scope">

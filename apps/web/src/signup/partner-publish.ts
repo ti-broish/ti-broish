@@ -57,6 +57,7 @@ export async function previewPartnerPublish(db: Pick<SignupD1, 'prepare'>, scope
 export async function publishPartnerDrafts(db: Database, scope: PartnerPublishScope = {}, now = new Date().toISOString()) {
   const rows = await pendingPartnerDrafts(db, scope)
   let published = 0
+  const ids: string[] = []
   const blocked: Array<{ id: string; section: string; reason: string }> = []
   const warnings: Array<{ id: string; section: string; reason: string }> = []
   for (const row of rows) {
@@ -70,13 +71,14 @@ export async function publishPartnerDrafts(db: Database, scope: PartnerPublishSc
     try {
       await db.batch(publishStatements(db, row, now))
       published += 1
+      ids.push(row.id)
       if (mismatch) warnings.push({ id: row.id, section: row.draft, reason: designationMirMessage(mismatch) })
     } catch (error) {
       if (!isSectionHeldAbort(error)) throw error
       blocked.push({ id: row.id, section: row.draft, reason: 'заета' })
     }
   }
-  return { published, blocked, warnings }
+  return { published, ids, blocked, warnings }
 }
 
 export function describePartnerPublish(result: { published: number; blocked: Array<{ reason: string }>; warnings?: Array<{ reason: string }> }) {

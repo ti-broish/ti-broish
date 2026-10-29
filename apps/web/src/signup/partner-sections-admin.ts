@@ -132,7 +132,7 @@ function mismatchText(row: { mir: string; number: number | null; draft: string; 
 
 /** „Чернови за „И аз““: drafts only for people with no section yet. dryRun writes nothing. */
 export const adminPartnerDistribute = createServerFn({ method: 'POST' })
-  .inputValidator((input: { dryRun?: boolean } | undefined) => ({ dryRun: input?.dryRun === true }))
+  .validator((input: { dryRun?: boolean } | undefined) => ({ dryRun: input?.dryRun === true }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
     if (!access.ok) return access
@@ -171,7 +171,7 @@ export const adminPartnerDistribute = createServerFn({ method: 'POST' })
 
 /** „Запази“ a draft (or clear it with an empty section). Locked: „Чернови“ will not change it. */
 export const adminPartnerSave = createServerFn({ method: 'POST' })
-  .inputValidator((input: { id: string; section: string; confirmOtherMir?: boolean }) => ({
+  .validator((input: { id: string; section: string; confirmOtherMir?: boolean }) => ({
     id: String(input?.id ?? ''),
     section: String(input?.section ?? ''),
     confirmOtherMir: input?.confirmOtherMir === true,
@@ -223,7 +223,7 @@ export const adminPartnerSave = createServerFn({ method: 'POST' })
  * transaction per person. No email, no Brevo, no profile, no login. ids empty = every pending draft.
  */
 export const adminPartnerPublish = createServerFn({ method: 'POST' })
-  .inputValidator((input: { ids?: string[]; confirmOtherMir?: string[] } | undefined) => ({
+  .validator((input: { ids?: string[]; confirmOtherMir?: string[] } | undefined) => ({
     ids: Array.isArray(input?.ids) ? input!.ids.map(String).slice(0, 5000) : [],
     confirmOtherMir: Array.isArray(input?.confirmOtherMir) ? input!.confirmOtherMir.map(String).slice(0, 5000) : [],
   }))
@@ -244,7 +244,7 @@ export const adminPartnerPublish = createServerFn({ method: 'POST' })
 
 /** Undo publishing: the „И аз“ reservation goes, the draft stays. */
 export const adminPartnerUnpublish = createServerFn({ method: 'POST' })
-  .inputValidator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
+  .validator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
   .handler(async ({ data }) => {
     const access = await gate('publish')
     if (!access.ok) return access

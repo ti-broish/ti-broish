@@ -53,7 +53,7 @@ export const adminMobileDrafts = createServerFn({ method: 'POST' }).handler(asyn
  * mobile draft stays); dryRun only reports. „Направи чернови за страната“ does this too, after sections.
  */
 export const adminMobileDistribute = createServerFn({ method: 'POST' })
-  .inputValidator((input: { dryRun?: boolean } | undefined) => ({ dryRun: input?.dryRun === true }))
+  .validator((input: { dryRun?: boolean } | undefined) => ({ dryRun: input?.dryRun === true }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
     if (!access.ok) return access
@@ -71,7 +71,7 @@ export const adminMobileDistribute = createServerFn({ method: 'POST' })
 
 /** The open areas within one mobile person's reach, for the person page's area picker. */
 export const adminMobileAreas = createServerFn({ method: 'POST' })
-  .inputValidator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
+  .validator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
     if (!access.ok) return access
@@ -82,7 +82,7 @@ export const adminMobileAreas = createServerFn({ method: 'POST' })
 
 /** „Запази“: save one area as this person's manual mobile draft (replaces their previous one). Never publishes. */
 export const adminMobileSave = createServerFn({ method: 'POST' })
-  .inputValidator((input: { id: string; areaKey: string }) => ({ id: String(input?.id ?? ''), areaKey: String(input?.areaKey ?? '') }))
+  .validator((input: { id: string; areaKey: string }) => ({ id: String(input?.id ?? ''), areaKey: String(input?.areaKey ?? '') }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
     if (!access.ok) return access
@@ -96,7 +96,7 @@ export const adminMobileSave = createServerFn({ method: 'POST' })
   })
 
 export const adminMobileRemove = createServerFn({ method: 'POST' })
-  .inputValidator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
+  .validator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
     if (!access.ok) return access

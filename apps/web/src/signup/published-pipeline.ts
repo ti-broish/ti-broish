@@ -13,7 +13,7 @@
  */
 import { loadBrevoSectionFieldsForIds } from './admin'
 import { readBrevoConfig } from './brevo'
-import { gateDesignation, listNoEmailSectionless, listPublishedPeople, numberListed, workerEnv } from './designation-bulk.server'
+import { gateDesignation, listPublishedPeople, listSectionlessWithMir, numberListed, workerEnv } from './designation-bulk.server'
 import { designationSectionAttributes, fetchBrevoAttributes, pushSectionContact, type BrevoAttrs, type DesignationBrevoResult } from './designation-brevo'
 import { configFromEnv } from './designation-config'
 import { signupDatabase, type SignupD1 } from './db-core'
@@ -68,17 +68,17 @@ export async function advancePublished(db: Database, scope: { ids: string[] } | 
   }
   const listed = await listPublishedPeople(db, ids)
   const numbering = await numberListed(db, listed, actor, now)
-  // Volunteers without an e-mail need no section: numbered by МИР alone, after the published ones so
-  // a section holder keeps the number when an ЕГН shows up twice (the ЕГН guard reloads holders).
-  const noEmail = await listNoEmailSectionless(db, ids ? ids.filter((id) => !isPartnerPersonId(id)) : null)
-  const noEmailNumbering = noEmail.length > 0 ? await numberListed(db, noEmail, actor, now) : null
+  // Volunteers without a section (with or without an e-mail) are numbered by МИР alone, after the
+  // published ones so a section holder keeps the number when an ЕГН shows up twice (the ЕГН guard reloads holders).
+  const sectionless = await listSectionlessWithMir(db, ids ? ids.filter((id) => !isPartnerPersonId(id)) : null)
+  const sectionlessNumbering = sectionless.length > 0 ? await numberListed(db, sectionless, actor, now) : null
   const brevo = await syncBrevoContacts(db, ids ? ids.filter((id) => !isPartnerPersonId(id)) : null, deps, now)
   const counts = pipelineCountsFrom(await db.prepare(PIPELINE_COUNTS_SQL).first<Record<string, unknown>>())
   return {
-    numbered: numbering.assigned + (noEmailNumbering?.assigned ?? 0),
+    numbered: numbering.assigned + (sectionlessNumbering?.assigned ?? 0),
     numberedPartners: numbering.assignedIds.filter(isPartnerPersonId).length,
-    ...(noEmailNumbering?.assigned ? { numberedNoEmail: noEmailNumbering.assigned } : {}),
-    skippedDuplicates: numbering.skippedDuplicates + (noEmailNumbering?.skippedDuplicates ?? 0),
+    ...(sectionlessNumbering?.assigned ? { numberedNoSection: sectionlessNumbering.assigned } : {}),
+    skippedDuplicates: numbering.skippedDuplicates + (sectionlessNumbering?.skippedDuplicates ?? 0),
     skippedCovered: numbering.skippedCovered,
     partnersMirSet,
     brevo,
@@ -164,13 +164,14 @@ export async function advanceAfterPublish(db: Database, ids: string[], actor: st
 }
 
 /**
- * A volunteer without an e-mail was just added or saved by staff: number them by МИР now (no section
- * needed), the same step the hourly run takes. Never throws; returns the number and МИР they hold
- * after it (null when they have none: София без район, ЕГН already numbered, not finished, or has an e-mail).
+ * A volunteer was just added or saved by staff: number them by МИР now if they have no section yet
+ * (with or without an e-mail), the same step the hourly run takes. Never throws; returns the number
+ * and МИР they hold after it (null when they have none: София без район, ЕГН already numbered, not
+ * finished, or they have a published section, which the publish pipeline numbers).
  */
-export async function numberNoEmailVolunteer(db: Database, id: string, actor: string, now = new Date()): Promise<{ number: number | null; mir: string; error?: string }> {
+export async function numberSectionlessVolunteer(db: Database, id: string, actor: string, now = new Date()): Promise<{ number: number | null; mir: string; error?: string }> {
   try {
-    const listed = await listNoEmailSectionless(db, [id])
+    const listed = await listSectionlessWithMir(db, [id])
     if (listed.length > 0) await numberListed(db, listed, actor, now)
     const row = await db
       .prepare(`SELECT designation_number AS n, COALESCE(designation_mir, '') AS mir FROM signups WHERE id = ?`)
@@ -179,7 +180,7 @@ export async function numberNoEmailVolunteer(db: Database, id: string, actor: st
     return { number: row?.n ?? null, mir: row?.mir ?? '' }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.warn('no-email numbering failed', JSON.stringify({ message }))
+    console.warn('sectionless numbering failed', JSON.stringify({ message }))
     return { number: null, mir: '', error: message }
   }
 }
@@ -193,7 +194,7 @@ export function logAdvance(trigger: string, report: AdvanceReport) {
       trigger,
       numbered: report.numbered,
       numberedPartners: report.numberedPartners,
-      numberedNoEmail: report.numberedNoEmail ?? 0,
+      numberedNoSection: report.numberedNoSection ?? 0,
       skippedDuplicates: report.skippedDuplicates,
       skippedCovered: report.skippedCovered,
       partnersMirSet: report.partnersMirSet,

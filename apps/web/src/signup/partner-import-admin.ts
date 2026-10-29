@@ -23,6 +23,16 @@ import { PARTNER_WITHDRAW_AUDIT_SQL, PARTNER_WITHDRAW_REASON_MAX, PARTNER_WITHDR
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 import { applyRenameTransition, fullName, namesChanged, renameMessage } from './designation-rename'
 import { cleanPartnerEdit, partnerEditSql, planPartnerEdit, type PartnerEditable } from './partner-person-edit'
+import { freedSectionFromAuditAfter, restoreAuditAfter, restoreAuditBefore } from './admin-unregister'
+import {
+  PARTNER_LAST_FREED_SQL,
+  PARTNER_RESTORE_SQL,
+  PARTNER_UNREGISTER_SQL,
+  parsePartnerUnregister,
+  partnerUnregisterAuditAfter,
+  partnerUnregisterAuditBefore,
+  partnerWithdrawnReasonText,
+} from './partner-unregister'
 
 // No mail, Brevo or confirm-link code is imported here on purpose: the partner import is silent,
 // and it writes only partner_people, never signups.
@@ -137,6 +147,69 @@ export const adminPartnerWithdraw = createServerFn({ method: 'POST' })
       message: `Пълномощното${which} е оттеглено. Номерът остава зает; файлът в Drive не е пипан. Поискай от РИК да го анулира, ако вече е подадено.`,
     }
   })
+
+const AUDIT_INSERT = 'INSERT INTO signup_audit (id, signup_id, actor, field, before_text, after_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+
+function changed(result: unknown) {
+  const changes = (result as { meta?: { changes?: unknown } })?.meta?.changes
+  return typeof changes === 'number' ? changes > 0 : true
+}
+
+/**
+ * „Отпиши“ one „И аз“ person, as for a volunteer: withdrawn, section (draft and published) freed,
+ * number and МИР kept. No mail, no Brevo (they are never in our Brevo). One audit line ('withdrawn').
+ */
+export const adminPartnerUnregister = createServerFn({ method: 'POST' })
+  .validator((input: { id: string; reason: string; note?: string }) => ({ id: String(input?.id ?? ''), ...parsePartnerUnregister(input) }))
+  .handler(async ({ data }) => {
+    if (!isPartnerPersonId(data.id)) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    if (!data.reason) return { ok: false as const, message: 'Избери причина за отписването.' }
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const row = await access.db
+      .prepare(`SELECT COALESCE(section_draft, '') AS draft, COALESCE(section_published, '') AS published, COALESCE(designation_mir, '') AS mir, designation_number, withdrawn_at FROM partner_people WHERE id = ?`)
+      .bind(data.id)
+      .first<{ draft: string; published: string; mir: string; designation_number: number | null; withdrawn_at: string | null }>()
+    if (!row) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    if (row.withdrawn_at) return { ok: false as const, message: 'Вече е отписан.' }
+    const person = { draft: row.draft, published: row.published, mir: row.mir, number: row.designation_number == null ? null : Number(row.designation_number) }
+    const at = new Date().toISOString()
+    const result = await access.db.prepare(PARTNER_UNREGISTER_SQL).bind(at, access.email, partnerWithdrawnReasonText(data.reason, data.note), data.id).run()
+    if (!changed(result)) return { ok: false as const, message: 'Вече е отписан.' }
+    await access.db
+      .prepare(AUDIT_INSERT)
+      .bind(crypto.randomUUID(), data.id, access.email, 'withdrawn', partnerUnregisterAuditBefore(person), partnerUnregisterAuditAfter(data.reason, data.note, person), at)
+      .run()
+    const freed = row.published || row.draft
+    const number = person.number != null ? ` Пълномощното № ${person.mir}/${person.number} остава заето (не се преизползва).` : ''
+    return { ok: true as const, message: `Отписан.${freed ? ` Секция ${freed} е свободна.` : ''}${number} Без имейл.` }
+  })
+
+/** „Върни“ an отписан „И аз“ person: active again; the freed section does not come back. One audit line ('restored'). */
+export const adminPartnerRestore = createServerFn({ method: 'POST' })
+  .validator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
+  .handler(async ({ data }) => {
+    if (!isPartnerPersonId(data.id)) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const row = await access.db
+      .prepare(`SELECT withdrawn_at, COALESCE(withdrawn_reason, '') AS reason FROM partner_people WHERE id = ?`)
+      .bind(data.id)
+      .first<{ withdrawn_at: string | null; reason: string }>()
+    if (!row) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    if (!row.withdrawn_at) return { ok: false as const, message: 'Не е отписан.' }
+    const freed = await partnerLastFreedSection(access.db, data.id)
+    const at = new Date().toISOString()
+    const result = await access.db.prepare(PARTNER_RESTORE_SQL).bind(at, data.id).run()
+    if (!changed(result)) return { ok: false as const, message: 'Не е отписан.' }
+    await access.db.prepare(AUDIT_INSERT).bind(crypto.randomUUID(), data.id, access.email, 'restored', restoreAuditBefore(row.reason, '', freed), restoreAuditAfter(), at).run()
+    return { ok: true as const, message: `Върнат.${freed ? ` Предишната секция ${freed} не се връща автоматично.` : ''}` }
+  })
+
+export async function partnerLastFreedSection(db: Database, id: string) {
+  const row = await db.prepare(PARTNER_LAST_FREED_SQL).bind(id).first<{ after_text: string }>()
+  return row?.after_text ? freedSectionFromAuditAfter(row.after_text) : ''
+}
 
 const clipName = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 80)
 

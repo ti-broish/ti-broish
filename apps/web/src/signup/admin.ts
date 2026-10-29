@@ -10,7 +10,8 @@ import { abroadLocation, isAbroadSection, loadAbroadPlaces } from './brevo-locat
 import { ABROAD_SECTIONS_UNAVAILABLE, abroadSectionOf, loadAbroadSections, loadAbroadSectionsOrNull, type AbroadSections } from './abroad-sections'
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
 import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
-import { parseWithdrawnProcessed, withdrawnProcessedClause, type WithdrawnProcessedFilter } from './admin-unregister'
+import { freedSectionFromAuditAfter, parseWithdrawnProcessed, withdrawnProcessedClause, type WithdrawnProcessedFilter } from './admin-unregister'
+import { PARTNER_LAST_FREED_SQL } from './partner-unregister'
 import { brevoWithdrawCleanup, withdrawnCounts } from './withdrawal'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { travelLabelOf } from './admin-assign'
@@ -377,7 +378,7 @@ async function queryPeople(
     if ('error' in base) return base
     // Записвания only: signups and „И аз“ rows in one list. Never for exports or Brevo (exportKind).
     if (partners && !exportKind && !finishedOnly && !publishedOnly && sectionState === undefined) {
-      return await queryRoster(db, base, viewOf(view), mir, q, limit, offset, withEgn, sort, dir, partners.source)
+      return await queryRoster(db, base, viewOf(view), mir, q, limit, offset, withEgn, sort, dir, partners.source, processed ?? '')
     }
     // Секции with „И аз“: signups and shown partner rows, counted and paged together.
     if (partners && !exportKind && sectionState !== undefined) {
@@ -414,16 +415,18 @@ async function queryRoster(
   sort: string,
   dir: string,
   source: RosterSource,
+  processed = '',
 ) {
   const signup = source === 'iaz' ? { clause: '1 = 0', binds: [] as string[] } : base
-  const partnerView = source === 'tb' ? null : partnerViewWhere(view, mir)
+  const partnerView = source === 'tb' ? null : partnerViewWhere(view, mir, processed)
+  const partnerShown = partnerView?.shown
   const partnerSearch = partnerSearchClause(q)
   const partner = partnerView
     ? { clause: `(${partnerView.clause}) AND (${partnerSearch.clause})`, binds: [...partnerView.binds, ...partnerSearch.binds] }
     : { clause: '1 = 0', binds: [] as string[] }
   const signupCount = await bound(db, `SELECT COUNT(*) AS n FROM signups WHERE ${signup.clause}`, signup.binds).first<{ n: number }>()
-  const partnerCount = partnerView ? await bound(db, partnerCountSql(partner.clause), partner.binds).first<{ n: number }>() : { n: 0 }
-  const page = await bound(db, unionPageSql(signup.clause, partner.clause, sort, dir === 'asc' ? 'asc' : 'desc'), [...signup.binds, ...partner.binds, limit, offset])
+  const partnerCount = partnerView ? await bound(db, partnerCountSql(partner.clause, partnerShown), partner.binds).first<{ n: number }>() : { n: 0 }
+  const page = await bound(db, unionPageSql(signup.clause, partner.clause, sort, dir === 'asc' ? 'asc' : 'desc', partnerShown), [...signup.binds, ...partner.binds, limit, offset])
     .all<{ id: string; kind: number }>()
   const order = (page.results ?? []).map((row) => ({ id: String(row.id), kind: Number(row.kind) }))
   const signupIds = order.filter((row) => row.kind === 0).map((row) => row.id)
@@ -507,7 +510,8 @@ function partnerFieldsOf(row: PartnerRosterRow, merged: string | null): RosterFi
     place: row.place_note,
     role: '',
     submitted: false,
-    withdrawn: false,
+    withdrawn: Boolean(row.withdrawn_at),
+    ...(row.withdrawn_at ? { withdrawnReason: row.withdrawn_reason ?? '' } : {}),
     emailConfirmed: false,
     imported: true,
     draftSection: row.section_draft,
@@ -1615,7 +1619,8 @@ export const adminPartnerPerson = createServerFn({ method: 'POST' })
            COALESCE(p.designation_signed_at, '') AS designation_signed_at, COALESCE(p.designation_pdf_url, '') AS designation_pdf_url,
            COALESCE(p.section_draft, '') AS section_draft, COALESCE(p.section_published, '') AS section_published,
            COALESCE(p.submitted_at, '') AS submitted_at, COALESCE(p.imported_at, '') AS imported_at,
-           COALESCE(p.withdrawn_at, '') AS withdrawn_at, COALESCE(p.covered_by_signup_id, '') AS covered_by_signup_id
+           COALESCE(p.withdrawn_at, '') AS withdrawn_at, COALESCE(p.withdrawn_by, '') AS withdrawn_by, COALESCE(p.withdrawn_reason, '') AS withdrawn_reason,
+           COALESCE(p.covered_by_signup_id, '') AS covered_by_signup_id
          FROM partner_people p WHERE p.id = ?`,
       )
       .bind(data.id)
@@ -1632,6 +1637,8 @@ export const adminPartnerPerson = createServerFn({ method: 'POST' })
       .bind(data.id)
       .all<{ id: string; email: string; submitted: number; email_confirmed: number; withdrawn: number; designation_number: number | null; published_section: string; first_name: string; last_name: string; mir_code: string }>()
     const egn = String(row.egn ?? '')
+    const freedRow = row.withdrawn_at ? await access.db.prepare(PARTNER_LAST_FREED_SQL).bind(data.id).first<{ after_text: string }>() : null
+    const previousSection = freedRow?.after_text ? freedSectionFromAuditAfter(freedRow.after_text) : ''
     return {
       ok: true as const,
       person: {
@@ -1657,6 +1664,9 @@ export const adminPartnerPerson = createServerFn({ method: 'POST' })
         submittedAt: String(row.submitted_at ?? ''),
         importedAt: String(row.imported_at ?? ''),
         withdrawnAt: String(row.withdrawn_at ?? ''),
+        withdrawnBy: String(row.withdrawn_by ?? ''),
+        withdrawnReason: String(row.withdrawn_reason ?? ''),
+        previousSection,
         coveredBy: String(row.covered_by_signup_id ?? ''),
       },
       signups: (signups.results ?? []).map((item) => ({

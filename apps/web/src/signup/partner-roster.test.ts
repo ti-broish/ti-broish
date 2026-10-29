@@ -7,6 +7,7 @@ import {
   hidesMergedSignups,
   MERGED_SIGNUP_SQL,
   PARTNER_SHOWN_SQL,
+  PARTNER_WITHDRAWN_SHOWN_SQL,
   PARTNER_SUMMARY_SQL,
   partnerCountSql,
   partnerRowsSql,
@@ -128,13 +129,31 @@ describe.skipIf(!sqlite)('„И аз“ on Записвания (SQLite)', () =>
     expect(run('mir', '4', '')).toEqual(['pp-sonya'])
     expect(run('finished', '', '')).toBeNull()
     expect(run('started', '', '')).toBeNull()
-    expect(run('withdrawn', '', '')).toBeNull()
     expect(run('calls', '', '')).toBeNull()
     expect(run('all', '', 'мутафчиева')).toEqual(['pp-ina'])
     expect(run('all', '', 'Илина Мутафчиева')).toEqual(['pp-ina'])
     expect(run('all', '', INA_EGN)).toEqual(['pp-ina'])
     expect(run('all', '', 'sonya.georgieva@gmail.com')).toEqual(['pp-sonya'])
     expect(run('all', '', '254618054')).toEqual(['pp-ina'])
+  })
+
+  it('„Отписани“: an отписан „И аз“ person is listed once, not next to their own отписан signup, and not with a processed filter', () => {
+    db.prepare(`INSERT INTO partner_people (id, partner, egn, email, phone, first_name, middle_name, last_name, region_code, designation_mir, designation_number,
+      imported_at, updated_at, withdrawn_at, withdrawn_reason) VALUES ('pp-nadya', 'iaz.bg', '6101015555', 'nadya@example.com', '', 'Надя', '', 'Тест', '22', '', NULL,
+      '2026-10-19T20:44:21Z', '2026-10-29T12:21:31Z', '2026-10-29T12:21:31Z', 'Друго · само видеонаблюдение')`).run()
+    const where = partnerViewWhere('withdrawn', '')!
+    expect(where.shown).toBe(PARTNER_WITHDRAWN_SHOWN_SQL)
+    // pp-todor is withdrawn too, but his отписан signup sig-todor is already on „Отписани“.
+    expect(ids(db.prepare(`SELECT p.id AS id FROM partner_people p WHERE ${where.shown} AND (${where.clause})`).all())).toEqual(['pp-nadya'])
+    expect((db.prepare(partnerCountSql(where.clause, where.shown)).get() as { n: number }).n).toBe(1)
+    const page = db.prepare(unionPageSql('COALESCE(withdrawn, 0) = 1', where.clause, 'updated', 'desc', where.shown)).all(50, 0) as Array<{ id: string }>
+    expect(page.map((row) => row.id)).toEqual(['pp-nadya', 'sig-todor'])
+    const row = db.prepare(partnerRowsSql(1, false)).all('pp-nadya')[0] as Record<string, unknown>
+    expect(row).toMatchObject({ withdrawn_at: '2026-10-29T12:21:31Z', withdrawn_reason: 'Друго · само видеонаблюдение' })
+    expect(partnerViewWhere('withdrawn', '', 'open')).toBeNull()
+    // Active views never list it.
+    expect(ids(db.prepare(`SELECT p.id AS id FROM partner_people p WHERE ${PARTNER_SHOWN_SQL}`).all())).not.toContain('pp-nadya')
+    db.prepare(`DELETE FROM partner_people WHERE id = 'pp-nadya'`).run()
   })
 })
 

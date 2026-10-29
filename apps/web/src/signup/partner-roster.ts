@@ -34,8 +34,16 @@ const signupStandsSql = (alias: string) =>
 const signupMergeableSql = (alias: string) =>
   `COALESCE(${alias}.withdrawn, 0) = 0 AND (COALESCE(${alias}.submitted, 0) = 0 OR COALESCE(${alias}.email_confirmed, 0) = 0) AND ${alias}.designation_number IS NULL`
 
+const NO_STANDING_VOLUNTEER_SQL = `NOT EXISTS (SELECT 1 FROM signups fs WHERE ${signupStandsSql('fs')} AND (${samePersonSql('fs', 'p')} OR fs.id = p.covered_by_signup_id))`
+
 /** Partner row shown on the list (alias p): active, and no finished or numbered volunteer is the same person. */
-export const PARTNER_SHOWN_SQL = `${partnerActiveSql('p')} AND NOT EXISTS (SELECT 1 FROM signups fs WHERE ${signupStandsSql('fs')} AND (${samePersonSql('fs', 'p')} OR fs.id = p.covered_by_signup_id))`
+export const PARTNER_SHOWN_SQL = `${partnerActiveSql('p')} AND ${NO_STANDING_VOLUNTEER_SQL}`
+
+/**
+ * Partner row on „Отписани“ (alias p): withdrawn („Отпиши“ or an оттеглено пълномощно), and the same
+ * person is not already on the list as a volunteer, standing or отписан (one row per person).
+ */
+export const PARTNER_WITHDRAWN_SHOWN_SQL = `NOT (${partnerActiveSql('p')}) AND NOT EXISTS (SELECT 1 FROM signups fs WHERE (COALESCE(fs.withdrawn, 0) = 1 OR (${signupStandsSql('fs')})) AND (${samePersonSql('fs', 'p')} OR fs.id = p.covered_by_signup_id))`
 
 /**
  * A signup (table „signups“, not aliased) merged into an „И аз“ row: hidden from the list, from
@@ -58,9 +66,14 @@ const MERGED_SIGNUP_PHONE_SQL = `(SELECT json_extract(ms.payload, '$.phone') FRO
 /** Finished signup that also has an active „И аз“ row (shown with a small marker). */
 export const SIGNUP_HAS_PARTNER_SQL = `EXISTS (SELECT 1 FROM partner_people mp WHERE ${partnerActiveSql('mp')} AND ${samePersonSql('signups', 'mp')})`
 
-/** Partner rows for a roster view (alias p), or null when the view never holds partner people. */
-export function partnerViewWhere(view: RosterView | string, mir: string): { clause: string; binds: string[] } | null {
+/**
+ * Partner rows for a roster view (alias p), or null when the view never holds partner people.
+ * `shown` is the base filter: active rows, or withdrawn ones on „Отписани“. „И аз“ rows have no
+ * „обработен“ mark, so a processed filter on „Отписани“ leaves them out.
+ */
+export function partnerViewWhere(view: RosterView | string, mir: string, processed = ''): { clause: string; binds: string[]; shown?: string } | null {
   const published = `COALESCE(p.section_published, '') != ''`
+  if (view === 'withdrawn') return processed ? null : { clause: '1 = 1', binds: [], shown: PARTNER_WITHDRAWN_SHOWN_SQL }
   if (view === 'all') return { clause: '1 = 1', binds: [] }
   if (view === 'assigned') return { clause: published, binds: [] }
   if (view === 'unassigned') return { clause: `NOT (${published})`, binds: [] }
@@ -70,7 +83,7 @@ export function partnerViewWhere(view: RosterView | string, mir: string): { clau
     if (!code) return null
     return { clause: 'p.designation_mir = ?', binds: [code.padStart(2, '0')] }
   }
-  // finished / started / abroad / calls / queue / withdrawn / noemail are about our own signup form.
+  // finished / started / abroad / calls / queue / noemail are about our own signup form.
   return null
 }
 
@@ -153,18 +166,18 @@ export function unionSortKeys(sort: string) {
  * One page of ids over signups (WHERE signupClause) and shown partner rows (WHERE partnerClause),
  * ordered together. kind is 0 for a signup and 1 for a partner row.
  */
-export function unionPageSql(signupClause: string, partnerClause: string, sort: string, dir: 'asc' | 'desc') {
+export function unionPageSql(signupClause: string, partnerClause: string, sort: string, dir: 'asc' | 'desc', partnerShown = PARTNER_SHOWN_SQL) {
   const keys = unionSortKeys(sort)
   const direction = dir === 'asc' ? 'ASC' : 'DESC'
   return `SELECT id, kind FROM (
     SELECT id, 0 AS kind, ${keys.signup} AS sort_key FROM signups WHERE ${signupClause}
     UNION ALL
-    SELECT p.id AS id, 1 AS kind, ${keys.partner} AS sort_key FROM partner_people p WHERE ${PARTNER_SHOWN_SQL} AND ${partnerClause}
+    SELECT p.id AS id, 1 AS kind, ${keys.partner} AS sort_key FROM partner_people p WHERE ${partnerShown} AND ${partnerClause}
   ) ORDER BY sort_key ${direction}, id ${direction} LIMIT ? OFFSET ?`
 }
 
-export function partnerCountSql(partnerClause: string) {
-  return `SELECT COUNT(*) AS n FROM partner_people p WHERE ${PARTNER_SHOWN_SQL} AND ${partnerClause}`
+export function partnerCountSql(partnerClause: string, partnerShown = PARTNER_SHOWN_SQL) {
+  return `SELECT COUNT(*) AS n FROM partner_people p WHERE ${partnerShown} AND ${partnerClause}`
 }
 
 /** Partner rows by id, with the merged signup (if any) and its phone as a fallback contact. */
@@ -176,6 +189,7 @@ export function partnerRowsSql(count: number, withEgn: boolean) {
     COALESCE(p.designation_signed_at, '') AS designation_signed_at, COALESCE(p.designation_pdf_url, '') AS designation_pdf_url,
     COALESCE(p.section_draft, '') AS section_draft, COALESCE(p.section_draft_locked, 0) AS section_draft_locked,
     COALESCE(p.section_published, '') AS section_published, COALESCE(p.updated_at, p.imported_at, '') AS updated_at,
+    COALESCE(p.withdrawn_at, '') AS withdrawn_at, COALESCE(p.withdrawn_reason, '') AS withdrawn_reason,
     ${MERGED_SIGNUP_ID_SQL} AS merged_signup_id, ${MERGED_SIGNUP_PHONE_SQL} AS merged_signup_phone
     FROM partner_people p WHERE p.id IN (${Array.from({ length: count }, () => '?').join(', ')})`
 }
@@ -201,6 +215,8 @@ export interface PartnerRosterRow {
   section_draft_locked: number
   section_published: string
   updated_at: string
+  withdrawn_at?: string
+  withdrawn_reason?: string
   merged_signup_id: string | null
   merged_signup_phone: string | null
 }

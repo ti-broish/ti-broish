@@ -3,7 +3,7 @@ import { partnerPublishConfirmed, partnerSaveConfirmed } from './-other-mir-conf
 import { useAdminAccess } from '../../components/AdminShell'
 import { adminGhost, adminInput } from '../../components/admin-ui'
 import { ELECTION_DISTRICTS } from '../../signup/designation-config'
-import { adminPartnerHistory, adminPartnerSetMir, adminPartnerUpdate, adminPartnerWithdraw } from '../../signup/partner-import-admin'
+import { adminPartnerHistory, adminPartnerSetMir, adminPartnerUpdate } from '../../signup/partner-import-admin'
 import { PARTNER_EDIT_FIELDS, type PartnerEditable } from '../../signup/partner-person-edit'
 import { adminPartnerUnpublish } from '../../signup/partner-sections-admin'
 
@@ -24,7 +24,7 @@ function when(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('bg-BG', { timeZone: 'Europe/Sofia', dateStyle: 'medium', timeStyle: 'short' })
 }
 
-/** Edit one „И аз“ person: data, МИР (before numbering), section, withdrawal, history. Nothing here sends mail. */
+/** Edit one „И аз“ person: data, МИР (before numbering), section, history. „Отпиши“ is its own panel. Nothing here sends mail. */
 export function IazEditPanel({ person, initialMessage = '', onChanged }: { person: IazEditablePerson; initialMessage?: string; onChanged: (message: string) => void }) {
   const access = useAdminAccess()
   const canEdit = access.permissions.edit
@@ -33,7 +33,6 @@ export function IazEditPanel({ person, initialMessage = '', onChanged }: { perso
   const [draft, setDraft] = useState<PartnerEditable>(() => pickEditable(person))
   const [section, setSection] = useState(person.sectionDraft || person.sectionPublished)
   const [mir, setMir] = useState(person.mir)
-  const [reason, setReason] = useState('')
   const [message, setMessage] = useState(initialMessage)
   const [busy, setBusy] = useState(false)
   const [history, setHistory] = useState<Array<{ field: string; before: string; after: string; actor: string; at: string }>>([])
@@ -63,7 +62,7 @@ export function IazEditPanel({ person, initialMessage = '', onChanged }: { perso
     <section className="grid gap-3" data-testid="iaz-edit">
       <h2 className="text-lg font-black text-[#1a1020]">Редактирай</h2>
       {!canEdit ? <p className="text-sm font-bold text-[#8f1d1d]">Тази роля само гледа.</p> : null}
-      {withdrawn ? <p className="text-sm font-bold text-[#7a1f4b]">Оттеглено пълномощно: данните и секцията не се пипат.</p> : null}
+      {withdrawn ? <p className="text-sm font-bold text-[#7a1f4b]">Отписан: данните и секцията не се пипат (първо „Върни“).</p> : null}
       {message ? (
         <p className="rounded-xl border-2 border-[#2b062f] bg-[#f6f1f7] px-3 py-2 text-sm font-bold text-[#1a1020]" role="status" data-testid="iaz-edit-message">
           {message}
@@ -176,28 +175,6 @@ export function IazEditPanel({ person, initialMessage = '', onChanged }: { perso
           Публикувана: {person.sectionPublished || '—'} · Чернова: {person.sectionDraft || '—'}
         </p>
       </div>
-
-      {!withdrawn ? (
-        <form
-          className={card}
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (!window.confirm('Да оттегля ли това пълномощно? Номерът остава зает.')) return
-            run(() => adminPartnerWithdraw({ data: { id: person.id, reason } }))
-          }}
-        >
-          <h3 className="font-black text-[#1a1020]">Оттегли пълномощното</h3>
-          <label className={fieldLabel}>
-            Причина
-            <input className={adminInput} name="reason" value={reason} maxLength={300} disabled={!canPublish || busy} onChange={(event) => setReason(event.target.value)} />
-          </label>
-          <div>
-            <button type="submit" className={adminGhost} disabled={!canPublish || busy || !reason.trim()}>
-              Оттегли
-            </button>
-          </div>
-        </form>
-      ) : null}
 
       <div className={card}>
         <h3 className="font-black text-[#1a1020]">История</h3>

@@ -6,6 +6,7 @@ import { adminPartnerPerson } from '../../signup/admin'
 import { defaultSignupSearch } from '../../signup/admin-search'
 import { IazBadge, IAZ_ROW_TINT } from './-iaz-row'
 import { IazEditPanel, type IazEditablePerson } from './-iaz-edit-panel'
+import { IazUnregisterPanel } from './-iaz-unregister-panel'
 
 export const Route = createFileRoute('/admin/iaz/$personId')({
   component: PartnerPersonPage,
@@ -92,11 +93,11 @@ function PartnerPersonPage() {
       {back}
       <AdminHeading
         title={person.name || 'Запис от „И аз“'}
-        lede="Внесен от „И аз“ само за пълномощно. Не е записване при нас: не получава писма и не отива в нашия Brevo. Данните, МИР, секцията и оттеглянето се редактират долу; с публикувана секция се номерира и отива в „Само новите“ за подпис."
+        lede="Внесен от „И аз“ само за пълномощно. Не е записване при нас: не получава писма и не отива в нашия Brevo. Данните, МИР и секцията се редактират долу, там е и „Отпиши“; с публикувана секция се номерира и отива в „Само новите“ за подпис."
       />
       <div className={`grid gap-3 rounded-2xl border-2 border-[#2b062f] p-4 ${IAZ_ROW_TINT}`} data-testid="iaz-person">
         <p><IazBadge /></p>
-        {person.withdrawnAt ? <p className="font-bold text-[#7a1f4b]">Оттеглен на {when(person.withdrawnAt)}</p> : null}
+        {person.withdrawnAt ? <p className="font-bold text-[#7a1f4b]">Отписан на {when(person.withdrawnAt)}</p> : null}
         <dl className="grid gap-2 text-sm text-[#1a1020] sm:grid-cols-[12rem_1fr]">
           {rows.map(([label, value]) => (
             <div key={label} className="contents">
@@ -118,6 +119,25 @@ function PartnerPersonPage() {
         key={JSON.stringify(editable)}
         person={editable}
         initialMessage={editMessage}
+        onChanged={(message) => {
+          setEditMessage(message)
+          setReloadKey((key) => key + 1)
+        }}
+      />
+      <IazUnregisterPanel
+        key={`unregister-${person.withdrawnAt}`}
+        person={{
+          id: person.id,
+          name: person.name,
+          mir: person.mir,
+          number: person.number,
+          sectionDraft: person.sectionDraft,
+          sectionPublished: person.sectionPublished,
+          withdrawnAt: person.withdrawnAt,
+          withdrawnBy: person.withdrawnBy,
+          withdrawnReason: person.withdrawnReason,
+          previousSection: person.previousSection,
+        }}
         onChanged={(message) => {
           setEditMessage(message)
           setReloadKey((key) => key + 1)

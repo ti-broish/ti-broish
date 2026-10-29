@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SignupD1 } from '../db-core'
 import { DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_MAX_PER_MIR_SQL } from '../designation-number'
 import { DESIGNATION_NUMBERS_SQL, DESIGNATION_NUMBERS_TABLE } from '../designation-numbers'
-import { EXTERNAL_NUMBER_UPSERT_SQL, findExternalNumbers } from './externals'
+import { EXTERNAL_NUMBER_UPSERT_SQL, findExternalNumbers, RECLAIMED_NUMBER_UPSERT_SQL } from './externals'
 import { buildIndex, type RikEntryRow, type RikPerson } from './match'
 import { nameKey } from './normalize'
 import { RIK_COLUMNS, RIK_INDEXES, RIK_TABLES } from './sql'
@@ -71,6 +71,21 @@ describe('external numbers: name first, never number first', () => {
     expect(numbers.find((one) => one.number === 504)).toMatchObject({ possible: ['u1'], note: 'в регистъра на РИК 30, Възможно съвпадение' })
     expect(tasks).toEqual([expect.objectContaining({ id: 'u1:possible_match:30/504', personId: 'u1', mir: '30', type: 'possible_match', reason: 'external' })])
     expect(tasks[0]!.detail).toContain('Не е свързан автоматично')
+  })
+
+  it('registered in РИК 31 for one of ours now in 32: ours, moved, never external (31/519, 31/520)', () => {
+    const movers = [...people, person('v1', 'Наш Пътуващ Пети', '32', 519, { source: 'partner' })]
+    const rows = [entry('31', 519, 'Анулиран', { annulled: true }), entry('31', 519, 'Наш Пътуващ Пети', { missingSince: '2026-10-25' })]
+    const index = buildIndex(rows, movers, new Map([['v1', new Set(['31', '32'])]]))
+    const found = findExternalNumbers(rows, index, new Set(['32:519']))
+    expect(found.numbers).toEqual([])
+    expect(found.reclaimed).toEqual([
+      expect.objectContaining({ mir: '31', number: 519, holder: 'partner', personId: 'v1', movedTo: '32/519', note: 'в регистъра на РИК 31, Анулиран, преместен в РИК 32' }),
+    ])
+    // Already ours in the ledger, or still in the same МИР (a number mix-up): nothing to relabel.
+    expect(findExternalNumbers(rows, index, new Set(['31:519'])).reclaimed).toEqual([])
+    const stayed = [entry('23', 510, 'Наш Сгрешен Трети')]
+    expect(findExternalNumbers(stayed, buildIndex(stayed, people), ledgerOurs).reclaimed).toEqual([])
   })
 
   it('the withdrawn holder of a number keeps it as ours', () => {
@@ -157,6 +172,23 @@ describe.skipIf(!sqlite)('external numbers in the ledger and the РИК sync (SQ
     // The register later shows the name: refreshed.
     upsert('31', 519, 'Цветан Божидаров Ангелов', 'в регистъра на РИК 31, Анулиран', '2026-10-29T19:00:00Z')
     expect(ledgerRow(raw, '31', 519)).toMatchObject({ holder: 'external', name: 'Цветан Божидаров Ангелов', updated_at: '2026-10-29T19:00:00Z' })
+  })
+
+  it('the relabel: an external row becomes our moved row; our own rows are never taken over', () => {
+    const raw = seed()
+    signup(raw, 'm1', 'Наш Пътуващ Пети', '32', 519)
+    raw.prepare(EXTERNAL_NUMBER_UPSERT_SQL).run('31', 519, '23.10.2026', '', 'r1', 'https://rik31.cik.bg/x', 'в регистъра на РИК 31, Анулиран', 'зает външно в РИК 31', '2026-10-29T18:00:00Z')
+    const relabel = (mir: string, number: number, at: string) =>
+      raw.prepare(RECLAIMED_NUMBER_UPSERT_SQL).run(mir, number, '23.10.2026', 'signup', 'm1', '32/519', 'r2', 'https://rik31.cik.bg/y', 'в регистъра на РИК 31, Анулиран, преместен в РИК 32', at)
+    relabel('31', 519, '2026-10-29T19:00:00Z')
+    expect(ledgerRow(raw, '31', 519)).toMatchObject({ holder: 'signup', person_id: 'm1', state: 'moved', moved_to: '32/519', name: '', note: 'в регистъра на РИК 31, Анулиран, преместен в РИК 32' })
+    relabel('31', 519, '2026-10-29T20:00:00Z')
+    expect(ledgerRow(raw, '31', 519)).toMatchObject({ updated_at: '2026-10-29T19:00:00Z' })
+    relabel('32', 519, '2026-10-29T20:00:00Z')
+    expect(ledgerRow(raw, '32', 519)).toMatchObject({ holder: 'signup', state: 'active', moved_to: '' })
+    relabel('31', 530, '2026-10-29T20:00:00Z')
+    expect(ledgerRow(raw, '31', 530)).toMatchObject({ holder: 'signup', state: 'moved' })
+    expect(nextIn(raw, '31')).toBe(531)
   })
 
   it('every sync: externals into the ledger, „зает външно“ for an active holder, possible matches, a stale number_taken task closed', async () => {

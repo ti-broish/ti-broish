@@ -18,6 +18,19 @@ export interface UnnumberedPerson {
   nameKey: string
 }
 
+/** A register number of one of ours who moved to another МИР since (see RECLAIMED_NUMBER_UPSERT_SQL). */
+export interface ReclaimedNumber {
+  mir: string
+  number: number
+  issuedOn: string
+  holder: 'signup' | 'partner'
+  personId: string
+  movedTo: string
+  entryId: string
+  url: string
+  note: string
+}
+
 export interface ExternalNumber {
   mir: string
   number: number
@@ -53,10 +66,31 @@ export function findExternalNumbers(entries: RikEntryRow[], index: MatchIndex, l
     groups.set(key, [...(groups.get(key) ?? []), row])
   }
   const numbers: ExternalNumber[] = []
+  const reclaimed: ReclaimedNumber[] = []
   const tasks: DerivedTask[] = []
   for (const [key, rows] of groups) {
     // Any row naming one of ours: the number is ours (a typo or a mix-up is the matcher's task).
-    if (rows.some((row) => ownersOf(row, index).length > 0)) continue
+    const owned = rows.find((row) => ownersOf(row, index).length > 0)
+    if (owned) {
+      const owners = [...new Map(rows.flatMap((row) => ownersOf(row, index)).map((one) => [one.id, one])).values()]
+      const owner = owners.length === 1 ? owners[0]! : null
+      // Registered here for one of ours who has since moved to another МИР (31 → 32): our old number.
+      if (owner && owner.number != null && owner.mir !== owned.mir && !ledgerOurs.has(key)) {
+        const annulled = rows.some((one) => one.annulled)
+        reclaimed.push({
+          mir: owned.mir,
+          number: owned.number!,
+          issuedOn: owned.numberDate ?? '',
+          holder: owner.source,
+          personId: owner.id,
+          movedTo: `${owner.mir}/${owner.number}`,
+          entryId: owned.id,
+          url: owned.sourceUrl ?? '',
+          note: [`в регистъра на РИК ${owned.mir}`, annulled ? 'Анулиран' : '', `преместен в РИК ${owner.mir}`].filter(Boolean).join(', '),
+        })
+      }
+      continue
+    }
     const named = rows.filter((row) => !row.annulled)
     // Only „Анулиран“ under a number we issued: our own annulled row.
     if (named.length === 0 && ledgerOurs.has(key)) continue
@@ -85,7 +119,8 @@ export function findExternalNumbers(entries: RikEntryRow[], index: MatchIndex, l
     }
   }
   numbers.sort((a, b) => a.mir.localeCompare(b.mir) || a.number - b.number)
-  return { numbers, tasks }
+  reclaimed.sort((a, b) => a.mir.localeCompare(b.mir) || a.number - b.number)
+  return { numbers, reclaimed, tasks }
 }
 
 /**
@@ -112,11 +147,28 @@ WHERE designation_numbers.name IS NOT excluded.name
   OR (designation_numbers.holder = 'external' AND (designation_numbers.note IS NOT excluded.note OR designation_numbers.issued_on IS NOT excluded.issued_on))
   OR (designation_numbers.holder != 'external' AND instr(designation_numbers.note, ?8) = 0)`
 
-export function externalNumberStatements(db: SignupD1, numbers: ExternalNumber[], stamp: string) {
-  return numbers.map((one) =>
-    db.prepare(EXTERNAL_NUMBER_UPSERT_SQL).bind(one.mir, one.number, one.issuedOn, one.name, one.entryId, one.url, one.note, one.ourNote, stamp),
-  )
+export function externalNumberStatements(db: SignupD1, numbers: ExternalNumber[], stamp: string, reclaimed: ReclaimedNumber[] = []) {
+  return [
+    ...numbers.map((one) =>
+      db.prepare(EXTERNAL_NUMBER_UPSERT_SQL).bind(one.mir, one.number, one.issuedOn, one.name, one.entryId, one.url, one.note, one.ourNote, stamp),
+    ),
+    ...reclaimed.map((one) =>
+      db.prepare(RECLAIMED_NUMBER_UPSERT_SQL).bind(one.mir, one.number, one.issuedOn, one.holder, one.personId, one.movedTo, one.entryId, one.url, one.note, stamp),
+    ),
+  ]
 }
+
+/**
+ * A number the РИК registered for one of ours who has since moved to another МИР: ours, „moved“
+ * to their current number, still blocked. Inserted when missing; an „external“ row (the
+ * number-first backfill could not know the name) is relabelled. Our own rows are never touched.
+ */
+export const RECLAIMED_NUMBER_UPSERT_SQL = `INSERT INTO designation_numbers (mir, number, issued_on, holder, person_id, state, moved_to, name, rik_entry_id, rik_url, note, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, 'moved', ?6, '', ?7, ?8, ?9, ?10, ?10)
+ON CONFLICT(mir, number) DO UPDATE SET
+  holder = excluded.holder, person_id = excluded.person_id, state = 'moved', moved_to = excluded.moved_to, name = '',
+  rik_entry_id = excluded.rik_entry_id, rik_url = excluded.rik_url, note = excluded.note, updated_at = excluded.updated_at
+WHERE designation_numbers.holder = 'external'`
 
 /** Our ledger: numbers we used („МИР:number“) and every МИР each person held a number in. */
 export const LEDGER_OURS_SQL = `SELECT mir, number, person_id FROM designation_numbers WHERE holder != 'external'`

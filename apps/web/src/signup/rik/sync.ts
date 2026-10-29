@@ -694,7 +694,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     )
     // External numbers into the ledger first, so the next number skips them from this run on.
     const external = findExternalNumbers(entries, buildIndex(entries, people, ledger.mirs), ledger.ours, await loadUnnumbered(db))
-    await chunked(db, externalNumberStatements(db, external.numbers, stamp))
+    await chunked(db, externalNumberStatements(db, external.numbers, stamp, external.reclaimed))
     await writeResults(db, results, [...tasks, ...external.tasks].filter((one) => !frozen.has(one.mir)), stamp, [...frozen])
     const statuses: Record<string, number> = {}
     for (const row of (await db.prepare('SELECT status, COUNT(*) AS n FROM rik_status GROUP BY status').all<{ status: string; n: number }>()).results ?? []) {

@@ -12,12 +12,15 @@ import {
   signedPersonFromRow,
   signedWaves,
   sofiaDateKey,
+  issueKeyOf,
   rikCorrectionsFilename,
   writeSignedWaveZip,
+  WAVE_PEOPLE_SQL,
+  type ClosedWaveRow,
   type SignedPerson,
   type SignedRow,
 } from './signed-waves'
-import { SIGNED_WAVE_COLUMNS, SIGNED_WAVE_SET_SQL } from './signed-waves-sql'
+import { CLOSED_WAVES_SQL, CLOSE_WAVE_SQL, SIGNED_WAVE_COLUMNS, SIGNED_WAVE_SET_SQL, SIGNING_WAVE_SCHEMA } from './signed-waves-sql'
 
 const person = (over: Partial<SignedPerson> = {}): SignedPerson => ({
   id: 's-1',
@@ -28,6 +31,9 @@ const person = (over: Partial<SignedPerson> = {}): SignedPerson => ({
   mir: '02',
   number: 605,
   issuedAt: '19.10.2026',
+  issueKey: '2026-10-19',
+  waveId: '',
+  signed: true,
   firstSignedAt: '2026-10-19T17:58:04.778Z',
   driveFileId: 'drive-1',
   partner: false,
@@ -45,21 +51,56 @@ describe('signed waves', () => {
     expect(sofiaDateKey('nope')).toBe('')
   })
 
-  it('numbers waves by date and counts people per РИК', () => {
+  it('a wave is the PDF date, never the upload day; counts signed people per РИК', () => {
     const people = [
-      person({ id: 'a', firstSignedAt: '2026-10-19T17:58:00Z' }),
-      person({ id: 'b', mir: '23', firstSignedAt: '2026-10-19T19:26:00Z' }),
-      person({ id: 'pp-c', partner: true, mir: '23', firstSignedAt: '2026-10-20T09:00:00Z' }),
-      person({ id: 'd', mir: '02', firstSignedAt: '2026-10-20T10:00:00Z' }),
+      person({ id: 'a', issuedAt: '19.10.2026', issueKey: '2026-10-19', firstSignedAt: '2026-10-19T17:58:00Z' }),
+      // Numbered 19.10, signed file uploaded two days later: still the 19.10 wave.
+      person({ id: 'late', mir: '23', issuedAt: '19.10.2026', issueKey: '2026-10-19', firstSignedAt: '2026-10-21T09:00:00Z' }),
+      person({ id: 'pp-c', partner: true, mir: '23', issuedAt: '20.10.2026', issueKey: '2026-10-20', firstSignedAt: '2026-10-20T09:00:00Z' }),
+      person({ id: 'd', mir: '02', issuedAt: '20.10.2026', issueKey: '2026-10-20', signed: false, firstSignedAt: '' }),
     ]
     const waves = signedWaves(people)
-    expect(waves).toEqual([
-      { key: '2026-10-19', wave: 1, date: '19.10.2026', count: 2, partners: 0, mirs: [{ mir: '02', count: 1 }, { mir: '23', count: 1 }] },
-      { key: '2026-10-20', wave: 2, date: '20.10.2026', count: 2, partners: 1, mirs: [{ mir: '02', count: 1 }, { mir: '23', count: 1 }] },
+    expect(waves.map(({ key, wave, date, count, total, partners, mirs, closed }) => ({ key, wave, date, count, total, partners, mirs, closed }))).toEqual([
+      { key: '2026-10-19', wave: 1, date: '19.10.2026', count: 2, total: 2, partners: 0, mirs: [{ mir: '02', count: 1 }, { mir: '23', count: 1 }], closed: false },
+      { key: '2026-10-20', wave: 2, date: '20.10.2026', count: 1, total: 2, partners: 1, mirs: [{ mir: '23', count: 1 }], closed: false },
     ])
-    expect(peopleInWave(people, '2026-10-19').map((item) => item.id)).toEqual(['a', 'b'])
-    expect(peopleInWave(people, 'all')).toHaveLength(4)
+    expect(peopleInWave(people, '2026-10-19').map((item) => item.id)).toEqual(['a', 'late'])
     expect(peopleInWave(people, '2026-10-21')).toEqual([])
+    // „all“ is everyone signed; the unsigned one is in no ZIP.
+    expect(peopleInWave(people, 'all').map((item) => item.id)).toEqual(['a', 'late', 'pp-c'])
+  })
+
+  it('closed waves of one date come before its open wave, in closing order', () => {
+    const closed = [
+      { id: 'w-b', issue_date: '2026-10-29', closed_at: '2026-10-29T15:00:00Z', closed_by: 'admin@example.com' },
+      { id: 'w-a', issue_date: '2026-10-29', closed_at: '2026-10-29T09:00:00Z', closed_by: 'admin@example.com' },
+      { id: 'w-old', issue_date: '2026-10-21', closed_at: '2026-10-22T09:00:00Z', closed_by: '' },
+    ]
+    const at29 = { issuedAt: '29.10.2026', issueKey: '2026-10-29' }
+    const people = [
+      person({ id: 'old', issuedAt: '21.10.2026', issueKey: '2026-10-21', waveId: 'w-old' }),
+      person({ id: 'm1', ...at29, waveId: 'w-a' }),
+      person({ id: 'm2', ...at29, waveId: 'w-b', signed: false, firstSignedAt: '' }),
+      person({ id: 'm3', ...at29 }),
+      // A wave id nobody knows (never closed here): the open wave of the PDF date.
+      person({ id: 'm4', ...at29, waveId: 'ghost' }),
+    ]
+    expect(signedWaves(people, closed).map((wave) => [wave.wave, wave.key, wave.date, wave.closed, wave.total])).toEqual([
+      [1, 'w-old', '21.10.2026', true, 1],
+      [2, 'w-a', '29.10.2026', true, 1],
+      [3, 'w-b', '29.10.2026', true, 1],
+      [4, '2026-10-29', '29.10.2026', false, 2],
+    ])
+    expect(peopleInWave(people, 'w-a', closed).map((item) => item.id)).toEqual(['m1'])
+    expect(peopleInWave(people, 'w-b', closed)).toEqual([])
+    expect(peopleInWave(people, '2026-10-29', closed).map((item) => item.id)).toEqual(['m3', 'm4'])
+  })
+
+  it('reads the PDF date in both stored formats', () => {
+    expect(issueKeyOf('23.10.2026')).toBe('2026-10-23')
+    expect(issueKeyOf('2026-10-23')).toBe('2026-10-23')
+    expect(issueKeyOf('2026-10-21T08:00:00.000Z')).toBe('2026-10-21')
+    expect(issueKeyOf('')).toBe('')
   })
 
   it('builds the table row and the signed PDF name like the documents', () => {
@@ -77,7 +118,7 @@ describe('signed waves', () => {
       egn: null,
       mir: '02',
       designation_number: 7,
-      issued_at: null,
+      issued_at: '19.10.2026',
       first_signed_at: '2026-10-19T18:00:00Z',
       drive_file_id: null,
       partner: 1,
@@ -85,7 +126,9 @@ describe('signed waves', () => {
     expect(signedPersonFromRow(row)).toMatchObject({ firstName: 'Ана', middleName: '', partner: true, driveFileId: '', number: 7 })
     expect(signedPersonFromRow({ ...row, designation_number: null })).toBeNull()
     expect(signedPersonFromRow({ ...row, mir: '' })).toBeNull()
-    expect(signedPersonFromRow({ ...row, first_signed_at: null })).toBeNull()
+    // Not signed yet: still a wave member (the wave is the PDF date), not in the ZIP.
+    expect(signedPersonFromRow({ ...row, first_signed_at: null })).toMatchObject({ signed: false, issueKey: '2026-10-19' })
+    expect(signedPersonFromRow({ ...row, issued_at: null })).toBeNull()
   })
 })
 
@@ -159,14 +202,14 @@ async function openDb(): Promise<Db | null> {
 }
 
 describe('signed people SQL', () => {
-  it('reads signups (not withdrawn) and partner people (not withdrawn, no duplicates), and the first upload fixes the wave', async () => {
+  it('reads signups (not withdrawn) and partner people (not withdrawn, no duplicates); the PDF date is the wave, not the upload', async () => {
     const db = await openDb()
     if (!db) return
     db.exec(`CREATE TABLE signups (id TEXT PRIMARY KEY, payload TEXT, egn TEXT, withdrawn INTEGER DEFAULT 0, published_section TEXT,
       designation_mir TEXT, designation_number INTEGER, designation_issued_at TEXT, designation_signed_at TEXT, designation_drive_file_id TEXT,
       designation_pdf_url TEXT, updated_at TEXT)`)
     db.exec(PARTNER_PEOPLE_TABLE)
-    for (const sql of [...SIGNED_WAVE_COLUMNS, ...PARTNER_WITHDRAWAL_COLUMNS]) db.exec(sql)
+    for (const sql of [...SIGNED_WAVE_COLUMNS, ...SIGNING_WAVE_SCHEMA, ...PARTNER_WITHDRAWAL_COLUMNS]) db.exec(sql)
     const payload = JSON.stringify({ firstName: 'Тодор', middleName: 'Иванов', lastName: 'Пробов' })
     const add = db.prepare(`INSERT INTO signups (id, payload, egn, withdrawn, published_section, designation_mir, designation_number, designation_issued_at, designation_signed_at, designation_drive_file_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, '19.10.2026', ?, 'f')`)
@@ -196,9 +239,10 @@ describe('signed people SQL', () => {
         ['s4', '02', 607, '2026-10-20', false],
       ].sort(),
     )
+    // s4 was numbered 19.10 and uploaded 20.10: it stays in the 19.10 wave.
     expect(signedWaves(people).map((wave) => [wave.wave, wave.key, wave.count])).toEqual([
-      [1, '2026-10-19', 2],
-      [2, '2026-10-20', 2],
+      [1, '2026-10-19', 3],
+      [2, '2026-10-20', 1],
     ])
   })
 
@@ -209,7 +253,7 @@ describe('signed people SQL', () => {
       designation_mir TEXT, designation_number INTEGER, designation_issued_at TEXT, designation_signed_at TEXT, designation_drive_file_id TEXT,
       designation_pdf_url TEXT, updated_at TEXT)`)
     db.exec(PARTNER_PEOPLE_TABLE)
-    for (const sql of [...SIGNED_WAVE_COLUMNS, ...PARTNER_WITHDRAWAL_COLUMNS]) db.exec(sql)
+    for (const sql of [...SIGNED_WAVE_COLUMNS, ...SIGNING_WAVE_SCHEMA, ...PARTNER_WITHDRAWAL_COLUMNS]) db.exec(sql)
     const payload = JSON.stringify({ firstName: 'Тест', middleName: 'Тестов', lastName: 'Тестов' })
     const vol = db.prepare(`INSERT INTO signups (id, payload, egn, published_section, designation_mir, designation_number, designation_issued_at, designation_signed_at, designation_drive_file_id)
       VALUES (?, ?, ?, ?, ?, ?, '19.10.2026', '2026-10-19T17:58:00Z', 'f')`)
@@ -250,5 +294,107 @@ describe('РИК name corrections in the wave ZIP', () => {
     const strings = strFromU8(unzipSync(files[name]!)['xl/sharedStrings.xml']!)
     expect(strings).toContain('Гергана Начева-Лазарова (вместо „Гергана Начева Начаева-Лазарова“)')
     expect(strings).not.toContain('Тодор')
+  })
+})
+
+describe('closing a wave („Изпратена на РИК“)', () => {
+  async function setup() {
+    const db = await openDb()
+    if (!db) return null
+    db.exec(`CREATE TABLE signups (id TEXT PRIMARY KEY, payload TEXT, egn TEXT, withdrawn INTEGER DEFAULT 0, published_section TEXT,
+      designation_mir TEXT, designation_number INTEGER, designation_issued_at TEXT, designation_signed_at TEXT, designation_drive_file_id TEXT,
+      designation_pdf_url TEXT, updated_at TEXT)`)
+    db.exec(PARTNER_PEOPLE_TABLE)
+    for (const sql of [...SIGNED_WAVE_COLUMNS, ...SIGNING_WAVE_SCHEMA, ...PARTNER_WITHDRAWAL_COLUMNS]) db.exec(sql)
+    const vol = db.prepare(`INSERT INTO signups (id, payload, egn, published_section, designation_mir, designation_number, designation_issued_at, designation_signed_at, designation_drive_file_id)
+      VALUES (?, ?, ?, ?, '02', ?, ?, ?, 'f')`)
+    const add = (id: string, first: string, number: number, issued: string, signed: string | null = null) =>
+      vol.run(id, JSON.stringify({ firstName: first, middleName: '', lastName: 'Вълнов' }), `E${id}`, '020400001', number, issued, signed)
+    const close = (id: string, date: string, at: string) => {
+      const insert = db.prepare(CLOSE_WAVE_SQL[0]!).run(id, date, at, 'admin@example.com') as { changes: number }
+      const a = db.prepare(CLOSE_WAVE_SQL[1]!).run(id, date) as { changes: number }
+      const b = db.prepare(CLOSE_WAVE_SQL[2]!).run(id, date) as { changes: number }
+      return { wave: Number(insert.changes), people: Number(a.changes) + Number(b.changes) }
+    }
+    const read = () => {
+      const people = (db.prepare(WAVE_PEOPLE_SQL).all() as SignedRow[]).map(signedPersonFromRow).filter((item): item is SignedPerson => item != null)
+      const closed = db.prepare(CLOSED_WAVES_SQL).all() as ClosedWaveRow[]
+      return { people, closed, waves: signedWaves(people, closed) }
+    }
+    return { db, add, close, read }
+  }
+
+  it('closes the open wave of a date; later numbers that day are a new wave; a second click adds nothing', async () => {
+    const t = await setup()
+    if (!t) return
+    t.add('a', 'Ана', 501, '29.10.2026', '2026-10-29T08:00:00Z')
+    t.add('b', 'Боян', 502, '29.10.2026')
+    t.add('old', 'Стар', 500, '28.10.2026', '2026-10-28T08:00:00Z')
+    // A partner row stored with the ISO form of the same date.
+    t.db.prepare(`INSERT INTO partner_people (id, partner, egn, first_name, last_name, designation_mir, designation_number, designation_issued_at, imported_at, updated_at)
+      VALUES ('pp-1', 'i-az', 'Epp', 'Иа', 'Вълнов', '02', 503, '2026-10-29', 'now', 'now')`).run()
+
+    expect(t.close('w1', '2026-10-29', '2026-10-29T10:00:00Z')).toEqual({ wave: 1, people: 3 })
+    expect(t.close('w-again', '2026-10-29', '2026-10-29T10:01:00Z')).toEqual({ wave: 0, people: 0 })
+
+    // Numbered after the click, same date: the next wave.
+    t.add('c', 'Цвета', 504, '29.10.2026')
+    let view = t.read()
+    expect(view.waves.map((wave) => [wave.wave, wave.key, wave.date, wave.closed, wave.total])).toEqual([
+      [1, '2026-10-28', '28.10.2026', false, 1],
+      [2, 'w1', '29.10.2026', true, 3],
+      [3, '2026-10-29', '29.10.2026', false, 1],
+    ])
+    expect(t.close('w2', '2026-10-29', '2026-10-29T16:00:00Z')).toEqual({ wave: 1, people: 1 })
+    view = t.read()
+    expect(view.waves.map((wave) => [wave.wave, wave.key, wave.closed, wave.total])).toEqual([
+      [1, '2026-10-28', false, 1],
+      [2, 'w1', true, 3],
+      [3, 'w2', true, 1],
+    ])
+    // The 28.10 wave was never touched.
+    expect(view.people.find((item) => item.id === 'old')?.waveId).toBe('')
+  })
+
+  it('a late signed upload stays in its PDF-date wave, and each wave has its own РИК tables', async () => {
+    const t = await setup()
+    if (!t) return
+    t.add('a', 'Ана', 501, '29.10.2026', '2026-10-29T08:00:00Z')
+    t.add('b', 'Боян', 502, '29.10.2026')
+    t.close('w1', '2026-10-29', '2026-10-29T10:00:00Z')
+    t.add('c', 'Цвета', 503, '29.10.2026', '2026-10-29T17:00:00Z')
+    t.close('w2', '2026-10-29', '2026-10-29T18:00:00Z')
+    // Боян's signed file comes two days later (the upload's SET clause): still wave w1.
+    t.db.prepare(`UPDATE signups SET ${SIGNED_WAVE_SET_SQL}, designation_signed_at = ? WHERE id = ?`).run('2026-10-31T09:00:00Z', '2026-10-31T09:00:00Z', 'b')
+    const view = t.read()
+    expect(view.people.find((item) => item.id === 'b')).toMatchObject({ waveId: 'w1', signed: true })
+    expect(view.waves.map((wave) => [wave.key, wave.count, wave.total])).toEqual([
+      ['w1', 2, 2],
+      ['w2', 1, 1],
+    ])
+    expect(peopleInWave(view.people, 'w1', view.closed).map((item) => item.id).sort()).toEqual(['a', 'b'])
+
+    const tableFor = async (wave: string) => {
+      const bytes = await collectStream(
+        streamZipWriter((add) =>
+          writeSignedWaveZip(add, {
+            people: peopleInWave(view.people, wave, view.closed),
+            committeeFullName: 'Комитет',
+            numberPrefix: '',
+            tablesOnly: true,
+            fetchPdf: null,
+          }).then(() => undefined),
+        ),
+      )
+      return strFromU8(unzipSync(unzipSync(bytes)['РИК 02/РИК 02 Представители.xlsx']!)['xl/sharedStrings.xml']!)
+    }
+    const first = await tableFor('w1')
+    expect(first).toContain('Ана Вълнов')
+    expect(first).toContain('Боян Вълнов')
+    expect(first).toContain('502/29.10.2026')
+    expect(first).not.toContain('Цвета')
+    const second = await tableFor('w2')
+    expect(second).toContain('503/29.10.2026')
+    expect(second).not.toContain('Ана')
   })
 })

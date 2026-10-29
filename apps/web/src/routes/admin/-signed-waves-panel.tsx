@@ -1,20 +1,34 @@
 import { useEffect, useState } from 'react'
 import { adminGhost } from '../../components/admin-ui'
 import type { SignedWave } from '../../signup/signed-waves'
-import { adminSignedWaves } from '../../signup/signed-waves-admin'
+import { adminCloseSigningWave, adminSignedWaves } from '../../signup/signed-waves-admin'
 
 const EXPORT_REASON = 'Нужно е право за експорт (редактор или админ).'
 
+function sofiaTime(iso: string) {
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return ''
+  return new Intl.DateTimeFormat('bg-BG', { timeZone: 'Europe/Sofia', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(at)
+}
+
+function people(count: number) {
+  return count === 1 ? '1 човек' : `${count} души`
+}
+
 /**
- * Подписани по вълни: each wave (one Sofia day of first signed uploads) downloads as a ZIP with
- * one folder per РИК — „РИК NN Представители.xlsx“ and that РИК's signed PDFs.
+ * Вълни → РИК. A wave is the date printed in the PDF. „Изпратена на РИК“ closes the open wave of
+ * that date; later numbers with the same date are the next wave. Each wave downloads as a ZIP
+ * with one folder per РИК — „РИК NN Представители.xlsx“ and that РИК's signed PDFs.
  */
 export function SignedWavesPanel({ canExport, refreshKey }: { canExport: boolean; refreshKey: number }) {
   const [waves, setWaves] = useState<SignedWave[]>([])
   const [total, setTotal] = useState(0)
   const [mirs, setMirs] = useState(0)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [loaded, setLoaded] = useState(false)
+  const [reload, setReload] = useState(0)
+  const [closing, setClosing] = useState('')
 
   useEffect(() => {
     if (!canExport) return
@@ -36,7 +50,26 @@ export function SignedWavesPanel({ canExport, refreshKey }: { canExport: boolean
     return () => {
       live = false
     }
-  }, [canExport, refreshKey])
+  }, [canExport, refreshKey, reload])
+
+  async function close(wave: SignedWave) {
+    const ok = window.confirm(
+      `Вълна ${wave.wave} (${wave.date}) е изпратена на РИК? Затваряме я с ${people(wave.total)}. Номерираните по-късно с дата ${wave.date} ще са нова вълна.`,
+    )
+    if (!ok) return
+    setClosing(wave.key)
+    setNotice('')
+    try {
+      const result = await adminCloseSigningWave({ data: { issueDate: wave.issueKey } })
+      if (!result.ok) setError(result.message)
+      else setNotice(`Вълна ${wave.wave} (${wave.date}) е затворена като изпратена на РИК.`)
+    } catch {
+      setError('Вълната не се затвори. Опитай пак.')
+    } finally {
+      setClosing('')
+      setReload((value) => value + 1)
+    }
+  }
 
   return (
     <section aria-labelledby="palnomoshtni-waves" className="grid gap-3 rounded-2xl border-2 border-[#2b062f] bg-white p-4" data-testid="signed-waves">
@@ -44,37 +77,62 @@ export function SignedWavesPanel({ canExport, refreshKey }: { canExport: boolean
         Подписани по вълни → РИК
       </h2>
       <p className="text-sm text-[#333]">
-        Вълна = денят (по софийско време), в който подписаното пълномощно е качено за първи път; повторно качване не мести човека. Всеки ZIP има папка за всеки РИК с
-        таблица „РИК NN Представители.xlsx“ (форматът от миналите избори) и подписаните PDF-и. Включени са записаните и „И аз“.
+        Вълна = датата в пълномощното (датата на номера), както е в РИК. Подписан файл, качен по-късно, остава във вълната на датата си. „Изпратена на РИК“
+        затваря отворената вълна; номерираните след това със същата дата са нова вълна. Всеки ZIP има папка за всеки РИК с таблица „РИК NN Представители.xlsx“
+        и подписаните PDF-и. Включени са записаните и „И аз“.
       </p>
       {!canExport ? <p className="text-sm font-bold text-[#8f1d1d]">{EXPORT_REASON}</p> : null}
       {error ? <p className="text-sm font-bold text-[#8f1d1d]">{error}</p> : null}
+      {notice ? <p className="text-sm font-bold text-[#1d6b34]" role="status">{notice}</p> : null}
       {canExport && !error && !loaded ? <p className="text-sm text-[#333]">Зареждаме вълните…</p> : null}
-      {canExport && !error && loaded ? (
+      {canExport && loaded ? (
         <>
           <p className="text-sm font-bold text-[#1a1020]" data-testid="signed-waves-total">
             Подписани общо: {total} · РИК: {mirs} · вълни: {waves.length}
           </p>
-          {waves.length === 0 ? <p className="text-sm text-[#333]">Още няма качени подписани пълномощни.</p> : null}
+          {waves.length === 0 ? <p className="text-sm text-[#333]">Още няма номерирани пълномощни.</p> : null}
           <ul className="grid gap-2" aria-label="Вълни">
             {waves.map((wave) => (
-              <li key={wave.key} className="grid gap-1 rounded-xl border border-[#d8cbe0] p-3">
+              <li
+                key={wave.key}
+                className={`grid gap-1 rounded-xl border p-3 ${wave.closed ? 'border-[#d8cbe0]' : 'border-2 border-[#1d7a3a]'}`}
+                data-wave={wave.wave}
+                data-closed={wave.closed ? '1' : '0'}
+              >
                 <p className="text-sm font-bold text-[#1a1020]">
-                  Вълна {wave.wave} · {wave.date} · {wave.count === 1 ? '1 човек' : `${wave.count} души`}{wave.partners ? ` (от тях „И аз“ ${wave.partners})` : ''} · РИК: {wave.mirs.length}
+                  Вълна {wave.wave} · {wave.date} ·{' '}
+                  {wave.closed ? (
+                    <span>изпратена на РИК {sofiaTime(wave.closedAt)}{wave.closedBy ? ` (${wave.closedBy})` : ''}</span>
+                  ) : (
+                    <span className="text-[#1d7a3a]">отворена</span>
+                  )}
+                </p>
+                <p className="text-sm text-[#1a1020]">
+                  Подписани {wave.count} от {wave.total}
+                  {wave.partners ? ` (от тях „И аз“ ${wave.partners})` : ''} · РИК: {wave.mirs.length}
                 </p>
                 <p className="text-xs text-[#333]">{wave.mirs.map((item) => `${item.mir}: ${item.count}`).join(' · ')}</p>
                 <div className="flex flex-wrap gap-2">
-                  <a className={adminGhost} href={`/admin/palnomoshtni/podpisani?wave=${wave.key}`}>
-                    Изтегли ZIP вълна {wave.wave} (PDF + таблици)
-                  </a>
-                  <a className={adminGhost} href={`/admin/palnomoshtni/podpisani?wave=${wave.key}&tables=1`}>
-                    Само таблиците РИК, вълна {wave.wave}
-                  </a>
+                  {wave.count > 0 ? (
+                    <>
+                      <a className={adminGhost} href={`/admin/palnomoshtni/podpisani?wave=${wave.key}`}>
+                        Изтегли ZIP вълна {wave.wave} (PDF + таблици)
+                      </a>
+                      <a className={adminGhost} href={`/admin/palnomoshtni/podpisani?wave=${wave.key}&tables=1`}>
+                        Само таблиците РИК, вълна {wave.wave}
+                      </a>
+                    </>
+                  ) : null}
+                  {!wave.closed ? (
+                    <button type="button" className={adminGhost} disabled={Boolean(closing)} onClick={() => void close(wave)}>
+                      {closing === wave.key ? 'Затваряме…' : `Изпратена на РИК — затвори вълна ${wave.wave}`}
+                    </button>
+                  ) : null}
                 </div>
               </li>
             ))}
           </ul>
-          {waves.length > 0 ? (
+          {total > 0 ? (
             <div className="flex flex-wrap gap-2">
               <a className={adminGhost} href="/admin/palnomoshtni/podpisani?wave=all">
                 Изтегли всички подписани досега (PDF + таблици)

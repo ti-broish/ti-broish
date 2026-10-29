@@ -85,7 +85,7 @@ test.describe('same ЕГН numbered in another МИР', () => {
       await expect(page.getByTestId('iaz-edit-message')).toContainText(`Чернова ${OTHER_MIR_SECTION} е запазена.`, { timeout: 5_000 })
     }).toPass({ timeout: 30_000 })
     expect(dialogs).toHaveLength(2)
-    expect(d1(`SELECT section_draft FROM partner_people WHERE id = '${PARTNER_ID}'`)[0]).toEqual({ section_draft: OTHER_MIR_SECTION })
+    expect(d1(`SELECT section_draft, designation_mir FROM partner_people WHERE id = '${PARTNER_ID}'`)[0]).toEqual({ section_draft: OTHER_MIR_SECTION, designation_mir: '04' })
 
     // Same МИР as the number: no prompt at all.
     page.on('dialog', (dialog) => {
@@ -98,6 +98,11 @@ test.describe('same ЕГН numbered in another МИР', () => {
       await expect(page.getByTestId('iaz-edit-message')).toContainText(`Чернова ${SAME_MIR_SECTION} е запазена.`, { timeout: 5_000 })
     }).toPass({ timeout: 30_000 })
     expect(dialogs).toHaveLength(2)
+    // The unnumbered „И аз“ МИР follows the section (mir-from-section triggers), with an audit line.
+    expect(d1(`SELECT designation_mir, designation_number FROM partner_people WHERE id = '${PARTNER_ID}'`)[0]).toEqual({ designation_mir: '25', designation_number: null })
+    expect(d1(`SELECT actor, before_text, after_text FROM signup_audit WHERE signup_id = '${PARTNER_ID}' AND field = 'mir'`)).toEqual([
+      { actor: 'system (МИР от секцията)', before_text: '04', after_text: '25' },
+    ])
 
     // The numbered volunteer without a section is listed and counted, shown „без секция“.
     await page.goto('/admin/palnomoshtni')

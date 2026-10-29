@@ -137,7 +137,9 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
     expect(await number('partner_people', 'pp-pub')).toMatchObject({ mir: '25' })
     expect((await number('partner_people', 'pp-pub'))?.n).not.toBeNull()
     expect((await number('partner_people', 'pp-draft'))?.n).toBeNull()
-    expect(report).toMatchObject({ numbered: 4, numberedPartners: 1, partnersMirSet: 1 })
+    // The МИР already followed the section when it was written (mir-from-section triggers); the
+    // pipeline's own МИР step is only a safety net for rows from before the triggers.
+    expect(report).toMatchObject({ numbered: 4, numberedPartners: 1, partnersMirSet: 0 })
 
     const pushes = calls.filter((call) => call.url.includes('/contacts/') && !call.url.endsWith('/attributes'))
     expect(pushes.map((call) => decodeURIComponent(call.url.split('/contacts/')[1]!.split('?')[0]!)).sort()).toEqual(['pub@example.test', 'signed@example.test'])

@@ -157,7 +157,7 @@ test.describe('staff admin', () => {
     await page.getByRole('radio', { name: 'В гр. София' }).check()
     await page.getByRole('button', { name: 'Запази' }).click()
     await expect(page.getByText('Записахме промените.')).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'История' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'История', exact: true })).toBeVisible()
     await expect(page.getByText('Роля: Секция → Мобилен екип').first()).toBeVisible()
     await expect(page.getByText('Дни: 25 октомври и 1 ноември → 25 октомври').first()).toBeVisible()
     await expect(page.getByText('Бележка от екипа: Празна бележка → Обадихме се, ще дойде и на двата дни.').first()).toBeVisible()

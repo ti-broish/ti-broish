@@ -11,6 +11,7 @@ import {
   peopleInWave,
   signedPersonFromRow,
   signedWaves,
+  signedZipBaseName,
   writeSignedWaveZip,
   type ClosedWaveRow,
   type SignedPerson,
@@ -131,7 +132,7 @@ function text(message: string, status: number) {
 }
 
 /**
- * GET /admin/palnomoshtni/podpisani?wave=<closed wave id>|YYYY-MM-DD (open wave of that PDF date)|all[&tables=1]
+ * GET /admin/palnomoshtni/podpisani?wave=<closed wave id>|YYYY-MM-DD (open wave of that PDF date)|open (all open waves)|all[&tables=1]
  * One folder per РИК with „РИК NN Представители.xlsx“ and that РИК's signed PDFs from Drive.
  */
 export async function serveSignedWaveZip(request: Request): Promise<Response> {
@@ -139,7 +140,7 @@ export async function serveSignedWaveZip(request: Request): Promise<Response> {
   if (!access.ok) return text(access.message, httpStatusForStaffDenial(access.state))
   const url = new URL(request.url)
   const wave = (url.searchParams.get('wave') ?? '').trim()
-  if (wave !== 'all' && !/^[\w-]{1,64}$/.test(wave)) return text('Вълната е дата (ГГГГ-ММ-ДД), номер на затворена вълна или „all“.', 400)
+  if (wave !== 'all' && !/^[\w-]{1,64}$/.test(wave)) return text('Вълната е дата (ГГГГ-ММ-ДД), номер на затворена вълна, „open“ или „all“.', 400)
   const tablesOnly = url.searchParams.get('tables') === '1'
   const [all, closed] = await Promise.all([loadWavePeople(access.db), loadClosedWaves(access.db)])
   const people = peopleInWave(all, wave, closed)
@@ -162,8 +163,7 @@ export async function serveSignedWaveZip(request: Request): Promise<Response> {
     })
   })
 
-  const found = signedWaves(all, closed).find((item) => item.key === wave)
-  const name = wave === 'all' ? `podpisani-vsichki-${new Date().toISOString().slice(0, 10)}` : `podpisani-valna-${found?.wave ?? 0}-${found?.issueKey ?? wave}`
+  const name = signedZipBaseName(wave, signedWaves(all, closed), new Date())
   const filename = `${name}${tablesOnly ? '-tablici' : ''}.zip`
   return new Response(stream, {
     status: 200,

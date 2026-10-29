@@ -47,7 +47,12 @@ export interface ClosedWaveRow {
 export interface SignedWave {
   /** Closed: the wave id. Open: its date, YYYY-MM-DD. */
   key: string
+  /** Closed waves: 1, 2, … in sending order (date, then closing time). Open waves: 0, they go by date. */
   wave: number
+  /** „Вълна 3 · 22.10.2026“ for a closed wave, „29.10 · отворена“ for an open one; never shifts when an old date reopens. */
+  label: string
+  /** „вълна 3“ / „29.10“: what the download and close buttons name. */
+  shortLabel: string
   /** dd.mm.yyyy, the date in the PDFs. */
   date: string
   issueKey: string
@@ -186,13 +191,19 @@ export function signedWaves(people: SignedPerson[], closed: ClosedWaveRow[] = []
       a.closedAt.localeCompare(b.closedAt) ||
       a.key.localeCompare(b.key),
   )
-  return entries.map((entry, index) => {
+  let closedNo = 0
+  return entries.map((entry) => {
     const members = byKey.get(entry.key) ?? []
     const signed = members.filter((person) => person.signed)
+    const wave = entry.closed ? ++closedNo : 0
+    const date = formatBgDate(entry.issueKey)
+    const day = date.slice(0, 5)
     return {
       ...entry,
-      wave: index + 1,
-      date: formatBgDate(entry.issueKey),
+      wave,
+      label: entry.closed ? `Вълна ${wave} · ${date}` : `${day} · отворена`,
+      shortLabel: entry.closed ? `вълна ${wave}` : day,
+      date,
       count: signed.length,
       total: members.length,
       partners: signed.filter((person) => person.partner).length,
@@ -201,17 +212,41 @@ export function signedWaves(people: SignedPerson[], closed: ClosedWaveRow[] = []
   })
 }
 
+/** podpisani-vsichki-<day>, podpisani-neizprateni-<day>, podpisani-valna-N-<date> (closed), podpisani-otvorena-<date>. */
+export function signedZipBaseName(wave: string, waves: SignedWave[], now: Date) {
+  const day = sofiaDateKey(now.toISOString())
+  if (wave === 'all') return `podpisani-vsichki-${day}`
+  if (wave === UNSENT_WAVES_KEY) return `podpisani-neizprateni-${day}`
+  const found = waves.find((item) => item.key === wave)
+  if (found && !found.closed) return `podpisani-otvorena-${found.issueKey}`
+  return `podpisani-valna-${found?.wave ?? 0}-${found?.issueKey ?? wave}`
+}
+
+/** Signed and not sent yet: every open wave, all dates. */
+export function unsentSummary(waves: SignedWave[]) {
+  const open = waves.filter((wave) => !wave.closed)
+  const mirs = new Set(open.flatMap((wave) => wave.mirs.filter((item) => item.count > 0).map((item) => item.mir)))
+  return { count: open.reduce((sum, wave) => sum + wave.count, 0), mirs: mirs.size, dates: open.filter((wave) => wave.count > 0).map((wave) => wave.date.slice(0, 5)) }
+}
+
 export function countByMir(people: SignedPerson[]) {
   const counts = new Map<string, number>()
   for (const person of people) counts.set(person.mir, (counts.get(person.mir) ?? 0) + 1)
   return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([mir, count]) => ({ mir, count }))
 }
 
-/** Signed people of one wave (its key), or everyone signed so far for 'all'. */
+/** The download key for „Всички неизпратени“: every signed person in any open wave, all dates. */
+export const UNSENT_WAVES_KEY = 'open'
+
+/**
+ * Signed people of one wave (its key), everyone signed so far for 'all', or everyone signed and
+ * not sent yet (in an open wave of any date) for UNSENT_WAVES_KEY.
+ */
 export function peopleInWave(people: SignedPerson[], wave: string, closed: ClosedWaveRow[] = []) {
   const signed = people.filter((person) => person.signed)
   if (wave === 'all') return signed
   const closedIds = new Set(closed.map((row) => row.id))
+  if (wave === UNSENT_WAVES_KEY) return signed.filter((person) => !closedIds.has(waveKeyOf(person, closedIds)))
   return signed.filter((person) => waveKeyOf(person, closedIds) === wave)
 }
 

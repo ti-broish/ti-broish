@@ -40,19 +40,20 @@ test.describe('signed пълномощни by wave, with РИК tables', () => {
     const panel = page.getByTestId('signed-waves')
     await expect(panel.getByRole('heading', { name: 'Подписани по вълни → РИК' })).toBeVisible({ timeout: 30_000 })
     // A: numbered 05.01, signed file uploaded 06.01 — still the 05.01 wave (the date in the PDF).
-    const first = panel.getByRole('listitem').filter({ hasText: '05.01.2026' })
-    await expect(first).toContainText('отворена')
+    const first = panel.locator(`li[data-date="${DAY_ONE}"]`)
+    await expect(first).toContainText('05.01 · отворена')
+    await expect(first).toHaveAttribute('data-wave', '0')
     await expect(first).toContainText('Подписани 2 от 2')
     await expect(first).toContainText('91: 1 · 92: 1')
-    const second = panel.getByRole('listitem').filter({ hasText: '06.01.2026' })
+    const second = panel.locator(`li[data-date="${DAY_TWO}"]`)
     await expect(second).toContainText('Подписани 1 от 1 (от тях „И аз“ 1)')
-    await expect(first.getByRole('link', { name: /Изтегли ZIP вълна \d+ \(PDF \+ таблици\)/ })).toHaveAttribute('href', `/admin/palnomoshtni/podpisani?wave=${DAY_ONE}`)
+    await expect(first.getByRole('link', { name: 'Изтегли ZIP 05.01 (PDF + таблици)' })).toHaveAttribute('href', `/admin/palnomoshtni/podpisani?wave=${DAY_ONE}`)
     await expect(panel.getByRole('link', { name: 'Изтегли всички подписани досега (PDF + таблици)' })).toBeVisible()
     await expect(panel).not.toContainText(EGN_A)
 
     const tables = await page.request.get(`/admin/palnomoshtni/podpisani?wave=${DAY_ONE}&tables=1`)
     expect(tables.status()).toBe(200)
-    expect(tables.headers()['content-disposition']).toMatch(new RegExp(`podpisani-valna-\\d+-${DAY_ONE}-tablici\\.zip`))
+    expect(tables.headers()['content-disposition']).toMatch(new RegExp(`podpisani-otvorena-${DAY_ONE}-tablici\\.zip`))
     const tableFiles = unzipSync(new Uint8Array(await tables.body()))
     expect(Object.keys(tableFiles).sort()).toEqual(['РИК 91/РИК 91 Представители.xlsx', 'РИК 92/РИК 92 Представители.xlsx'])
     const rik91 = unzipSync(tableFiles['РИК 91/РИК 91 Представители.xlsx']!)
@@ -63,6 +64,21 @@ test.describe('signed пълномощни by wave, with РИК tables', () => {
     expect(strings).toContain('701/05.01.2026')
     expect(strings).not.toContain('Партньор')
     expect(strFromU8(rik91['xl/worksheets/sheet1.xml']!)).toContain('<c r="B3" s="11"><v>701</v></c>')
+
+    // „Всички неизпратени“: both open dates in one ZIP, one table per РИК.
+    const unsentBlock = panel.getByTestId('signed-waves-unsent')
+    await expect(unsentBlock).toContainText('05.01')
+    await expect(unsentBlock).toContainText('06.01')
+    await expect(unsentBlock.getByRole('link', { name: 'Само таблиците РИК, всички неизпратени' })).toHaveAttribute('href', '/admin/palnomoshtni/podpisani?wave=open&tables=1')
+    const unsent = await page.request.get('/admin/palnomoshtni/podpisani?wave=open&tables=1')
+    expect(unsent.status()).toBe(200)
+    expect(unsent.headers()['content-disposition']).toMatch(/podpisani-neizprateni-\d{4}-\d{2}-\d{2}-tablici\.zip/)
+    const unsentFiles = unzipSync(new Uint8Array(await unsent.body()))
+    const unsent92 = strFromU8(unzipSync(unsentFiles['РИК 92/РИК 92 Представители.xlsx']!)['xl/sharedStrings.xml']!)
+    expect(unsent92).toContain('Иа Вълнов Партньор')
+    expect(unsent92).toContain('/05.01.2026')
+    expect(unsent92).toContain('703/06.01.2026')
+    expect(strFromU8(unzipSync(unsentFiles['РИК 91/РИК 91 Представители.xlsx']!)['xl/sharedStrings.xml']!)).toContain('701/05.01.2026')
 
     // The full ZIP: tables plus PDFs; with no Drive file locally the PDFs are listed as missing.
     const full = await page.request.get(`/admin/palnomoshtni/podpisani?wave=${DAY_TWO}`)
@@ -76,8 +92,8 @@ test.describe('signed пълномощни by wave, with РИК tables', () => {
 
     // „Изпратена на РИК“ closes the 05.01 wave.
     page.once('dialog', (dialog) => void dialog.accept())
-    await first.getByRole('button', { name: /Изпратена на РИК — затвори вълна \d+/ }).click()
-    await expect(panel.getByRole('status')).toContainText('(05.01.2026) е затворена като изпратена на РИК')
+    await first.getByRole('button', { name: 'Изпратена на РИК — затвори 05.01' }).click()
+    await expect(panel.getByRole('status')).toContainText('05.01.2026 е затворена като изпратена на РИК')
     const closed = panel.locator('li[data-closed="1"]').filter({ hasText: '05.01.2026' })
     await expect(closed).toContainText('изпратена на РИК')
     await expect(closed).toContainText('Подписани 2 от 2')
@@ -90,10 +106,17 @@ test.describe('signed пълномощни by wave, with РИК tables', () => {
     // Numbered later with the same PDF date: a new, open wave after the closed one.
     seedLate()
     await page.reload()
-    const reopened = panel.locator('li[data-closed="0"]').filter({ hasText: '05.01.2026' })
+    const reopened = panel.locator(`li[data-closed="0"][data-date="${DAY_ONE}"]`)
     await expect(reopened).toContainText('Подписани 1 от 1', { timeout: 30_000 })
-    const closedNo = Number(await panel.locator('li[data-closed="1"]').filter({ hasText: '05.01.2026' }).getAttribute('data-wave'))
-    expect(Number(await reopened.getAttribute('data-wave'))).toBe(closedNo + 1)
+    // Open waves go by date, so reopening 05.01 renumbers nothing.
+    await expect(reopened).toContainText('05.01 · отворена')
+    await expect(reopened).toHaveAttribute('data-wave', '0')
+    expect(Number(await panel.locator('li[data-closed="1"]').filter({ hasText: '05.01.2026' }).getAttribute('data-wave'))).toBeGreaterThan(0)
+    // The unsent ZIP now has only the late one from 05.01, not the sent ones.
+    const unsentAfter = unzipSync(new Uint8Array(await (await page.request.get('/admin/palnomoshtni/podpisani?wave=open&tables=1')).body()))
+    const unsentAfter91 = strFromU8(unzipSync(unsentAfter['РИК 91/РИК 91 Представители.xlsx']!)['xl/sharedStrings.xml']!)
+    expect(unsentAfter91).toContain('704/05.01.2026')
+    expect(unsentAfter91).not.toContain('Вълна Първа Тестова')
 
     // Each wave has its own РИК tables.
     const closedTables = unzipSync(new Uint8Array(await (await page.request.get(closedHref!)).body()))

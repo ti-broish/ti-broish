@@ -11,7 +11,10 @@ import {
   signedPdfName,
   signedPersonFromRow,
   signedWaves,
+  signedZipBaseName,
   sofiaDateKey,
+  unsentSummary,
+  UNSENT_WAVES_KEY,
   issueKeyOf,
   rikCorrectionsFilename,
   writeSignedWaveZip,
@@ -61,8 +64,8 @@ describe('signed waves', () => {
     ]
     const waves = signedWaves(people)
     expect(waves.map(({ key, wave, date, count, total, partners, mirs, closed }) => ({ key, wave, date, count, total, partners, mirs, closed }))).toEqual([
-      { key: '2026-10-19', wave: 1, date: '19.10.2026', count: 2, total: 2, partners: 0, mirs: [{ mir: '02', count: 1 }, { mir: '23', count: 1 }], closed: false },
-      { key: '2026-10-20', wave: 2, date: '20.10.2026', count: 1, total: 2, partners: 1, mirs: [{ mir: '23', count: 1 }], closed: false },
+      { key: '2026-10-19', wave: 0, date: '19.10.2026', count: 2, total: 2, partners: 0, mirs: [{ mir: '02', count: 1 }, { mir: '23', count: 1 }], closed: false },
+      { key: '2026-10-20', wave: 0, date: '20.10.2026', count: 1, total: 2, partners: 1, mirs: [{ mir: '23', count: 1 }], closed: false },
     ])
     expect(peopleInWave(people, '2026-10-19').map((item) => item.id)).toEqual(['a', 'late'])
     expect(peopleInWave(people, '2026-10-21')).toEqual([])
@@ -89,11 +92,87 @@ describe('signed waves', () => {
       [1, 'w-old', '21.10.2026', true, 1],
       [2, 'w-a', '29.10.2026', true, 1],
       [3, 'w-b', '29.10.2026', true, 1],
-      [4, '2026-10-29', '29.10.2026', false, 2],
+      [0, '2026-10-29', '29.10.2026', false, 2],
     ])
     expect(peopleInWave(people, 'w-a', closed).map((item) => item.id)).toEqual(['m1'])
     expect(peopleInWave(people, 'w-b', closed)).toEqual([])
     expect(peopleInWave(people, '2026-10-29', closed).map((item) => item.id)).toEqual(['m3', 'm4'])
+  })
+
+  it('labels: closed waves are numbered among closed ones, open ones go by date and never shift', () => {
+    const closed = [
+      { id: 'w-21', issue_date: '2026-10-21', closed_at: '2026-10-21T20:59:00Z', closed_by: 'backfill' },
+      { id: 'w-27', issue_date: '2026-10-27', closed_at: '2026-10-27T21:59:00Z', closed_by: 'backfill' },
+    ]
+    const people = [
+      person({ id: 'a', mir: '05', number: 501, issuedAt: '21.10.2026', issueKey: '2026-10-21', waveId: 'w-21' }),
+      person({ id: 'b', mir: '05', number: 509, issuedAt: '29.10.2026', issueKey: '2026-10-29' }),
+    ]
+    const before = signedWaves(people, closed).map((wave) => wave.label)
+    expect(before).toEqual(['Вълна 1 · 21.10.2026', 'Вълна 2 · 27.10.2026', '29.10 · отворена'])
+    // A late signer reopens 27.10: the labels already shown stay the same.
+    const late = person({ id: 'late', mir: '05', number: 508, issuedAt: '27.10.2026', issueKey: '2026-10-27' })
+    const after = signedWaves([...people, late], closed)
+    expect(after.map((wave) => wave.label)).toEqual(['Вълна 1 · 21.10.2026', 'Вълна 2 · 27.10.2026', '27.10 · отворена', '29.10 · отворена'])
+    expect(after.map((wave) => wave.shortLabel)).toEqual(['вълна 1', 'вълна 2', '27.10', '29.10'])
+  })
+
+  it('„Всички неизпратени“: every signed person in any open wave, all dates; nobody from a closed wave, nobody unsigned', () => {
+    const closed = [{ id: 'w-27', issue_date: '2026-10-27', closed_at: '2026-10-27T21:59:00Z', closed_by: 'backfill' }]
+    const people = [
+      person({ id: 'sent', mir: '05', number: 507, issuedAt: '27.10.2026', issueKey: '2026-10-27', waveId: 'w-27' }),
+      person({ id: 'late', mir: '05', number: 508, issuedAt: '27.10.2026', issueKey: '2026-10-27' }),
+      person({ id: 'today', mir: '05', number: 509, issuedAt: '29.10.2026', issueKey: '2026-10-29' }),
+      person({ id: 'other', mir: '23', number: 516, issuedAt: '27.10.2026', issueKey: '2026-10-27' }),
+      person({ id: 'unsigned', mir: '05', number: 510, issuedAt: '29.10.2026', issueKey: '2026-10-29', signed: false, firstSignedAt: '' }),
+      // A wave id nobody knows: open, so unsent.
+      person({ id: 'ghost', mir: '23', number: 517, issuedAt: '29.10.2026', issueKey: '2026-10-29', waveId: 'ghost' }),
+    ]
+    expect(peopleInWave(people, UNSENT_WAVES_KEY, closed).map((item) => item.id).sort()).toEqual(['ghost', 'late', 'other', 'today'])
+    const waves = signedWaves(people, closed)
+    expect(unsentSummary(waves)).toEqual({ count: 4, mirs: 2, dates: ['27.10', '29.10'] })
+    expect(unsentSummary(waves.filter((wave) => wave.closed))).toEqual({ count: 0, mirs: 0, dates: [] })
+  })
+
+  it('the unsent ZIP has one folder and one table per РИК, all open dates together, each row with its own date', async () => {
+    const closed = [{ id: 'w-27', issue_date: '2026-10-27', closed_at: '2026-10-27T21:59:00Z', closed_by: '' }]
+    const all = [
+      person({ id: 'sent', mir: '05', number: 507, firstName: 'Изпратен', issuedAt: '27.10.2026', issueKey: '2026-10-27', waveId: 'w-27' }),
+      person({ id: 'today', mir: '05', number: 540, firstName: 'Днешен', issuedAt: '29.10.2026', issueKey: '2026-10-29' }),
+      person({ id: 'late', mir: '05', number: 508, firstName: 'Закъснял', issuedAt: '27.10.2026', issueKey: '2026-10-27' }),
+      person({ id: 'other', mir: '23', number: 516, firstName: 'Друг', issuedAt: '27.10.2026', issueKey: '2026-10-27' }),
+    ]
+    const people = peopleInWave(all, UNSENT_WAVES_KEY, closed)
+    const bytes = await collectStream(
+      streamZipWriter((add) =>
+        writeSignedWaveZip(add, { people, committeeFullName: 'Комитет', numberPrefix: '', tablesOnly: true, fetchPdf: async () => new Uint8Array() }).then(() => undefined),
+      ),
+    )
+    const files = unzipSync(bytes)
+    expect(Object.keys(files).sort()).toEqual(['РИК 05/РИК 05 Представители.xlsx', 'РИК 23/РИК 23 Представители.xlsx'])
+    const table = unzipSync(files['РИК 05/РИК 05 Представители.xlsx']!)
+    const strings = strFromU8(table['xl/sharedStrings.xml']!)
+    expect(strings).toContain('508/27.10.2026')
+    expect(strings).toContain('540/29.10.2026')
+    expect(strings).not.toContain('Изпратен')
+    const sheet = strFromU8(table['xl/worksheets/sheet1.xml']!)
+    expect(sheet.indexOf('<v>508</v>')).toBeLessThan(sheet.indexOf('<v>540</v>'))
+  })
+
+  it('names the ZIP: closed by number, open by date, unsent and all by the Sofia day', () => {
+    const closed = [{ id: 'w-27', issue_date: '2026-10-27', closed_at: '2026-10-27T21:59:00Z', closed_by: '' }]
+    const waves = signedWaves(
+      [
+        person({ id: 'a', issuedAt: '27.10.2026', issueKey: '2026-10-27', waveId: 'w-27' }),
+        person({ id: 'b', issuedAt: '27.10.2026', issueKey: '2026-10-27' }),
+      ],
+      closed,
+    )
+    const now = new Date('2026-10-29T22:30:00Z') // already 30.10 in Sofia
+    expect(signedZipBaseName('w-27', waves, now)).toBe('podpisani-valna-1-2026-10-27')
+    expect(signedZipBaseName('2026-10-27', waves, now)).toBe('podpisani-otvorena-2026-10-27')
+    expect(signedZipBaseName(UNSENT_WAVES_KEY, waves, now)).toBe('podpisani-neizprateni-2026-10-30')
+    expect(signedZipBaseName('all', waves, now)).toBe('podpisani-vsichki-2026-10-30')
   })
 
   it('reads the PDF date in both stored formats', () => {
@@ -241,8 +320,8 @@ describe('signed people SQL', () => {
     )
     // s4 was numbered 19.10 and uploaded 20.10: it stays in the 19.10 wave.
     expect(signedWaves(people).map((wave) => [wave.wave, wave.key, wave.count])).toEqual([
-      [1, '2026-10-19', 3],
-      [2, '2026-10-20', 1],
+      [0, '2026-10-19', 3],
+      [0, '2026-10-20', 1],
     ])
   })
 
@@ -342,17 +421,17 @@ describe('closing a wave („Изпратена на РИК“)', () => {
     t.add('c', 'Цвета', 504, '29.10.2026', '2026-10-29T12:00:00Z')
     let view = t.read()
     expect(view.waves.map((wave) => [wave.wave, wave.key, wave.date, wave.closed, wave.count, wave.total])).toEqual([
-      [1, '2026-10-28', '28.10.2026', false, 1, 1],
-      [2, 'w1', '29.10.2026', true, 2, 2],
-      [3, '2026-10-29', '29.10.2026', false, 1, 2],
+      [0, '2026-10-28', '28.10.2026', false, 1, 1],
+      [1, 'w1', '29.10.2026', true, 2, 2],
+      [0, '2026-10-29', '29.10.2026', false, 1, 2],
     ])
     expect(t.close('w2', '2026-10-29', '2026-10-29T16:00:00Z')).toEqual({ wave: 1, people: 1 })
     view = t.read()
     expect(view.waves.map((wave) => [wave.wave, wave.key, wave.closed, wave.count, wave.total])).toEqual([
-      [1, '2026-10-28', false, 1, 1],
-      [2, 'w1', true, 2, 2],
-      [3, 'w2', true, 1, 1],
-      [4, '2026-10-29', false, 0, 1],
+      [0, '2026-10-28', false, 1, 1],
+      [1, 'w1', true, 2, 2],
+      [2, 'w2', true, 1, 1],
+      [0, '2026-10-29', false, 0, 1],
     ])
     // Only unsigned people waiting: nothing to close.
     expect(t.close('w3', '2026-10-29', '2026-10-29T17:00:00Z')).toEqual({ wave: 0, people: 0 })

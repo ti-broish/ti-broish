@@ -6,17 +6,38 @@
  * the section attributes. „И аз“ people are numbered but never go to our Brevo.
  */
 
-import { partnerEgnFreeSql, signupEgnFreeSql } from './designation-duplicates'
+import { egnHeldSql, partnerDuplicateSql, signupDuplicateSql } from './designation-duplicates'
+import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
+
+const SIGNUP_SECTION_MIR = `substr(COALESCE(published_section, ''), 1, 2)`
+const PARTNER_SECTION_MIR = `substr(COALESCE(section_published, ''), 1, 2)`
 
 /**
- * Unnumbered, but the same ЕГН already holds a number on another row (often an „И аз“ row from the
- * first round): the same person again, not a new one. Never numbered (one ЕГН, one пълномощно),
- * not counted as waiting for a number, and not sent to Brevo with this section. Outer table: signups.
+ * Unnumbered, with a published section, and the same ЕГН holds a number in that section's МИР: the
+ * пълномощно is valid for the whole МИР, so this person is covered (counts as numbered, gets the
+ * Brevo section sync, never a second number). Outer table: signups.
  */
-export const SIGNUP_HELD_ELSEWHERE_SQL = `(designation_number IS NULL AND NOT (${signupEgnFreeSql('signups')}))`
+export const SIGNUP_COVERED_SAME_MIR_SQL = `(designation_number IS NULL AND ${egnHeldSql('signups', 'signups', SIGNUP_SECTION_MIR, true)})`
 
-/** Unnumbered „И аз“ that will not get a number: same ЕГН numbered elsewhere, or covered by a volunteer. Outer: partner_people. */
-export const PARTNER_HELD_ELSEWHERE_SQL = `(designation_number IS NULL AND NOT (${partnerEgnFreeSql('partner_people')}))`
+/**
+ * Unnumbered, and the same ЕГН holds a number only in a DIFFERENT МИР than the published section:
+ * the real conflict. Never numbered, not „без номер“, not sent to Brevo with this section. Outer: signups.
+ */
+export const SIGNUP_HELD_ELSEWHERE_SQL = `(designation_number IS NULL AND NOT ${egnHeldSql('signups', 'signups', SIGNUP_SECTION_MIR, true)}
+  AND ${egnHeldSql('signups', 'signups', SIGNUP_SECTION_MIR, false)})`
+
+/** Unnumbered „И аз“ covered in the same МИР by the number its ЕГН holds elsewhere, or by a volunteer (covered_by). Outer: partner_people. */
+export const PARTNER_COVERED_SQL = `(designation_number IS NULL AND (${egnHeldSql('partner_people', 'partner_people', PARTNER_SECTION_MIR, true)}
+  OR EXISTS (SELECT 1 FROM signups c WHERE c.id = partner_people.covered_by_signup_id AND COALESCE(c.withdrawn, 0) = 0)))`
+
+/** Unnumbered „И аз“ whose ЕГН holds a number only in another МИР. Outer: partner_people. */
+export const PARTNER_HELD_ELSEWHERE_SQL = `(designation_number IS NULL AND NOT ${PARTNER_COVERED_SQL}
+  AND ${egnHeldSql('partner_people', 'partner_people', PARTNER_SECTION_MIR, false)})`
+
+/** The signing ZIP's own set („/admin/designation-zip“): numbered, active, not a duplicate, with or without a section. */
+const SIGNUP_ZIP_SET = `${SIGNUP_DESIGNATION_SECTION_SQL} != '' AND designation_number IS NOT NULL AND COALESCE(withdrawn, 0) = 0 AND NOT ${signupDuplicateSql('signups')}`
+const PARTNER_ZIP_SET = `COALESCE(designation_mir, '') != '' AND designation_number IS NOT NULL AND withdrawn_at IS NULL AND NOT ${partnerDuplicateSql('partner_people')}`
+const NEW_SCOPE = 'designation_signed_at IS NULL AND designation_signing_generated_at IS NULL'
 
 /** Added at runtime by db-core and in sql/2026-10-29-brevo-section-synced.sql. */
 export const BREVO_SECTION_SYNC_COLUMNS = [
@@ -59,30 +80,43 @@ export function partnerMirFromSectionSql(scoped: boolean) {
 /** Counts for the report and the admin line: how far people with a published section are. */
 export const PIPELINE_COUNTS_SQL = `SELECT
   (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0) AS volunteers,
-  (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND designation_number IS NULL AND NOT ${SIGNUP_HELD_ELSEWHERE_SQL}) AS volunteers_unnumbered,
+  (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND designation_number IS NULL
+     AND NOT ${SIGNUP_COVERED_SAME_MIR_SQL} AND NOT ${SIGNUP_HELD_ELSEWHERE_SQL}) AS volunteers_unnumbered,
+  (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND ${SIGNUP_COVERED_SAME_MIR_SQL}) AS volunteers_covered,
   (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND ${SIGNUP_HELD_ELSEWHERE_SQL}) AS volunteers_held_elsewhere,
-  (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND designation_number IS NOT NULL
-     AND designation_signed_at IS NULL AND designation_signing_generated_at IS NULL) AS volunteers_to_sign,
-  (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND ${REAL_EMAIL_SQL}) AS volunteers_brevo,
+  (SELECT COUNT(*) FROM signups WHERE ${SIGNUP_ZIP_SET}) AS volunteers_numbered,
+  (SELECT COUNT(*) FROM signups WHERE ${SIGNUP_ZIP_SET} AND COALESCE(published_section, '') = '') AS volunteers_numbered_no_section,
+  (SELECT COUNT(*) FROM signups WHERE ${SIGNUP_ZIP_SET} AND ${NEW_SCOPE}) AS volunteers_to_sign,
+  (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND ${REAL_EMAIL_SQL}
+     AND NOT ${SIGNUP_HELD_ELSEWHERE_SQL}) AS volunteers_brevo,
   (SELECT COUNT(*) FROM signups WHERE ${BREVO_SECTION_PENDING_WHERE}) AS volunteers_brevo_pending,
   (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL) AS partners,
-  (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL AND designation_number IS NULL AND NOT ${PARTNER_HELD_ELSEWHERE_SQL}) AS partners_unnumbered,
+  (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL AND designation_number IS NULL
+     AND NOT ${PARTNER_COVERED_SQL} AND NOT ${PARTNER_HELD_ELSEWHERE_SQL}) AS partners_unnumbered,
   (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL AND ${PARTNER_HELD_ELSEWHERE_SQL}) AS partners_held_elsewhere,
-  (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL AND designation_number IS NOT NULL
-     AND designation_signed_at IS NULL AND designation_signing_generated_at IS NULL) AS partners_to_sign`
+  (SELECT COUNT(*) FROM partner_people WHERE ${PARTNER_ZIP_SET}) AS partners_numbered,
+  (SELECT COUNT(*) FROM partner_people WHERE ${PARTNER_ZIP_SET} AND COALESCE(section_published, '') = '') AS partners_numbered_no_section,
+  (SELECT COUNT(*) FROM partner_people WHERE ${PARTNER_ZIP_SET} AND ${NEW_SCOPE}) AS partners_to_sign`
 
 export type PipelineCounts = {
   volunteers: number
   /** Unnumbered and their ЕГН holds no number elsewhere: really waiting for one. */
   volunteersUnnumbered: number
-  /** Unnumbered because the same ЕГН already holds a number (the same person again, not new). */
+  /** Unnumbered, covered by the number their ЕГН holds in the same МИР (valid there): counts as numbered. */
+  volunteersCovered: number
+  /** Unnumbered because the same ЕГН holds a number only in another МИР (the real conflict). */
   volunteersHeldElsewhere: number
+  /** In the signing ZIP set (numbered, active, not a duplicate), with or without a section. */
+  volunteersNumbered: number
+  volunteersNumberedNoSection: number
   volunteersToSign: number
   volunteersBrevo: number
   volunteersBrevoPending: number
   partners: number
   partnersUnnumbered: number
   partnersHeldElsewhere: number
+  partnersNumbered: number
+  partnersNumberedNoSection: number
   partnersToSign: number
 }
 
@@ -91,13 +125,18 @@ export function pipelineCountsFrom(row: Record<string, unknown> | null | undefin
   return {
     volunteers: n('volunteers'),
     volunteersUnnumbered: n('volunteers_unnumbered'),
+    volunteersCovered: n('volunteers_covered'),
     volunteersHeldElsewhere: n('volunteers_held_elsewhere'),
+    volunteersNumbered: n('volunteers_numbered'),
+    volunteersNumberedNoSection: n('volunteers_numbered_no_section'),
     volunteersToSign: n('volunteers_to_sign'),
     volunteersBrevo: n('volunteers_brevo'),
     volunteersBrevoPending: n('volunteers_brevo_pending'),
     partners: n('partners'),
     partnersUnnumbered: n('partners_unnumbered'),
     partnersHeldElsewhere: n('partners_held_elsewhere'),
+    partnersNumbered: n('partners_numbered'),
+    partnersNumberedNoSection: n('partners_numbered_no_section'),
     partnersToSign: n('partners_to_sign'),
   }
 }

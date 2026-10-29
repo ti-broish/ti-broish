@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
+import { partnerPublishConfirmed, partnerSaveConfirmed } from './-other-mir-confirm'
 import { useAdminAccess } from '../../components/AdminShell'
 import { adminGhost, adminInput } from '../../components/admin-ui'
 import { ELECTION_DISTRICTS } from '../../signup/designation-config'
 import { adminPartnerHistory, adminPartnerSetMir, adminPartnerUpdate, adminPartnerWithdraw } from '../../signup/partner-import-admin'
 import { PARTNER_EDIT_FIELDS, type PartnerEditable } from '../../signup/partner-person-edit'
-import { adminPartnerPublish, adminPartnerSave, adminPartnerUnpublish } from '../../signup/partner-sections-admin'
+import { adminPartnerUnpublish } from '../../signup/partner-sections-admin'
 
 export type IazEditablePerson = PartnerEditable & {
   id: string
@@ -149,7 +150,7 @@ export function IazEditPanel({ person, initialMessage = '', onChanged }: { perso
             type="button"
             className={adminGhost}
             disabled={!canEdit || withdrawn || busy || !draftChanged}
-            onClick={() => run(() => adminPartnerSave({ data: { id: person.id, section } }))}
+            onClick={() => run(() => partnerSaveConfirmed(person.id, section))}
           >
             Запази черновата
           </button>
@@ -158,7 +159,7 @@ export function IazEditPanel({ person, initialMessage = '', onChanged }: { perso
             className={adminGhost}
             disabled={!canPublish || withdrawn || busy || !canPublishDraft}
             title="Публикува черновата; номерира пълномощното в МИР на секцията и го слага в „Само новите“ за подпис. Без писма."
-            onClick={() => run(() => adminPartnerPublish({ data: { ids: [person.id] } }))}
+            onClick={() => run(() => partnerPublishConfirmed([person.id]))}
           >
             Публикувай
           </button>

@@ -1,13 +1,14 @@
 import { getRouteApi } from '@tanstack/react-router'
+import { partnerPublishConfirmed, publishConfirmed } from './-other-mir-confirm'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
 import { AdminHeading, adminChipOn, adminGhost, adminInput } from '../../components/admin-ui'
 import { adminRoster } from '../../signup/admin'
 import { adminSectionPlaces } from '../../signup/admin-section-places'
-import { adminPublish, adminPublishPreview } from '../../signup/admin-assign-actions'
+import { adminPublishPreview } from '../../signup/admin-assign-actions'
 import { publishConfirmLabel } from '../../signup/publish-preview'
 import { adminUnpublish } from '../../signup/section-state-actions'
-import { adminPartnerPublish, adminPartnerUnpublish } from '../../signup/partner-sections-admin'
+import { adminPartnerUnpublish } from '../../signup/partner-sections-admin'
 import { isPartnerPersonId } from '../../signup/partner-people-sql'
 import { hasPendingDraft, type SectionCounts } from '../../signup/section-state'
 import { adminClearDrafts, adminDistribute } from '../../signup/admin-distribute'
@@ -191,7 +192,7 @@ export function SectionsPage() {
     let partnerNote = ''
     if (partnerIds.length > 0) {
       try {
-        const result = await adminPartnerPublish({ data: { ids: partnerIds } })
+        const result = await partnerPublishConfirmed(partnerIds)
         partnerNote = ` „И аз“: ${result.message}`
         if (result.ok && 'blocked' in result && result.blocked.length) {
           setRowWarnings((current) => {
@@ -211,7 +212,7 @@ export function SectionsPage() {
       load(partnerNote.trim())
       return
     }
-    return adminPublish({ data: { view: search.view, mir: search.mir, ...(signupIds ? { ids: signupIds } : {}) } }).then((result) => {
+    return publishConfirmed({ view: search.view, mir: search.mir, ...(signupIds ? { ids: signupIds } : {}) }).then((result) => {
       setArmed(false)
       setArmedPicked(false)
       if (!result.ok) {

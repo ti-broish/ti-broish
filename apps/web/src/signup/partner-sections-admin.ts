@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { loadEgnMirConflict, needsOtherMirConfirm } from './egn-mir-conflict'
 import { egnDigits } from './egn-reveal'
 import { getCookie } from '@tanstack/react-start/server'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
@@ -170,7 +171,11 @@ export const adminPartnerDistribute = createServerFn({ method: 'POST' })
 
 /** „Запази“ a draft (or clear it with an empty section). Locked: „Чернови“ will not change it. */
 export const adminPartnerSave = createServerFn({ method: 'POST' })
-  .inputValidator((input: { id: string; section: string }) => ({ id: String(input?.id ?? ''), section: String(input?.section ?? '') }))
+  .inputValidator((input: { id: string; section: string; confirmOtherMir?: boolean }) => ({
+    id: String(input?.id ?? ''),
+    section: String(input?.section ?? ''),
+    confirmOtherMir: input?.confirmOtherMir === true,
+  }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
     if (!access.ok) return access
@@ -198,6 +203,9 @@ export const adminPartnerSave = createServerFn({ method: 'POST' })
       const swap = holder === 'друг човек от „И аз“' ? ' За размяна: на другия „Махни публикуването“ и „Запази“ с празно поле, после тук.' : ''
       return { ok: false as const, message: `Секция ${code} е заета: ${holder}. Черновата не е сменена.${swap}` }
     }
+    // Same ЕГН numbered in another МИР (a volunteer or another „И аз“ row): only on an explicit confirm.
+    const otherMir = await loadEgnMirConflict(db, person.id, code)
+    if (otherMir && !data.confirmOtherMir) return needsOtherMirConfirm(otherMir)
     try {
       await db
         .prepare(`UPDATE partner_people SET section_draft = ?, section_draft_locked = 1, section_draft_source = 'manual', section_drafted_at = ?, updated_at = ? WHERE id = ?`)
@@ -215,12 +223,15 @@ export const adminPartnerSave = createServerFn({ method: 'POST' })
  * transaction per person. No email, no Brevo, no profile, no login. ids empty = every pending draft.
  */
 export const adminPartnerPublish = createServerFn({ method: 'POST' })
-  .inputValidator((input: { ids?: string[] } | undefined) => ({ ids: Array.isArray(input?.ids) ? input!.ids.map(String).slice(0, 5000) : [] }))
+  .inputValidator((input: { ids?: string[]; confirmOtherMir?: string[] } | undefined) => ({
+    ids: Array.isArray(input?.ids) ? input!.ids.map(String).slice(0, 5000) : [],
+    confirmOtherMir: Array.isArray(input?.confirmOtherMir) ? input!.confirmOtherMir.map(String).slice(0, 5000) : [],
+  }))
   .handler(async ({ data }) => {
     const access = await gate('publish')
     if (!access.ok) return access
     const db = access.db
-    const result = await publishPartnerDrafts(db, { ids: data.ids })
+    const result = await publishPartnerDrafts(db, { ids: data.ids }, new Date().toISOString(), data.confirmOtherMir)
     // Numbered in the section's МИР and into the signing queue. Never our Brevo, never mail.
     const advance = await advanceAfterPublish(db, result.ids, access.email)
     return {

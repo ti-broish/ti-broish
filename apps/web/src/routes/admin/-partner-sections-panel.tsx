@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
+import { partnerPublishConfirmed, partnerSaveConfirmed } from './-other-mir-confirm'
 import { DesignationMirBadge } from './-designation-mir-badge'
 import { adminGhost, adminInput } from '../../components/admin-ui'
 import { EgnReveal } from '../../components/EgnReveal'
 import type { PriorityInfo } from '../../signup/priority-sections'
 import {
   adminPartnerDistribute,
-  adminPartnerPublish,
-  adminPartnerSave,
   adminPartnerSections,
   adminPartnerUnpublish,
 } from '../../signup/partner-sections-admin'
@@ -157,7 +156,7 @@ export function PartnerSectionsPanel({
                 if (armed !== 'publish') return setArmed('publish')
                 setArmed(null)
                 setBusy(true)
-                void adminPartnerPublish({ data: {} }).then(after).catch(() => after({ ok: false, message: 'Публикуването не мина.' }))
+                void partnerPublishConfirmed().then(after).catch(() => after({ ok: false, message: 'Публикуването не мина.' }))
               }}
             >
               {armed === 'publish' ? `Да, публикувай ${pending} (резервация „И аз“, без писма)` : `Публикувай всички ${pending}`}
@@ -208,7 +207,7 @@ export function PartnerSectionsPanel({
                             className={adminGhost}
                             onClick={() =>
                               // „Запази“ only saves a manual draft: no publishing, no email.
-                              void adminPartnerSave({ data: { id: row.id, section: values[row.id] ?? row.draft } })
+                              void partnerSaveConfirmed(row.id, values[row.id] ?? row.draft)
                                 .then((result) => afterRow(row.id, result))
                                 .catch(() => afterRow(row.id, { ok: false, message: 'Не се запази. Опитай пак.' }))
                             }
@@ -237,7 +236,7 @@ export function PartnerSectionsPanel({
                         <button
                           type="button"
                           className="text-xs font-bold underline"
-                          onClick={() => void adminPartnerPublish({ data: { ids: [row.id] } }).then((result) => afterRow(row.id, result))}
+                          onClick={() => void partnerPublishConfirmed([row.id]).then((result) => afterRow(row.id, result))}
                         >
                           Публикувай
                         </button>

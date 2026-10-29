@@ -39,6 +39,22 @@ export const partnerEgnFreeSql = (outer = 'partner_people') => `${outer}.withdra
   AND NOT EXISTS (SELECT 1 FROM partner_people o WHERE o.id != ${outer}.id AND ${partnerHolds('o')} AND ${sameEgn('o', outer)})
   AND NOT EXISTS (SELECT 1 FROM signups c WHERE c.id = ${outer}.covered_by_signup_id AND COALESCE(c.withdrawn, 0) = 0)`
 
+/** The МИР a holder's number is for: designation_mir (always set with a number). */
+const holderMir = (alias: string) => `COALESCE(${alias}.designation_mir, '')`
+
+/**
+ * An unnumbered row whose ЕГН holds a number on another row in МИР `mirExpr`: the пълномощно is valid
+ * for the whole МИР, so a section anywhere in it is covered by that number (no second number).
+ * `same` false: held only in another МИР (the real conflict). Outer: a table name or alias.
+ */
+export function egnHeldSql(table: 'signups' | 'partner_people', outer: string, mirExpr: string, same: boolean) {
+  const cmp = same ? '=' : '!='
+  const selfSignup = table === 'signups' ? `o.id != ${outer}.id AND ` : ''
+  const selfPartner = table === 'partner_people' ? `o.id != ${outer}.id AND ` : ''
+  return `(EXISTS (SELECT 1 FROM signups o WHERE ${selfSignup}${signupHolds('o')} AND ${sameEgn('o', outer)} AND ${holderMir('o')} ${cmp} ${mirExpr})
+  OR EXISTS (SELECT 1 FROM partner_people o WHERE ${selfPartner}${partnerHolds('o')} AND ${sameEgn('o', outer)} AND ${holderMir('o')} ${cmp} ${mirExpr}))`
+}
+
 /** True for a numbered signup `outer` that is not the one keeping the number for its ЕГН. */
 export const signupDuplicateSql = (outer = 'signups') => `EXISTS (SELECT 1 FROM signups o WHERE o.id != ${outer}.id AND ${signupHolds('o')} AND ${sameEgn('o', outer)}
     AND (${signupRank('o')} < ${signupRank(outer)}
@@ -123,9 +139,11 @@ export interface GuardCandidate {
   covered?: boolean
   /** Partner only: withdrawn. */
   withdrawn?: boolean
+  /** The МИР this row would be numbered in; an ЕГН numbered in the same МИР covers it ('same_mir'). */
+  mir?: string
 }
 
-export type GuardSkip = { id: string; reason: 'duplicate' | 'covered' | 'withdrawn'; keeper: DuplicateMark | null }
+export type GuardSkip = { id: string; reason: 'duplicate' | 'same_mir' | 'covered' | 'withdrawn'; keeper: DuplicateMark | null }
 
 /**
  * Who of the unnumbered may get a number in this run. Volunteers come first (their order kept),
@@ -146,7 +164,9 @@ export function planEgnGuard(candidates: GuardCandidate[], holders: EgnHolder[])
     const key = row.egnKey
     const held = key ? claimed.get(key) : undefined
     if (held) {
-      skipped.push({ id: row.id, reason: 'duplicate', keeper: held })
+      // Numbered in the same МИР already: valid there, so covered, not a conflict. Never a second number.
+      const sameMir = Boolean(row.mir) && held.mir === row.mir
+      skipped.push({ id: row.id, reason: sameMir ? 'same_mir' : 'duplicate', keeper: held })
       continue
     }
     if (row.kind === 'partner' && row.covered) {
@@ -155,9 +175,21 @@ export function planEgnGuard(candidates: GuardCandidate[], holders: EgnHolder[])
     }
     allowed.add(row.id)
     // Claimed in this run: the number is not known until the UPDATE runs.
-    if (key) claimed.set(key, { number: 0, mir: '', keeperId: row.id })
+    if (key) claimed.set(key, { number: 0, mir: row.mir ?? '', keeperId: row.id })
   }
   return { allowed, skipped }
+}
+
+/**
+ * An unnumbered row covered by the number its ЕГН holds in the same МИР (the пълномощно is valid for
+ * the whole МИР). Not a duplicate: no badge in red, no duplicate count, no second number.
+ */
+export function coveredBySameMir(person: { number: number | null; mir: string }, mark: DuplicateMark | null) {
+  return person.number == null && Boolean(person.mir) && mark != null && mark.number > 0 && mark.mir === person.mir
+}
+
+export function coveredByNumberLabel(mark: { number: number; mir: string; partner?: boolean }) {
+  return `Покрит от № ${mark.mir}/${mark.number}${mark.partner ? ' („И аз“)' : ''} — същото ЕГН, същия МИР`
 }
 
 /** Badge text on /admin/palnomoshtni. */

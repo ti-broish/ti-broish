@@ -29,7 +29,7 @@ import {
   type DesignationPersonView,
 } from './designation-files'
 import { DESIGNATION_ASSIGN_SQL, PARTNER_DESIGNATION_ASSIGN_SQL, designationMirOf, parseStoredNumber } from './designation-number'
-import { brevoSignupIds } from './partner-people-sql'
+import { brevoSignupIds, isPartnerPersonId } from './partner-people-sql'
 import { SIGNUP_DESIGNATION_SECTION_SQL, isPlaceholderEmail } from './designation-section-sql'
 import {
   EGN_HOLDERS_SQL,
@@ -38,6 +38,7 @@ import {
   holderFromRow,
   keepersByEgn,
   planEgnGuard,
+  coveredBySameMir,
   type DuplicateMark,
   type EgnHolder,
 } from './designation-duplicates'
@@ -197,7 +198,7 @@ function displayName(person: ListedPerson) {
   return [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ') || 'без име'
 }
 
-function toView(person: ListedPerson, duplicate: DuplicateMark | null = null): DesignationPersonView {
+function toView(person: ListedPerson, duplicate: DuplicateMark | null = null, coveredBy: DuplicateMark | null = null): DesignationPersonView {
   const mir = mirFromSection(person.section)
   return {
     id: person.id,
@@ -214,11 +215,17 @@ function toView(person: ListedPerson, duplicate: DuplicateMark | null = null): D
     hasDriveFile: Boolean(person.driveFileId),
     ...(person.partner ? { partner: person.partner } : {}),
     ...(duplicate ? { duplicateOf: { number: duplicate.number, mir: duplicate.mir } } : {}),
+    ...(coveredBy ? { coveredBy: { number: coveredBy.number, mir: coveredBy.mir, partner: isPartnerPersonId(coveredBy.keeperId) } } : {}),
     ...(person.withdrawnAt ? { withdrawnAt: person.withdrawnAt, withdrawnReason: person.withdrawnReason ?? '' } : {}),
     ...(person.covered ? { covered: true } : {}),
     ...(person.designationMir ? { designationMir: person.designationMir } : {}),
     ...(person.assignedSection ? { assignedSection: person.assignedSection } : {}),
   }
+}
+
+/** The МИР the person serves in: the assigned section's (volunteer or „И аз“), else the numbered МИР. */
+function mirOfAssigned(person: ListedPerson) {
+  return mirFromSection(person.partner ? person.assignedSection || person.section : person.section)
 }
 
 async function loadHolders(db: Database): Promise<EgnHolder[]> {
@@ -310,20 +317,26 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
   const partners = await listPartnerPeople(access.db)
   const keepers = keepersByEgn(await loadHolders(access.db))
   const dup = new Map<string, DuplicateMark>()
+  // Unnumbered, but the ЕГН holds a number in the same МИР: covered by it (valid in the whole МИР).
+  // Not a duplicate and not „без номер“; the keeper row already counts this person once.
+  const sameMir = new Map<string, DuplicateMark>()
   for (const row of [...all, ...partners]) {
     if (row.withdrawnAt) continue
     const mark = duplicateOf(row, keepers)
-    if (mark) dup.set(row.id, mark)
+    if (!mark) continue
+    if (coveredBySameMir({ number: row.number, mir: mirOfAssigned(row) }, mark)) sameMir.set(row.id, mark)
+    else dup.set(row.id, mark)
   }
   const dupOf = (row: ListedPerson) => dup.get(row.id) ?? null
   const activePartners = partners.filter((row) => !row.withdrawnAt)
   // Everyone who can get one: volunteers plus active „И аз“, without withdrawn rows and ЕГН
   // duplicates, so the totals line up with the signing ZIP scopes.
-  const countable = [...all, ...partners].filter((row) => signable(row, dupOf(row)))
+  const countable = [...all, ...partners].filter((row) => signable(row, dupOf(row)) && !sameMir.has(row.id))
   const counts: DesignationCounts = {
     ...designationCountsPart(countable),
     partner: designationCountsPart(countable.filter((row) => row.partner)),
     duplicates: dup.size,
+    coveredSameMir: sameMir.size,
   }
   // „И аз“ detail line (withdrawn, covered, no МИР); its totals are already in counts.partner.
   const partnerCounts: DesignationPartnerCounts = {
@@ -347,7 +360,7 @@ export async function handleDesignationStatus(data: { mir: string; q: string }) 
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([code, count]) => ({ code, label: mirLabel(code) || `${code} ${ELECTION_DISTRICTS[code] ?? ''}`.trim(), count }))
   const listed = everyone.filter((row) => matchesFilter(row, data.mir, data.q))
-  const people = listed.map((row) => toView(row, dupOf(row)))
+  const people = listed.map((row) => toView(row, dupOf(row), sameMir.get(row.id) ?? null))
   const zipEligible = listed.filter((row) => row.number != null && signable(row, dupOf(row))).length
   // Per scope for the signing ZIP: МИР filter only (the ZIP ignores the search box).
   const inMir = everyone.filter((row) => matchesFilter(row, data.mir, '') && signable(row, dupOf(row)))
@@ -395,11 +408,12 @@ export async function handleDesignationNumber() {
     skippedCovered: result.skippedCovered,
     updated: result.assigned + result.datesFilled,
     noMir,
-    message: numberingMessage(result.assigned, result.skippedDuplicates, result.skippedCovered, noMir),
+    skippedSameMir: result.skippedSameMir,
+    message: numberingMessage(result.assigned, result.skippedDuplicates, result.skippedCovered, noMir, result.skippedSameMir),
   }
 }
 
-export type NumberingResult = { assigned: number; skippedDuplicates: number; skippedCovered: number; datesFilled: number; assignedIds: string[] }
+export type NumberingResult = { assigned: number; skippedDuplicates: number; skippedCovered: number; skippedSameMir: number; datesFilled: number; assignedIds: string[] }
 
 /**
  * Number everyone in `listed` who has none yet (per-МИР MAX+1 from 501, inside each UPDATE), with
@@ -426,6 +440,7 @@ export async function numberListed(db: Database, listed: ListedPerson[], actor: 
       egnKey: row.egnKey,
       covered: row.covered,
       withdrawn: Boolean(row.withdrawnAt),
+      mir: designationMirOf(row.section),
     })),
     unnumbered.length > 0 ? await loadHolders(db) : [],
   )
@@ -450,6 +465,7 @@ export async function numberListed(db: Database, listed: ListedPerson[], actor: 
     assigned: assignedIds.length,
     skippedDuplicates: guard.skipped.filter((row) => row.reason === 'duplicate').length + (toAssign.length - assignedIds.length),
     skippedCovered: guard.skipped.filter((row) => row.reason === 'covered').length,
+    skippedSameMir: guard.skipped.filter((row) => row.reason === 'same_mir').length,
     datesFilled: dateStatements.length,
     assignedIds,
   }

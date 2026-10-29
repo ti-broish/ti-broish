@@ -64,6 +64,8 @@ export interface RosterFields {
   mergedSignupId?: string
   /** Finished signup that also has an active „И аз“ record. */
   iazOverlap?: boolean
+  /** „И аз“ row only: отписан (withdrawn_at) and the reason text. */
+  withdrawnReason?: string
 }
 
 export interface TakenImport {

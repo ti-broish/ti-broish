@@ -106,6 +106,55 @@ DELETE FROM taken_sections WHERE section_code = '${SECTION}';`)
     await expect(page.getByText(/Напред: Номерирани 0;/)).toBeVisible({ timeout: 30_000 })
     expect(d1(`SELECT designation_number FROM partner_people WHERE id = '${PARTNER_ID}'`)[0]).toEqual({ designation_number: row.designation_number })
   })
+
+  test('„Отпиши“ frees the section and keeps the number; „Отписани“ lists them; „Върни“ restores', async ({ page }) => {
+    test.setTimeout(120_000)
+    const before = d1(`SELECT designation_mir, designation_number FROM partner_people WHERE id = '${PARTNER_ID}'`)[0]!
+    expect(before.designation_number).not.toBeNull()
+    await signIn(page)
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto(`/admin/iaz/${PARTNER_ID}`)
+    await expect(page.getByRole('heading', { name: 'Отпиши', exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('iaz-person')).toContainText(`Публикувана ${SECTION}`)
+    await expect(page.getByRole('button', { name: 'Отпиши', exact: true })).toBeDisabled()
+    await page.locator('#iaz-withdraw-reason').selectOption({ label: 'Друго' })
+    await page.locator('#iaz-withdraw-note').fill('само видеонаблюдение')
+    let confirmText = ''
+    page.once('dialog', (dialog) => {
+      confirmText = dialog.message()
+      void dialog.accept()
+    })
+    await page.getByRole('button', { name: 'Отпиши', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Отписан', exact: true })).toBeVisible({ timeout: 30_000 })
+    expect(confirmText).toContain(`Секция ${SECTION} се освобождава.`)
+    await expect(page.getByText(`Предишна секция: ${SECTION} (не се връща автоматично)`)).toBeVisible()
+    await expect(page.getByText(/Друго · само видеонаблюдение · iaz\.edit-admin-e2e@example\.com/)).toBeVisible()
+    await expect(page.getByTestId('iaz-person')).toContainText('Без секция')
+    await expect(page.getByTestId('iaz-person')).toContainText(`№ ${before.designation_mir}/${before.designation_number}`)
+    await expect(page.getByText(/withdrawn: „/).first()).toBeVisible()
+    expect(d1(`SELECT section_draft, section_published, designation_number, withdrawn_by, withdrawn_reason FROM partner_people WHERE id = '${PARTNER_ID}'`)[0]).toEqual({
+      section_draft: null,
+      section_published: null,
+      designation_number: before.designation_number,
+      withdrawn_by: STAFF_EMAIL,
+      withdrawn_reason: 'Друго · само видеонаблюдение',
+    })
+
+    await page.goto('/admin/signups?view=withdrawn')
+    const row = page.getByRole('row').filter({ hasText: 'mila.edit-e2e@example.com' })
+    await expect(row).toHaveCount(1, { timeout: 30_000 })
+    await expect(row.getByText('Отписан', { exact: true })).toBeVisible()
+    await page.goto('/admin/signups?view=all&source=iaz')
+    await expect(page.getByRole('row').filter({ hasText: 'mila.edit-e2e@example.com' })).toHaveCount(0, { timeout: 30_000 })
+
+    await page.goto(`/admin/iaz/${PARTNER_ID}`)
+    await page.getByRole('button', { name: 'Върни', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Отпиши', exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('iaz-edit-message')).toContainText(`Предишната секция ${SECTION} не се връща автоматично.`)
+    await expect(page.getByTestId('iaz-person')).toContainText('Без секция')
+    expect(d1(`SELECT withdrawn_at, designation_number FROM partner_people WHERE id = '${PARTNER_ID}'`)[0]).toEqual({ withdrawn_at: null, designation_number: before.designation_number })
+    expect(d1(`SELECT field FROM signup_audit WHERE signup_id = '${PARTNER_ID}' AND field IN ('withdrawn', 'restored') ORDER BY created_at`).map((r) => r.field)).toEqual(['withdrawn', 'restored'])
+  })
 })
 
 async function signIn(page: Page) {

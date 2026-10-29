@@ -694,7 +694,8 @@ function NotesCell({ person }: { person: RosterFields }) {
 
 function IazStatus({ person }: { person: RosterFields }) {
   const chips: Array<{ label: string; className: string }> = []
-  if (person.publishedSection) chips.push({ label: 'Публикувана', className: 'bg-[#145744] text-white' })
+  if (person.withdrawn) chips.push({ label: 'Отписан', className: 'bg-[#3a3140] text-white' })
+  else if (person.publishedSection) chips.push({ label: 'Публикувана', className: 'bg-[#145744] text-white' })
   else if (person.draftSection) chips.push({ label: 'Чернова', className: 'bg-[#2b062f] text-white' })
   else chips.push({ label: 'Без секция', className: 'bg-[#efe8f2] text-[#1a1020]' })
   if (person.designationNumber) {
@@ -714,6 +715,7 @@ function IazStatus({ person }: { person: RosterFields }) {
           </span>
         ))}
       </div>
+      {person.withdrawn && person.withdrawnReason ? <p className="text-xs text-[#333]">{person.withdrawnReason}</p> : null}
       <p className="text-xs text-[#333]">Без писма и без Brevo.</p>
       {person.mergedSignupId ? (
         <p className="text-xs font-bold text-[#1a1020]" data-testid="iaz-merged">

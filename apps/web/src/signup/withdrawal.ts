@@ -26,6 +26,7 @@ import {
 } from './admin-unregister'
 import { cleanupWithdrawnContact, importContactsToList, readBrevoConfig, type BrevoConfig } from './brevo'
 import type { SignupD1 } from './db-core'
+import { hasRealEmail } from './no-email'
 
 export type WithdrawTarget = {
   id: string
@@ -56,6 +57,8 @@ export async function writeSignupAudit(db: SignupD1, signupId: string, actor: st
 /** Brevo half of a withdrawal; the detail starts with „изчистен“ only when the contact is fully clean. */
 export async function brevoWithdrawCleanup(email: string, config: BrevoConfigSource = readBrevoConfig, fetchImpl: typeof fetch = fetch): Promise<BrevoListOutcome> {
   try {
+    // No e-mail: never was a Brevo contact, so it is clean without asking Brevo.
+    if (!hasRealEmail(email)) return { ok: true, action: 'skipped', detail: 'изчистен, няма имейл' }
     const settings = config()
     if ('missing' in settings) return { ok: true, action: 'skipped', detail: `липсва ${settings.missing}` }
     const result = await cleanupWithdrawnContact(settings, email, fetchImpl)
@@ -180,6 +183,7 @@ export function withdrawalTurn(storedWithdrawn: number, nextWithdrawn: number): 
 }
 
 export async function brevoAddBestEffort(email: string, firstName: string, lastName: string): Promise<BrevoListOutcome> {
+  if (!hasRealEmail(email)) return { ok: true, action: 'skipped', detail: 'няма имейл, не е в Brevo' }
   try {
     const config = readBrevoConfig()
     if ('missing' in config) return { ok: true, action: 'skipped', detail: `липсва ${config.missing}` }

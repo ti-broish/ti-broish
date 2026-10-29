@@ -70,7 +70,7 @@ export function partnerViewWhere(view: RosterView | string, mir: string): { clau
     if (!code) return null
     return { clause: 'p.designation_mir = ?', binds: [code.padStart(2, '0')] }
   }
-  // finished / started / abroad / calls / queue / withdrawn are about our own signup form.
+  // finished / started / abroad / calls / queue / withdrawn / noemail are about our own signup form.
   return null
 }
 

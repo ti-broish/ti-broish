@@ -1,5 +1,5 @@
 import type { SignupD1 } from './db-core'
-import { isPlaceholderEmail } from './designation-section-sql'
+import { isPlaceholderEmail, PLACEHOLDER_EMAIL_DOMAIN } from './no-email'
 import { emptyProfile, placeReady, validEmail, validName, validPhone, type HomePlace, type Profile } from './model'
 import { signupColumns } from './record'
 import { adultOnElectionDay, mirOf, UNDERAGE_REASON, validEgn } from './rules'
@@ -20,7 +20,7 @@ export const ADD_VOLUNTEER_ACTION: StaffAction = 'edit'
 /** Marks a record added from this form (the hand-run SQL used the same value). */
 export const ADD_VOLUNTEER_SOURCE = 'admin-list'
 
-export const PLACEHOLDER_DOMAIN = 'tibroish.invalid'
+export const PLACEHOLDER_DOMAIN = PLACEHOLDER_EMAIL_DOMAIN
 
 const NOTE_MAX = 1000
 const PLACEHOLDER_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
@@ -31,6 +31,8 @@ export interface AddVolunteerInput {
   lastName: string
   egn: string
   email: string
+  /** „Без имейл“ ticked: the person has no e-mail; a …@tibroish.invalid stand-in is stored (no-email.ts). */
+  noEmail: boolean
   phone: string
   note: string
   place: HomePlace | null
@@ -90,7 +92,8 @@ export function parseAddVolunteerInput(input: unknown): AddVolunteerInput {
     middleName: clip(raw.middleName, 80),
     lastName: clip(raw.lastName, 80),
     egn: String(raw.egn ?? '').replace(/\D/g, '').slice(0, 10),
-    email: clip(raw.email, 160).toLowerCase(),
+    email: raw.noEmail === true ? '' : clip(raw.email, 160).toLowerCase(),
+    noEmail: raw.noEmail === true,
     phone: clip(raw.phone, 40),
     note: clip(raw.note, NOTE_MAX),
     place: clipPlace(raw.place),
@@ -115,7 +118,8 @@ export function addVolunteerProblem(input: AddVolunteerInput): string | null {
   if (!adultOnElectionDay(input.egn)) return `Човекът ${UNDERAGE_REASON}.`
   if (!input.place || !placeReady(input.place)) return 'Избери населеното място (област, община, населено място).'
   if (!volunteerMir(input.place)) return 'За София избери района, за да има МИР.'
-  if (input.email && (!validEmail(input.email) || isPlaceholderEmail(input.email))) return 'Имейлът не е валиден. Остави го празен, ако няма.'
+  if (!input.noEmail && !input.email) return 'Попълни имейла или отбележи „Без имейл“.'
+  if (input.email && (!validEmail(input.email) || isPlaceholderEmail(input.email))) return 'Имейлът не е валиден. Отбележи „Без имейл“, ако няма.'
   if (input.phone && !validPhone(input.phone)) return 'Телефонът не е валиден. Остави го празен, ако няма.'
   return null
 }
@@ -316,6 +320,8 @@ export async function addStaffVolunteer(db: SignupD1, input: AddVolunteerInput, 
     email,
     placeholder,
     mir,
-    message: `Добавен е като завършил записването (МИР ${mir}). Не е изпратено писмо. „Номерирай“ на Пълномощни ще му даде номер.`,
+    message: placeholder
+      ? `Добавен е като завършил записването (МИР ${mir}), без имейл. Не е изпратено писмо и няма да отиде в Brevo.`
+      : `Добавен е като завършил записването (МИР ${mir}). Не е изпратено писмо. „Номерирай“ на Пълномощни ще му даде номер.`,
   }
 }

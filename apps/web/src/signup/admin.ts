@@ -11,7 +11,7 @@ import { ABROAD_SECTIONS_UNAVAILABLE, abroadSectionOf, loadAbroadSections, loadA
 import { CALLBACK_CHUNK, CALLBACK_FILTER_CAP, callbackIds, callbackMessage, callbackSetSql, chunkIds } from './admin-bulk'
 import { SIGNUP_VIEWS, clampLimit, clampPage, rosterOrder, searchClause } from './admin-search'
 import { parseWithdrawnProcessed, withdrawnProcessedClause, type WithdrawnProcessedFilter } from './admin-unregister'
-import { withdrawnCounts } from './withdrawal'
+import { brevoWithdrawCleanup, withdrawnCounts } from './withdrawal'
 import { currentSearchEngine, isFtsError, useLikeSearch } from './db-search'
 import { travelLabelOf } from './admin-assign'
 import { NOTES_SQL, notesFromRow } from './admin-notes'
@@ -59,7 +59,8 @@ import { emptyProfile, validEmail, type Profile } from './model'
 import { applyRenameTransition, namesChanged, renameMessage, type PersonNames } from './designation-rename'
 import { signupColumns } from './record'
 import { sessionCookieSecure } from './session-cookie'
-import { isPlaceholderEmail } from './designation-section-sql'
+import { hasRealEmail } from './no-email'
+import { parsePersonEmailInput, setSignupEmail } from './person-email'
 import { ADD_VOLUNTEER_ACTION, addStaffVolunteer, parseAddVolunteerInput, type AddVolunteerInput } from './staff-add-volunteer'
 import { keepsAnAdmin, parseStaffRole, permissionsFor, roleAllows, staffRoleLabel, type StaffAction, type StaffRole } from './staff'
 
@@ -734,8 +735,8 @@ export async function loadBrevoSectionFields(
       'brevo',
     )
     if ('error' in chunk) return { error: chunk.error }
-    // A volunteer added without an e-mail has a …@tibroish.invalid stand-in: never a Brevo contact.
-    people.push(...chunk.rows.map(fieldsOf).filter((person) => !isPlaceholderEmail(person.email)))
+    // A volunteer without an e-mail (…@tibroish.invalid stand-in or empty): never a Brevo contact.
+    people.push(...chunk.rows.map(fieldsOf).filter((person) => hasRealEmail(person.email)))
     if (chunk.rows.length < 400) break
   }
   const codes = [...new Set(people.map((person) => normalizeSection(person.publishedSection)).filter((code) => /^\d{9}$/.test(code)))]
@@ -924,7 +925,7 @@ export const adminExport = createServerFn({ method: 'POST' })
       if (chunk.rows.length < 400) break
     }
     const exported = campaign
-      ? people.filter((person) => !isPlaceholderEmail(person.email)).map((person) => ({ ...person, egn: '', draftSection: '' }))
+      ? people.filter((person) => hasRealEmail(person.email)).map((person) => ({ ...person, egn: '', draftSection: '' }))
       : people
     const csv = campaign ? campaignCsv(exported) : internalCsv(exported)
     return { ok: true as const, csv, filename: campaign ? `ti-broish-brevo-${stamp}.csv` : `ti-broish-ekip-${stamp}.csv` }
@@ -1165,7 +1166,46 @@ export const adminAddVolunteer = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const access = await gate(ADD_VOLUNTEER_ACTION)
     if (!access.ok) return access
-    return addStaffVolunteer(access.db, data, access.email)
+    const result = await addStaffVolunteer(access.db, data, access.email)
+    if (!result.ok || !result.placeholder) return result
+    // Without an e-mail the МИР is enough: numbered now, no section and no „Номерирай“ needed.
+    const numbered = await numberNoEmailNow(access.db, result.id, access.email)
+    return { ...result, number: numbered.number, message: `${result.message}${noEmailNumberNote(numbered)}` }
+  })
+
+/** Lazy: published-pipeline imports this module (loadBrevoSectionFieldsForIds). */
+async function numberNoEmailNow(db: Database, id: string, actor: string) {
+  const { numberNoEmailVolunteer } = await import('./published-pipeline')
+  return numberNoEmailVolunteer(db, id, actor)
+}
+
+export function noEmailNumberNote(numbered: { number: number | null; mir: string; error?: string }) {
+  if (numbered.number != null) return ` Пълномощно № ${numbered.number} в МИР ${numbered.mir} (без секция); влиза в „Само новите“ за подпис.`
+  if (numbered.error) return ` Номер не се даде сега (${numbered.error}); ще се опита пак до час.`
+  return ' Без номер засега: провери МИР в профила или дали това ЕГН вече има пълномощно.'
+}
+
+/**
+ * „Без имейл“ on a volunteer's page: mark someone as having no e-mail, or give one an address.
+ * No letter either way. Going to no e-mail cleans the old Brevo contact (best effort) and numbers the
+ * person by МИР at once.
+ */
+export const adminSetPersonEmail = createServerFn({ method: 'POST' })
+  .validator((input: { id?: string; email?: string; noEmail?: boolean }) => parsePersonEmailInput(input))
+  .handler(async ({ data }) => {
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const result = await setSignupEmail(access.db, data, access.email)
+    if (!result.ok || !result.changed) return result
+    let message = result.message
+    if (result.noEmail) {
+      if (hasRealEmail(result.previousEmail)) {
+        const outcome = await brevoWithdrawCleanup(result.previousEmail)
+        message += outcome.ok ? ' Старият контакт в Brevo е изваден от списъците.' : ` Brevo: старият контакт не се почисти (${outcome.detail}).`
+      }
+      message += noEmailNumberNote(await numberNoEmailNow(access.db, data.id, access.email))
+    }
+    return { ...result, message }
   })
 
 export const adminInvite = createServerFn({ method: 'POST' })
@@ -1541,11 +1581,18 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
         .bind(crypto.randomUUID(), row.id, access.email, change.field, change.before, change.after, now)
         .run()
     }
+    // Without an e-mail the МИР is enough: a finished one without a number gets it on save.
+    const numbered = !hasRealEmail(row.email) && (row.designation_number == null || row.designation_number === '')
+      ? await numberNoEmailNow(access.db, row.id, access.email)
+      : null
+    const messages = [renamed?.resign ? renameMessage(renamed, renamed.number, renamed.mir).trim() : '', numbered?.number != null ? noEmailNumberNote(numbered).trim() : '']
+      .filter(Boolean)
     return {
       ok: true as const,
       changes: await loadAudit(access.db, row.id),
       person: buildAdminPerson(edited, personExtra(row, write.staffNote, write.staffCalledAt, write.staffCalledBy)),
-      ...(renamed?.resign ? { message: renameMessage(renamed, renamed.number, renamed.mir).trim() } : {}),
+      ...(numbered?.number != null ? { designationNumber: String(numbered.number) } : {}),
+      ...(messages.length ? { message: messages.join(' ') } : {}),
     }
   })
 

@@ -8,6 +8,4 @@
 export const SIGNUP_DESIGNATION_SECTION_SQL = `COALESCE(NULLIF(published_section, ''), CASE WHEN designation_number IS NOT NULL THEN NULLIF(designation_mir, '') END, '')`
 
 /** Placeholder address for a volunteer added without an e-mail (…@tibroish.invalid). Never sent to Brevo. */
-export function isPlaceholderEmail(email: string | null | undefined) {
-  return /@tibroish\.invalid$/i.test(String(email ?? '').trim())
-}
+export { isPlaceholderEmail } from './no-email'

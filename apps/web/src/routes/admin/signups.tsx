@@ -15,6 +15,7 @@ import { parseSignupSearch, type SignupSearch } from '../../signup/admin-search'
 import type { RosterFields } from '../../signup/admin-csv'
 import { toggleSelected } from '../../signup/admin-bulk'
 import { CALLED_LABEL } from '../../signup/call-reopen'
+import { NO_EMAIL_LABEL, hasRealEmail } from '../../signup/no-email'
 import { BREVO_SECTIONS_BUTTON, BREVO_SECTIONS_HINT, brevoSectionsScope } from '../../signup/brevo-sections-export'
 import { BrevoCampaignPanel } from './-brevo-campaign-panel'
 import { BrevoSyncPanel } from './-brevo-sync-panel'
@@ -44,6 +45,7 @@ const views = [
   ['abroad', 'Чужбина'],
   ['calls', 'Искат обаждане'],
   ['withdrawn', 'Отписани'],
+  ['noemail', 'Без имейл'],
 ] as const
 
 const sources = [
@@ -86,7 +88,7 @@ const columns = [
   columnHelper.accessor('email', {
     id: 'email',
     header: 'Имейл',
-    cell: (info) => info.getValue(),
+    cell: (info) => <EmailCell person={info.row.original} />,
   }),
   columnHelper.accessor('phone', {
     id: 'phone',
@@ -645,7 +647,9 @@ function PeopleCards({ people, select }: { people: RosterFields[]; select: RowSe
             isIaz(person) ? <IazNoSelect name={personName(person)} /> : <SelectPerson name={personName(person)} checked={select.checked(person.id)} onChange={(on) => select.onRow(person.id, on)} />
           ) : null}
           <PersonLink person={person} className="text-base font-black text-[#2b062f] underline" />
-          <p>{person.email}</p>
+          <p>
+            <EmailCell person={person} />
+          </p>
           <p>{person.phone || '—'}</p>
           <p>
             {person.mir || (person.region === '32' ? 'Чужбина' : '—')}
@@ -720,6 +724,16 @@ function IazStatus({ person }: { person: RosterFields }) {
         </p>
       ) : null}
     </div>
+  )
+}
+
+/** The address, or a „Без имейл“ chip instead of the …@tibroish.invalid stand-in. „И аз“ rows show theirs as is. */
+function EmailCell({ person }: { person: RosterFields }) {
+  if (isIaz(person) || hasRealEmail(person.email)) return <>{person.email}</>
+  return (
+    <span className="inline-flex min-h-6 items-center rounded-full bg-[#5c4400] px-2 text-xs font-bold text-white" data-testid="no-email">
+      {NO_EMAIL_LABEL}
+    </span>
   )
 }
 

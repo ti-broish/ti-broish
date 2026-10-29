@@ -8,6 +8,7 @@
 
 import { egnHeldSql, partnerDuplicateSql, signupDuplicateSql } from './designation-duplicates'
 import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
+import { realEmailSql } from './no-email'
 
 const SIGNUP_SECTION_MIR = `substr(COALESCE(published_section, ''), 1, 2)`
 const PARTNER_SECTION_MIR = `substr(COALESCE(section_published, ''), 1, 2)`
@@ -51,8 +52,8 @@ export const BREVO_SECTION_SYNC_COLUMNS = [
  */
 export const BREVO_SECTION_KEY_SQL = `COALESCE(published_section, '') || '@' || COALESCE(published_at, '')`
 
-/** Placeholder addresses (…@tibroish.invalid) are never Brevo contacts (designation-section-sql.ts). */
-const REAL_EMAIL_SQL = `COALESCE(TRIM(email), '') != '' AND LOWER(TRIM(email)) NOT LIKE '%@tibroish.invalid'`
+/** No e-mail (empty or the …@tibroish.invalid stand-in): never a Brevo contact, never pending (no-email.ts). */
+const REAL_EMAIL_SQL = realEmailSql('email')
 
 /** Active volunteers with a published section whose Brevo contact is not synced for it yet. */
 export const BREVO_SECTION_PENDING_WHERE = `COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0
@@ -145,6 +146,8 @@ export type AdvanceReport = {
   /** Got a number in this run (volunteers and „И аз“). */
   numbered: number
   numberedPartners: number
+  /** Volunteers without an e-mail numbered by МИР alone (no section needed). */
+  numberedNoEmail?: number
   /** Same ЕГН already holds a number; not numbered (one person, one пълномощно). */
   skippedDuplicates: number
   /** „И аз“ covered by an active volunteer with the same ЕГН. */
@@ -159,7 +162,7 @@ export type AdvanceReport = {
 export function describeAdvance(report: AdvanceReport | { error: string } | null | undefined) {
   if (!report) return ''
   if ('error' in report) return report.error ? ` Номерирането/Brevo не мина (${report.error}); ще се опита пак до час.` : ''
-  const parts = [`Номерирани ${report.numbered}${report.numberedPartners ? ` (от тях „И аз“ ${report.numberedPartners})` : ''}`]
+  const parts = [`Номерирани ${report.numbered}${report.numberedPartners ? ` (от тях „И аз“ ${report.numberedPartners})` : ''}${report.numberedNoEmail ? ` (без имейл, по МИР: ${report.numberedNoEmail})` : ''}`]
   if (report.skippedDuplicates) parts.push(`с ЕГН, което вече има номер: ${report.skippedDuplicates}`)
   const toSign = report.counts.volunteersToSign + report.counts.partnersToSign
   parts.push(`за подпис („Само новите“): ${toSign}`)

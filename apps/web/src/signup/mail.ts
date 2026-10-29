@@ -2,6 +2,7 @@ import { getRequestHost } from '@tanstack/react-start/server'
 import { env } from 'cloudflare:workers'
 import { signupScope, volunteerNotice } from './copy'
 import { ELECTION_LABEL, RUNOFF_LABEL, firstRoundPassed } from './election'
+import { hasRealEmail } from './no-email'
 
 const FROM = { email: 'noreply@tibroish.bg', name: 'Ти Броиш' }
 
@@ -116,6 +117,8 @@ export function assignmentMail(email: string, section: string, address: string, 
 }
 
 export async function deliverMail(mail: OutboundMail) {
+  // A volunteer without an e-mail (…@tibroish.invalid stand-in or empty) never gets a letter.
+  if (!hasRealEmail(mail.to)) return false
   if (isDevMailHost()) return false
   const sender = (env as unknown as { EMAIL?: { send?: (input: unknown) => Promise<unknown> } }).EMAIL
   if (!sender?.send) return false

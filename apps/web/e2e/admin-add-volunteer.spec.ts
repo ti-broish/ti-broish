@@ -14,11 +14,15 @@ function egn(stem: string) {
   return `${stem}${(sum % 11) % 10}`
 }
 const EGN = egn('790303917')
+const SWITCH_EGN = egn('790303925')
+const SWITCH_EMAIL = 'switch-no-email-e2e@example.com'
 
 function seed() {
   wranglerLocal([
     '--command',
-    `DELETE FROM signups WHERE egn = '${EGN}';
+    `DELETE FROM signups WHERE egn IN ('${EGN}', '${SWITCH_EGN}');
+INSERT INTO signups (id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, mir_code, created_at, updated_at)
+VALUES ('e2e-switch-no-email', '${SWITCH_EMAIL}', 'e2e-switch-no-email', 'e2eswne1', '{"firstName":"Сменен","lastName":"Безимейлов","email":"${SWITCH_EMAIL}"}', 1, 0, 1, '${SWITCH_EGN}', '03', datetime('now'), datetime('now'));
 INSERT INTO signups (id, email, session_token, referral_code, payload, email_confirmed, withdrawn, submitted, egn, created_at, updated_at)
 VALUES
   ('e2e-add-vol-editor', '${EDITOR_EMAIL}', '${EDITOR_SESSION}', 'e2eaddve', '{"firstName":"Редактор","lastName":"Тестов","email":"${EDITOR_EMAIL}"}', 1, 0, 1, '', datetime('now'), datetime('now')),
@@ -40,8 +44,8 @@ test.describe('Добави доброволец', () => {
 
   // Other specs count finished signups, so leave nothing behind.
   test.afterAll(() => {
-    wranglerLocal(['--command', `DELETE FROM signup_audit WHERE signup_id IN (SELECT id FROM signups WHERE egn = '${EGN}');
-DELETE FROM signups WHERE egn = '${EGN}';`])
+    wranglerLocal(['--command', `DELETE FROM signup_audit WHERE signup_id IN (SELECT id FROM signups WHERE egn IN ('${EGN}', '${SWITCH_EGN}'));
+DELETE FROM signups WHERE egn IN ('${EGN}', '${SWITCH_EGN}');`])
   })
 
   test('a viewer does not get the button', async ({ page }) => {
@@ -65,7 +69,12 @@ DELETE FROM signups WHERE egn = '${EGN}';`])
     await dialog.getByRole('button', { name: 'Добави като завършил' }).click()
     await expect(dialog.getByTestId('add-volunteer-result')).toContainText('Избери населеното място')
 
+    // Neither an e-mail nor „Без имейл“: still nothing is written.
     await pickVarna(dialog)
+    await dialog.getByRole('button', { name: 'Добави като завършил' }).click()
+    await expect(dialog.getByTestId('add-volunteer-result')).toContainText('Попълни имейла или отбележи „Без имейл“')
+    await dialog.getByRole('checkbox', { name: 'Без имейл' }).check()
+    await expect(dialog.getByLabel('Имейл', { exact: true })).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Добави като завършил' }).click()
     const result = dialog.getByTestId('add-volunteer-result')
     await expect(result).toContainText('Добавен е като завършил записването (МИР 03)')
@@ -76,6 +85,11 @@ DELETE FROM signups WHERE egn = '${EGN}';`])
     expect(saved).toMatch(/bez-imeil-[a-z0-9]{8}@tibroish\.invalid/)
     expect(saved).toContain('"signup_mail_at": "skipped"')
     expect(saved).toContain('"mir_code": "03"')
+    // No section needed: numbered by МИР straight away, so the пълномощно can be made.
+    const numbered = wranglerLocal(['--json', '--command', `SELECT designation_mir, designation_number IS NOT NULL AS has_number, brevo_section_synced FROM signups WHERE egn = '${EGN}'`])
+    expect(numbered).toContain('"designation_mir": "03"')
+    expect(numbered).toContain('"has_number": 1')
+    expect(numbered).toContain('"brevo_section_synced": null')
     const audit = wranglerLocal(['--json', '--command', `SELECT actor, field FROM signup_audit WHERE signup_id IN (SELECT id FROM signups WHERE egn = '${EGN}')`])
     expect(audit).toContain(`"actor": "${EDITOR_EMAIL}"`)
 
@@ -85,9 +99,47 @@ DELETE FROM signups WHERE egn = '${EGN}';`])
     await dialog.getByLabel('Фамилия', { exact: true }).fill('Добавенов')
     await dialog.getByLabel('ЕГН', { exact: true }).fill(EGN)
     await pickVarna(dialog)
+    await dialog.getByRole('checkbox', { name: 'Без имейл' }).check()
     await dialog.getByRole('button', { name: 'Добави като завършил' }).click()
     await expect(result).toContainText('Вече има записване с това ЕГН')
     await expect(result.getByRole('link', { name: /Пробен Тестов Добавенов/ })).toBeVisible()
+  })
+
+  test('„Без имейл“ is marked on Записвания and on the person page', async ({ page }) => {
+    await signIn(page, EDITOR_SESSION)
+    await page.goto('/admin/signups?view=noemail&q=Добавенов')
+    const row = page.getByRole('row', { name: /Добавенов/ }).first()
+    await expect(row.getByTestId('no-email')).toBeVisible()
+    await row.getByRole('link', { name: /Добавенов/ }).first().click()
+    await expect(page.getByTestId('no-email').first()).toBeVisible()
+    await expect(page.getByRole('checkbox', { name: 'Без имейл' })).toBeChecked()
+  })
+})
+
+
+test.describe('„Без имейл“ on the person page', () => {
+  test.beforeAll(() => seed())
+  test.afterAll(() => {
+    wranglerLocal(['--command', `DELETE FROM signup_audit WHERE signup_id = 'e2e-switch-no-email';
+DELETE FROM signups WHERE id = 'e2e-switch-no-email';`])
+  })
+
+  test('an editor switches a volunteer to no e-mail: logged out, numbered by МИР', async ({ page }) => {
+    await signIn(page, EDITOR_SESSION)
+    await page.goto('/admin/signups/e2e-switch-no-email')
+    await expect(page.getByText(SWITCH_EMAIL).first()).toBeVisible()
+    await page.getByRole('checkbox', { name: 'Без имейл' }).check()
+    await page.getByRole('button', { name: 'Запиши имейла' }).click()
+    await expect(page.getByTestId('no-email').first()).toBeVisible()
+
+    const saved = wranglerLocal(['--json', '--command', `SELECT email, session_token, designation_mir, designation_number IS NOT NULL AS has_number FROM signups WHERE id = 'e2e-switch-no-email'`])
+    expect(saved).toMatch(/bez-imeil-[a-z0-9]{8}@tibroish\.invalid/)
+    expect(saved).toContain('"session_token": null')
+    expect(saved).toContain('"designation_mir": "03"')
+    expect(saved).toContain('"has_number": 1')
+    const audit = wranglerLocal(['--json', '--command', `SELECT field, after_text FROM signup_audit WHERE signup_id = 'e2e-switch-no-email' AND field = 'email'`])
+    expect(audit).toContain('"after_text": "без имейл"')
+    expect(audit).not.toContain(SWITCH_EMAIL)
   })
 })
 

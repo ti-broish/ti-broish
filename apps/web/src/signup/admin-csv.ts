@@ -1,8 +1,9 @@
 import { BREVO_SECTIONS_HEADERS, buildBrevoContact, brevoContactCsvCells, normalizeBrevoSms } from './brevo-contact'
+import { noEmailSql, shownEmail } from './no-email'
 
 export { BREVO_SECTIONS_HEADERS, normalizeBrevoSms }
 
-export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls' | 'queue' | 'withdrawn'
+export type RosterView = 'all' | 'finished' | 'started' | 'assigned' | 'unassigned' | 'draft' | 'abroad' | 'mir' | 'calls' | 'queue' | 'withdrawn' | 'noemail'
 
 export interface RosterFields {
   id: string
@@ -156,6 +157,7 @@ export function rosterWhere(view: RosterView, mir: string): { clause: string; bi
   if (view === 'calls') return { clause: OPEN_CALL_SQL, binds: [] }
   if (view === 'queue') return { clause: `${OPEN_CALL_SQL} AND COALESCE(staff_called_at, '') = ''`, binds: [] }
   if (view === 'withdrawn') return { clause: 'COALESCE(withdrawn, 0) = 1', binds: [] }
+  if (view === 'noemail') return { clause: `${noEmailSql('email')} AND COALESCE(withdrawn, 0) = 0`, binds: [] }
   if (view === 'mir') {
     const code = mir.trim()
     if (!/^\d{1,2}$/.test(code)) return { error: 'МИР е номер, например 23.' }
@@ -314,7 +316,8 @@ function campaignCells(person: RosterFields) {
 
 function internalCells(person: RosterFields) {
   return [
-    person.email,
+    // „Без имейл“: blank, never the …@tibroish.invalid stand-in.
+    person.source === 'iaz' ? person.email : shownEmail(person.email),
     person.firstName,
     person.middleName,
     person.lastName,

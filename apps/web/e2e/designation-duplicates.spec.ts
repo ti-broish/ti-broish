@@ -41,9 +41,11 @@ test.describe('пълномощни: one ЕГН, one number', () => {
     await page.getByRole('button', { name: 'Номерирай' }).click()
     await expect(page.getByText(/пропуснати \d+ \(дубликат по ЕГН\)/)).toBeVisible()
     await expect(page.getByText(/пропуснати \d+ \(покрит от доброволец\)/)).toBeVisible()
+    await expect(page.getByText(/пропуснати \d+ \(вече с номер в същия МИР\)/)).toBeVisible()
 
     const n = numbers()
     // Volunteers first: A and B keep the number; the „И аз“ rows with their ЕГН get none, nor the covered one.
+    // P1 is in A's МИР (03): covered by A's number. P2 is in МИР 16, B's number is for 17: a real duplicate.
     expect(n['e2e-dup-a']).toEqual(expect.any(Number))
     expect(n['e2e-dup-b']).toEqual(expect.any(Number))
     expect(n['pp-e2e-dup-5']).toEqual(expect.any(Number))
@@ -57,8 +59,9 @@ test.describe('пълномощни: one ЕГН, one number', () => {
     ])
 
     const p1 = partnerRow(page, 'Дубъл Първи Партньоров')
-    await expect(p1.getByTestId('duplicate-badge')).toHaveText(`Дубликат: същото ЕГН има № ${n['e2e-dup-a']}`)
-    await expect(partnerRow(page, 'Дубъл Втори Партньоров').getByTestId('duplicate-badge')).toHaveText(`Дубликат: същото ЕГН има № ${n['e2e-dup-b']}`)
+    await expect(p1.getByTestId('covered-by-badge')).toHaveText(`Покрит от № 03/${n['e2e-dup-a']} — същото ЕГН, същия МИР`)
+    await expect(p1.getByTestId('duplicate-badge')).toHaveCount(0)
+    await expect(partnerRow(page, 'Дубъл Втори Партньоров').getByTestId('duplicate-badge')).toHaveText(`Дубликат: същото ЕГН има № ${n['e2e-dup-b']} (МИР 17)`)
     await expect(partnerRow(page, 'Покрит Трети Партньоров').getByTestId('covered-badge')).toHaveText('покрит от доброволец')
     // A second run numbers nobody new among them.
     await page.getByRole('button', { name: 'Номерирай' }).click()
@@ -149,7 +152,7 @@ INSERT INTO signups (id, email, session_token, referral_code, payload, email_con
 INSERT INTO staff (email, role, invited_by, created_at) VALUES ('${STAFF_EMAIL}', 'admin', 'e2e', datetime('now')) ON CONFLICT(email) DO UPDATE SET role = 'admin';
 INSERT INTO partner_people (id, partner, egn, email, first_name, middle_name, last_name, region_code, region_name, designation_mir, covered_by_signup_id, imported_at, updated_at) VALUES
   ('pp-e2e-dup-1', 'iaz.bg', '${E1}', 'dup.p1-e2e@example.com', 'Дубъл', 'Първи', 'Партньоров', '03', 'Варна', '03', NULL, datetime('now'), datetime('now')),
-  ('pp-e2e-dup-2', 'iaz.bg', '${E2}', 'dup.p2-e2e@example.com', 'Дубъл', 'Втори', 'Партньоров', '17', 'Пловдив област', '17', NULL, datetime('now'), datetime('now')),
+  ('pp-e2e-dup-2', 'iaz.bg', '${E2}', 'dup.p2-e2e@example.com', 'Дубъл', 'Втори', 'Партньоров', '16', 'Пловдив град', '16', NULL, datetime('now'), datetime('now')),
   ('pp-e2e-dup-3', 'iaz.bg', '${E3}', 'dup.p3-e2e@example.com', 'Покрит', 'Трети', 'Партньоров', '04', 'Велико Търново', '04', 'e2e-dup-c', datetime('now'), datetime('now')),
   ('pp-e2e-dup-5', 'iaz.bg', '${E5}', 'dup.p5-e2e@example.com', 'Чист', 'Пети', 'Партньоров', '03', 'Варна', '03', NULL, datetime('now'), datetime('now'));
 `

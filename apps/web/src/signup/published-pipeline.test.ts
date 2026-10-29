@@ -9,6 +9,7 @@ vi.mock('./admin', () => ({ loadBrevoSectionFieldsForIds: async () => new Map() 
 
 import { applySignupSchema, type SignupD1 } from './db-core'
 import { advancePublished, runScheduledPublishedAdvance } from './published-pipeline'
+import { loadEgnMirConflict } from './egn-mir-conflict'
 import { PIPELINE_COUNTS_SQL, describeAdvance, pipelineCountsFrom } from './published-pipeline-sql'
 
 type Sqlite = {
@@ -192,8 +193,8 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
     expect(await runScheduledPublishedAdvance('7 * * * *', { db: null })).toBeNull()
   })
 
-  it('the same ЕГН again (numbered in the first round) is not new: no second number, no Brevo, numbers kept', async () => {
-    // First round: an „И аз“ row already holds № 512 in МИР 23. Now the same person signs up again and gets a section.
+  it('the same ЕГН again in the same МИР is covered by the first-round number: no second number, still synced to Brevo', async () => {
+    // First round: an „И аз“ row already holds № 512 in МИР 23. Now the same person signs up again and gets a section in МИР 23.
     await partner('pp-round1', '790909123', { section_published: '234600010' }, { designation_mir: '23', designation_number: 512, designation_issued_at: '21.10.2026' })
     await signup('s-again', 'again@example.test', { egn: egn('790909123'), published_section: '234600011', published_at: T0 })
     const calls: Call[] = []
@@ -201,13 +202,49 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
 
     expect((await number('signups', 's-again'))?.n).toBeNull()
     expect(await number('partner_people', 'pp-round1')).toMatchObject({ n: 512, mir: '23' })
-    expect(report.skippedDuplicates).toBe(1)
+    // Not a duplicate problem: the пълномощно is valid in the whole МИР.
+    expect(report.skippedDuplicates).toBe(0)
     const pushed = calls.filter((call) => call.url.includes('/contacts/') && !call.url.endsWith('/attributes')).map((call) => call.url)
-    expect(pushed.some((url) => url.includes('again%40'))).toBe(false)
-    // Counted apart from „без номер“: they are not waiting for a number.
-    expect(report.counts).toMatchObject({ volunteersUnnumbered: 0, volunteersHeldElsewhere: 1, volunteersBrevoPending: 0 })
+    expect(pushed.some((url) => url.includes('again%40'))).toBe(true)
+    expect(report.counts).toMatchObject({ volunteersUnnumbered: 0, volunteersCovered: 1, volunteersHeldElsewhere: 0, volunteersBrevoPending: 0 })
     // New people in МИР 23 continue above the first-round number; nothing is renumbered.
     expect((await number('signups', 's-pub'))?.n).toBeGreaterThan(512)
+  })
+
+  it('the same ЕГН numbered in ANOTHER МИР stays a conflict: no number, no Brevo, apart from „без номер“', async () => {
+    await partner('pp-other', '791010123', { section_published: '254600010' }, { designation_mir: '25', designation_number: 501, designation_issued_at: '21.10.2026' })
+    await signup('s-other', 'other@example.test', { egn: egn('791010123'), published_section: '234600012', published_at: T0 })
+    const calls: Call[] = []
+    const report = await advancePublished(db, 'all', 'test', { brevo, fetchImpl: fakeBrevo(calls), sectionFields, now: new Date(T0) })
+
+    expect((await number('signups', 's-other'))?.n).toBeNull()
+    expect(await number('partner_people', 'pp-other')).toMatchObject({ n: 501, mir: '25' })
+    expect(report.skippedDuplicates).toBe(1)
+    const pushed = calls.filter((call) => call.url.includes('/contacts/') && !call.url.endsWith('/attributes')).map((call) => call.url)
+    expect(pushed.some((url) => url.includes('other%40'))).toBe(false)
+    expect(report.counts).toMatchObject({ volunteersUnnumbered: 0, volunteersCovered: 0, volunteersHeldElsewhere: 1, volunteersBrevoPending: 0 })
+  })
+
+  it('counts numbered people without a section like the signing ZIP does', async () => {
+    // Numbered by МИР only: a volunteer with no section and an „И аз“ row with no published section.
+    await signup('s-nosection', 'nosec@example.test', { egn: egn('850606123'), designation_mir: '23', designation_number: 530, designation_issued_at: '29.10.2026' })
+    await partner('pp-nosection', '860606123', {}, { designation_mir: '23', designation_number: 531, designation_issued_at: '29.10.2026' })
+    await advancePublished(db, 'all', 'test', { brevo: null, sectionFields, now: new Date(T0) })
+    const counts = pipelineCountsFrom(await db.prepare(PIPELINE_COUNTS_SQL).first<Record<string, unknown>>())
+    // 4 published volunteers (3 numbered, the withdrawn one not) + 1 without a section; partners: pp-pub + the sectionless one.
+    expect(counts).toMatchObject({ volunteersNumbered: 4, volunteersNumberedNoSection: 1, partnersNumbered: 2, partnersNumberedNoSection: 1 })
+    expect(counts.volunteersToSign + counts.partnersToSign).toBe(6)
+  })
+
+  it('loadEgnMirConflict reads other rows with the same ЕГН from both tables', async () => {
+    await partner('pp-held', '792020123', { section_published: '254600011' }, { designation_mir: '25', designation_number: 507, designation_issued_at: '21.10.2026' })
+    await signup('s-held', 'held@example.test', { egn: egn('792020123') })
+    expect(await loadEgnMirConflict(db, 's-held', '254600099')).toBeNull()
+    expect(await loadEgnMirConflict(db, 's-held', '234600099')).toMatchObject({ number: 507, mir: '25', partner: true, sectionMir: '23' })
+    // The holder's own row is never a conflict with itself.
+    expect(await loadEgnMirConflict(db, 'pp-held', '234600099')).toBeNull()
+    await db.prepare(`UPDATE partner_people SET withdrawn_at = ? WHERE id = 'pp-held'`).bind(T0).run()
+    expect(await loadEgnMirConflict(db, 's-held', '234600099')).toBeNull()
   })
 
   it('caps one run and reports the rest', async () => {

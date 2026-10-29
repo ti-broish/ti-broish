@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { loadEgnMirConflict, needsOtherMirConfirm, egnMirConflictMessage } from './egn-mir-conflict'
 import { getCookie } from '@tanstack/react-start/server'
 import { distributionWhere, normalizeSection, type RosterView } from './admin-csv'
 import { PERSON_REACH_COLUMNS, personReachFrom, publishBlocked, validateAssignment, warningSummary, type AssignWarning, type DuplicateOwner, type PersonReach } from './admin-assign'
@@ -45,7 +46,7 @@ function bound(db: Database, sql: string, binds: unknown[]) {
 }
 
 export const adminDraft = createServerFn({ method: 'POST' })
-  .validator((input: { id: string; section: string }) => input)
+  .validator((input: { id: string; section: string; confirmOtherMir?: boolean }) => input)
   .handler(async ({ data }) => {
     const access = await gate('edit')
     if (!access.ok) return access
@@ -59,6 +60,9 @@ export const adminDraft = createServerFn({ method: 'POST' })
     // Reserved by another organisation: refuse, do not save a draft that could never be published.
     const reservedBy = section ? ((await reservedOrgOf(db, section)) ?? (await mobileTargetOrgOf(db, section, person.id))) : null
     if (reservedBy) return { ok: false as const, reserved: reservedBy, message: reservedMessage(reservedCode(section) || section, reservedBy) }
+    // Same ЕГН numbered in another МИР: the пълномощно is not valid here. Saved only on an explicit confirm.
+    const otherMir = section ? await loadEgnMirConflict(db, person.id, section) : null
+    if (otherMir && !data.confirmOtherMir) return needsOtherMirConfirm(otherMir)
     const warnings = section ? await assignmentWarnings(db, section, person.id, personReachFrom(person), designationOf(person)) : []
     try {
       await db
@@ -84,7 +88,7 @@ export const adminDraft = createServerFn({ method: 'POST' })
   })
 
 export const adminPublish = createServerFn({ method: 'POST' })
-  .validator((input: { view: string; mir: string; ids?: string[] }) => input)
+  .validator((input: { view: string; mir: string; ids?: string[]; confirmOtherMir?: string[] }) => input)
   .handler(async ({ data }) => {
     const access = await gate('publish')
     if (!access.ok) return access
@@ -102,9 +106,15 @@ export const adminPublish = createServerFn({ method: 'POST' })
     const now = new Date().toISOString()
     let published = 0
     const publishedIds: string[] = []
-    const blocked: Array<{ email: string; section: string; warning: string }> = []
+    const blocked: Array<{ email: string; section: string; warning: string; confirmId?: string }> = []
+    const confirmed = new Set((data.confirmOtherMir ?? []).map(String))
     for (const row of rows.results ?? []) {
       const section = normalizeSection(row.draft_section)
+      const otherMir = await loadEgnMirConflict(db, row.id, section)
+      if (otherMir && !confirmed.has(row.id)) {
+        blocked.push({ email: row.email, section, warning: egnMirConflictMessage(otherMir), confirmId: row.id })
+        continue
+      }
       const warnings = await assignmentWarnings(db, section, row.id, personReachFrom(row), designationOf(row))
       if (publishBlocked(warnings)) {
         blocked.push({ email: row.email, section, warning: warningSummary(warnings) })
@@ -125,7 +135,7 @@ export const adminPublish = createServerFn({ method: 'POST' })
     }
     // The whole view (not a row or the picked rows): „И аз“ partner drafts in the same scope go out too,
     // through the partner publish path (section_published + „И аз“ reservation; no email, no Brevo).
-    const partners = data.ids && data.ids.length > 0 ? { published: 0, ids: [] as string[], blocked: [] } : await publishPartnerDrafts(db, { view: data.view, mir: data.mir }, now)
+    const partners = data.ids && data.ids.length > 0 ? { published: 0, ids: [] as string[], blocked: [] } : await publishPartnerDrafts(db, { view: data.view, mir: data.mir }, now, data.confirmOtherMir)
     // Everyone who just got a published section: numbered, into the signing queue, Brevo contact (volunteers). No mail.
     const advance = await advanceAfterPublish(db, [...publishedIds, ...partners.ids], access.email)
     return {
@@ -134,7 +144,7 @@ export const adminPublish = createServerFn({ method: 'POST' })
       blocked,
       advance: describeAdvance(advance).trim(),
       partnersPublished: partners.published,
-      partnersBlocked: partners.blocked.map((row) => ({ section: row.section, warning: row.reason })),
+      partnersBlocked: partners.blocked.map((row) => ({ section: row.section, warning: row.reason, ...('confirm' in row && row.confirm ? { confirmId: row.id } : {}) })),
     }
   })
 

@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { loadEgnMirConflict, needsOtherMirConfirm } from './egn-mir-conflict'
 import { getCookie, getRequestUrl } from '@tanstack/react-start/server'
 import { PERSON_REACH_COLUMNS, personReachFrom, publishBlocked, validateAssignment, warningSummary, type PersonReach } from './admin-assign'
 import { normalizeSection } from './admin-csv'
@@ -62,7 +63,7 @@ async function blockReason(db: SignupD1, section: string, personId: string, reac
 }
 
 export const adminPublishOne = createServerFn({ method: 'POST' })
-  .validator((input: { id: string }) => input)
+  .validator((input: { id: string; confirmOtherMir?: boolean }) => input)
   .handler(async ({ data }) => {
     const access = await publishAccess()
     if (!access.ok) return access
@@ -85,6 +86,8 @@ export const adminPublishOne = createServerFn({ method: 'POST' })
     if (!section) return { ok: false as const, message: 'Няма чернова или публикувана секция за този човек.' }
     const blocked = await blockReason(db, section, data.id, personReachFrom(row))
     if (blocked) return { ok: false as const, message: `Не публикувам: ${blocked}` }
+    const otherMir = await loadEgnMirConflict(db, String(data.id), section)
+    if (otherMir && !data.confirmOtherMir) return needsOtherMirConfirm(otherMir)
     const now = new Date().toISOString()
     if (row.draft_section && row.draft_section !== row.published_section) {
       await db

@@ -75,6 +75,8 @@ export interface DesignationPersonView {
   partner?: string
   /** Same ЕГН already holds № X (in this or the other table): no number, ZIP or РИК task for this row. */
   duplicateOf?: { number: number; mir: string }
+  /** Unnumbered, covered by № X the same ЕГН holds in the same МИР (valid there). Not a duplicate. */
+  coveredBy?: { number: number; mir: string; partner: boolean }
   /** „И аз“ only: the пълномощно was withdrawn („Оттеглено“); number and МИР stay. */
   withdrawnAt?: string
   withdrawnReason?: string
@@ -116,6 +118,8 @@ export interface DesignationCounts extends DesignationCountsPart {
   partner?: DesignationCountsPart
   /** Rows whose ЕГН already holds another number (badge „Дубликат“). */
   duplicates?: number
+  /** Unnumbered but covered by the number the same ЕГН holds in the same МИР (not counted again). */
+  coveredSameMir?: number
 }
 
 /**

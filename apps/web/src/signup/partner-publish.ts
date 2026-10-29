@@ -1,4 +1,5 @@
 import type { SignupD1 } from './db-core'
+import { egnMirConflictMessage, loadEgnMirConflict } from './egn-mir-conflict'
 import { designationMirMessage, designationMirMismatch } from './designation-mir-guard'
 import { PARTNER_RESERVATION_ORG, isSectionHeldAbort } from './partner-people-sql'
 import { PARTNER_BLOCKED_SQL, code9, publishStatements } from './partner-sections'
@@ -54,11 +55,12 @@ export async function previewPartnerPublish(db: Pick<SignupD1, 'prepare'>, scope
   return { pending: rows.length, mismatched: 0 }
 }
 
-export async function publishPartnerDrafts(db: Database, scope: PartnerPublishScope = {}, now = new Date().toISOString()) {
+export async function publishPartnerDrafts(db: Database, scope: PartnerPublishScope = {}, now = new Date().toISOString(), confirmOtherMir: string[] = []) {
   const rows = await pendingPartnerDrafts(db, scope)
+  const confirmed = new Set(confirmOtherMir)
   let published = 0
   const ids: string[] = []
-  const blocked: Array<{ id: string; section: string; reason: string }> = []
+  const blocked: Array<{ id: string; section: string; reason: string; confirm?: true }> = []
   const warnings: Array<{ id: string; section: string; reason: string }> = []
   for (const row of rows) {
     // Outside the пълномощно's МИР: published anyway, with a warning (staff decide).
@@ -66,6 +68,12 @@ export async function publishPartnerDrafts(db: Database, scope: PartnerPublishSc
     const holder = await partnerHolderOf(db, row.draft, row.id)
     if (holder) {
       blocked.push({ id: row.id, section: row.draft, reason: holder })
+      continue
+    }
+    // Same ЕГН numbered in another МИР: held back until staff confirm this id.
+    const otherMir = await loadEgnMirConflict(db, row.id, row.draft)
+    if (otherMir && !confirmed.has(row.id)) {
+      blocked.push({ id: row.id, section: row.draft, reason: egnMirConflictMessage(otherMir), confirm: true })
       continue
     }
     try {

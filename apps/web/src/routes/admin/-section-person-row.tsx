@@ -1,9 +1,8 @@
 import { Link } from '@tanstack/react-router'
+import { draftConfirmed, partnerSaveConfirmed } from './-other-mir-confirm'
 import { useState } from 'react'
 import type { AssignWarning } from '../../signup/admin-assign'
 import type { RosterFields } from '../../signup/admin-csv'
-import { adminDraft } from '../../signup/admin-assign-actions'
-import { adminPartnerSave } from '../../signup/partner-sections-admin'
 import { IAZ_ROW_BORDER, IAZ_ROW_TINT, IazBadge } from './-iaz-row'
 import { adminGhost } from '../../components/admin-ui'
 import { addressDeskLine, deskLabel } from '../../signup/sections'
@@ -146,7 +145,7 @@ export function SectionPersonRow(props: {
                             setSaving(true)
                             if (iaz) {
                               // „И аз“: draft in partner_people (locked, manual). A МИР mismatch only warns.
-                              void adminPartnerSave({ data: { id: person.id, section } }).then((result) => {
+                              void partnerSaveConfirmed(person.id, section).then((result) => {
                                 setSaving(false)
                                 setMessage(result.message)
                                 if (!result.ok) {
@@ -161,7 +160,7 @@ export function SectionPersonRow(props: {
                               })
                               return
                             }
-                            void adminDraft({ data: { id: person.id, section } }).then((result) => {
+                            void draftConfirmed(person.id, section).then((result) => {
                               setSaving(false)
                               if (!result.ok) {
                                 setMessage(result.message)

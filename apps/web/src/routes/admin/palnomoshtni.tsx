@@ -45,7 +45,7 @@ import {
 import { postSignedPdf } from '../../signup/designation-upload-errors'
 import { IAZ_LABEL, partnerBadge } from '../../signup/partner-import'
 import { adminPartnerRename, adminPartnerSetMir, adminPartnerWithdraw } from '../../signup/partner-import-admin'
-import { COVERED_LABEL, WITHDRAWN_PARTNER_LABEL, duplicateBadge } from '../../signup/designation-duplicates'
+import { COVERED_LABEL, WITHDRAWN_PARTNER_LABEL, coveredByNumberLabel, duplicateBadge } from '../../signup/designation-duplicates'
 import { PartnerImportPanel } from './-partner-import-panel'
 import { PersonName } from './-person-name'
 import { SignedWavesPanel } from './-signed-waves-panel'
@@ -242,6 +242,12 @@ function PalnomoshtniPage() {
               излишното пълномощно (бутон „Оттегли пълномощното“ при „{IAZ_LABEL}“).
             </p>
           ) : null}
+          {counts.coveredSameMir ? (
+            <p className="text-sm text-[#333]" data-testid="covered-same-mir-count">
+              Без собствен номер, но покрити от номера на същото ЕГН в същия МИР: {counts.coveredSameMir}. Пълномощното важи за целия МИР, затова
+              не получават втори номер и не се броят отделно.
+            </p>
+          ) : null}
           {volunteersAwaitingMir ? (
             <p className="text-sm text-[#333]" data-testid="volunteers-awaiting-mir">
               Доброволци без секция, които „Номерирай“ ще номерира по МИР (от черновата или от мястото в профила): {volunteersAwaitingMir}.
@@ -337,10 +343,13 @@ function PalnomoshtniPage() {
           <p className="text-sm text-[#5c4a63]" data-testid="pipeline-counts">
             С публикувана секция: доброволци {pipeline.volunteers} (без номер {pipeline.volunteersUnnumbered}, чакат Brevo {pipeline.volunteersBrevoPending}),
             „И аз“ {pipeline.partners} (без номер {pipeline.partnersUnnumbered}).
+            {pipeline.volunteersCovered > 0 ? ` Покрити от номера си в същия МИР (същото ЕГН): ${pipeline.volunteersCovered}.` : ''}
             {pipeline.volunteersHeldElsewhere + pipeline.partnersHeldElsewhere > 0
-              ? ` Същото ЕГН вече има номер (не са нови, не се номерират и не отиват в Brevo): ${pipeline.volunteersHeldElsewhere + pipeline.partnersHeldElsewhere}.`
+              ? ` Същото ЕГН има номер в друг МИР (не се номерират и не отиват в Brevo): ${pipeline.volunteersHeldElsewhere + pipeline.partnersHeldElsewhere}.`
               : ''}{' '}
-            Номерирани и чакат ZIP за подпис: {pipeline.volunteersToSign + pipeline.partnersToSign}.
+            Номерирани (със или без секция): {pipeline.volunteersNumbered + pipeline.partnersNumbered}, от тях без секция{' '}
+            {pipeline.volunteersNumberedNoSection + pipeline.partnersNumberedNoSection}. Чакат ZIP за подпис („Само новите“):{' '}
+            {pipeline.volunteersToSign + pipeline.partnersToSign}.
             Публикуването ги придвижва само; на всеки час се хващат пропуснатите.
           </p>
         ) : null}
@@ -678,6 +687,11 @@ function PalnomoshtniPage() {
                           {row.duplicateOf.mir && row.duplicateOf.mir !== row.mir ? ` (МИР ${row.duplicateOf.mir})` : ''}
                         </span>
                       ) : null}
+                      {row.coveredBy ? (
+                        <span className="ml-2 rounded-full border border-[#2b062f] bg-[#efe8f2] px-2 py-0.5 text-xs font-bold text-[#1a1020]" data-testid="covered-by-badge">
+                          {coveredByNumberLabel(row.coveredBy)}
+                        </span>
+                      ) : null}
                       {row.covered ? (
                         <span className="ml-2 rounded-full border border-[#2b062f] bg-[#efe8f2] px-2 py-0.5 text-xs font-bold text-[#1a1020]" data-testid="covered-badge">
                           {COVERED_LABEL}
@@ -685,7 +699,7 @@ function PalnomoshtniPage() {
                       ) : null}
                     </td>
                     <td className="px-2 py-2 font-mono text-xs">
-                      {row.partner ? row.assignedSection || '—' : row.section}
+                      {sectionCell(row)}
                       {row.assignedSection ? (
                         <span className="mt-1 block font-sans">
                           <DesignationMirBadge designationMir={row.designationMir} designationNumber={row.number} section={row.assignedSection} />
@@ -1179,4 +1193,10 @@ async function uploadMatched(rows: MatchedUpload[], replace: boolean, onProgress
   })
   await Promise.all(workers)
   return results
+}
+
+/** Section column: the code, or „без секция“ for someone numbered by МИР only (never dropped). */
+function sectionCell(row: { partner?: string; section: string; assignedSection?: string }) {
+  const code = row.partner ? row.assignedSection || '' : row.section.length > 2 ? row.section : ''
+  return code || <span data-testid="no-section">без секция</span>
 }

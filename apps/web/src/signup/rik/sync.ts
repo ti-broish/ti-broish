@@ -433,7 +433,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
   }
 
   /** Reads one register of one РИК. Returns the rows to keep and page counts. */
-  async function readRegister(mir: string, base: string, kind: RegisterKind, ourKeys: Set<string>, stamp: string, published = false) {
+  async function readRegister(mir: string, base: string, kind: RegisterKind, stamp: string, published = false) {
     const listUrl = registerUrl(base, kind)
     const list = await get(listUrl)
     // A register we already read does not vanish: a 404 then is a broken site, not „not published“
@@ -465,9 +465,11 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     const unchangedSources: string[] = []
     let pages = seenList.size
     for (const [url, meta] of batchUrls) {
+      // Another party's batch (named on the list) is not read: only our registers are matched.
+      if (!meta.ours && meta.party) continue
       const before = await previousPage(url)
       if (!options.force && before) {
-        // Other parties: every 6 h. Ours: every run, but when the list page is unchanged, every second run.
+        // Unnamed batches (party only on the batch page): every 6 h. Ours: every run, but when the list page is unchanged, every second run.
         const interval = !meta.ours ? OTHER_PARTY_INTERVAL_MINUTES : listChanged ? 0 : UNCHANGED_LIST_BATCH_INTERVAL_MINUTES
         if (interval > 0 && minutesSince(before.fetched_at, now()) < interval) {
           unchangedSources.push(url)
@@ -493,10 +495,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
         const party = meta.party || batch.party
         const ours = meta.ours || isOurCommittee(batch.party)
         await savePage(pageUrl, mir, `${kind}-batch`, party, ours, page, batch.rows.length, stamp)
-        for (const row of batch.rows) {
-          if (!ours && !ourKeys.has(nameKey(row.name))) continue
-          rows.push({ party, ours, url, name: row.name, number: row.number })
-        }
+        if (ours) for (const row of batch.rows) rows.push({ party, ours, url, name: row.name, number: row.number })
         for (const link of batch.pages) if (!seenBatch.has(link)) batchQueue.push(link)
       }
     }
@@ -549,19 +548,19 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
       .run()
   }
 
-  async function syncOne(source: SourceRow, ourKeys: Set<string>) {
+  async function syncOne(source: SourceRow) {
     const stamp = now().toISOString()
     await db.prepare('UPDATE rik_sources SET last_attempt_at = ? WHERE mir = ?').bind(stamp, source.mir).run()
     const base = source.base_url || defaultElectionBase(source.mir)
     const changedBefore = changed
     try {
       const published = source.last_good_health === 'ok' || source.last_good_health === 'empty'
-      const reps = await readRegister(source.mir, base, 'representative', ourKeys, stamp, published)
+      const reps = await readRegister(source.mir, base, 'representative', stamp, published)
       if (reps.state !== 'unrecognised') await saveEntries(source.mir, 'representative', reps.rows, reps.unchangedSources, stamp)
       let advPages = 0
       if (source.mir !== ABROAD_MIR && reps.state !== 'unrecognised') {
         try {
-          const adv = await readRegister(source.mir, base, 'advocate', ourKeys, stamp)
+          const adv = await readRegister(source.mir, base, 'advocate', stamp)
           advPages = adv.pages
           if (adv.state !== 'unrecognised') await saveEntries(source.mir, 'advocate', adv.rows, adv.unchangedSources, stamp)
         } catch (error) {
@@ -640,7 +639,8 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
   async function rematch() {
     const stamp = now().toISOString()
     const people = await loadPeople(db)
-    const entries = ((await db.prepare(`SELECT id, mir, kind, ours, party, name, name_key, number, number_date, annulled, missing_since, source_url FROM rik_entries ORDER BY first_seen_at, id`).all<{
+    // Our committee's rows only: other parties' registers are not matched (old rows stay, unused).
+    const entries = ((await db.prepare(`SELECT id, mir, kind, ours, party, name, name_key, number, number_date, annulled, missing_since, source_url FROM rik_entries WHERE ours = 1 ORDER BY first_seen_at, id`).all<{
       id: string
       mir: string
       kind: 'representative' | 'advocate'
@@ -721,8 +721,6 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
       try {
         await refreshIndex(started)
         const sources = (await db.prepare('SELECT mir, name, base_url, contacts_url, contacts_at, health, last_attempt_at, failures, last_error, last_good_health, blocked_until FROM rik_sources ORDER BY COALESCE(last_attempt_at, \'\') ASC, mir ASC').all<SourceRow>()).results ?? []
-        const people = await loadPeople(db)
-        const ourKeys = new Set(people.flatMap((person) => [person.nameKey, ...(person.previousNames ?? []).map((name) => nameKey(name))]).filter(Boolean))
         for (const source of sources) {
           if (options.mirs?.length && !options.mirs.includes(source.mir)) continue
           if (!options.force && minutesSince(source.last_attempt_at, now()) < MIN_INTERVAL_MINUTES) {
@@ -745,7 +743,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
             skipped.push(source.mir)
             continue
           }
-          const ok = await syncOne(source, ourKeys)
+          const ok = await syncOne(source)
           if (ok) synced.push(source.mir)
           else errors += 1
         }

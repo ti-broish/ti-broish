@@ -7,6 +7,10 @@
  * person found in another РИК was flagged. The fixes there were: correct the name and send a new
  * пълномощно, drop the person (registered for someone else, member of a СИК, candidate), or send
  * them again / call the РИК when nothing showed up.
+ *
+ * Only our committee's registers are matched (every РИК, and ЦИК for МИР 32). Registers publish no
+ * ЕГН, so a name on another party's register says nothing about who it is: matching those by name
+ * flagged namesakes as double registrations. Other parties' registers are not read or matched.
  */
 import { STALE_AFTER_HOURS, mirLabel } from './config'
 import { editDistance, nameKey } from './normalize'
@@ -20,7 +24,7 @@ export type RikStatus =
   | 'number_mismatch' // the name is published in their РИК under another number or date
   | 'annulled' // their row reads „Анулиран“
   | 'elsewhere' // published for us, but by another РИК
-  | 'other_party' // their name is on another party's / committee's register
+  | 'other_party' // no longer derived (other parties' registers are not matched); kept for old rows
   | 'withdrawn_registered' // left us, still published
   | 'withdrawn' // left us, not published: nothing to do
   | 'duplicate' // same ЕГН keeps another number with us: never call the РИК for this one
@@ -204,8 +208,8 @@ function task(person: RikPerson, type: RikTaskType, reason: string, detail: stri
 }
 
 /**
- * One person against all entries. `byMirNumber` holds our committee's representative rows by
- * „МИР:number“, `byKey` every kept row by name key.
+ * One person against our committee's entries. `byMirNumber` holds our representative rows by
+ * „МИР:number“, `byKey` our rows by name key.
  */
 export function classifyPerson(
   person: RikPerson,
@@ -221,7 +225,6 @@ export function classifyPerson(
   // kept as a withdrawn „И аз“ duplicate, say) is theirs: it never counts for this person.
   const ownByName = sameKey.filter((row) => row.ours && row.mir === person.mir && !row.annulled && !claimedByOther(row, person, index))
   const ownByNumber = person.number == null ? [] : live(index.byMirNumber.get(`${person.mir}:${person.number}`))
-  const otherParty = sameKey.filter((row) => !row.ours)
   const otherMir = sameKey.filter((row) => row.ours && row.mir !== person.mir && !row.annulled)
   const tasks: DerivedTask[] = []
   const result = (status: RikStatus, extra: Partial<PersonResult> = {}): PersonResult => ({
@@ -254,16 +257,6 @@ export function classifyPerson(
       )
     }
     return { result: result('duplicate', { entryId: published?.id ?? null }), tasks }
-  }
-
-  // Double registrations are a problem whatever the own РИК says.
-  if (otherParty.length > 0) {
-    const first = otherParty[0]!
-    const where = `РИК ${first.mir} (${mirLabel(first.mir)})`
-    tasks.push(
-      task(person, 'remove_person', 'other_party', `Регистриран и за „${first.party}“ в ${where}. Махни го от нашите или нека оттегли другото.`),
-    )
-    return { result: result('other_party', { entryId: registered?.id ?? null, otherMir: first.mir, otherParty: first.party }), tasks }
   }
 
   if (registered) {
@@ -383,7 +376,9 @@ export function buildIndex(entries: RikEntryRow[], people: RikPerson[] = [], led
       const key = `${entry.mir}:${entry.number}`
       byMirNumber.set(key, [...(byMirNumber.get(key) ?? []), entry])
     }
-    if (entry.nameKey) byKey.set(entry.nameKey, [...(byKey.get(entry.nameKey) ?? []), entry])
+    // Name matching only on our committee's registers: another party's row with the same name is
+    // usually a namesake (no ЕГН in the registers), never evidence about our person.
+    if (entry.ours && entry.nameKey) byKey.set(entry.nameKey, [...(byKey.get(entry.nameKey) ?? []), entry])
   }
   const peopleByMir = new Map<string, RikPerson[]>()
   const holders = new Map<string, RikPerson[]>()

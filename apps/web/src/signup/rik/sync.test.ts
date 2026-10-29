@@ -127,12 +127,14 @@ describe.skipIf(!sqlite)('РИК sync end to end (fake web, in-memory D1)', () =
 
     const first = await sync()
     expect(first.errors).toBe(1)
-    expect(first.statuses).toMatchObject({ registered: 3, other_party: 1, stale: 1, name_mismatch: 1, withdrawn_registered: 1, rik_unavailable: 1 })
-    expect(first.tasks).toEqual({ remove_person: 2, call_rik: 1, fix_data: 1 })
+    // Елена's namesake on „ПП ДРУГА“ is never read or matched: she waits for our РИК like anyone.
+    expect(first.statuses).toEqual({ registered: 3, pending: 1, stale: 1, name_mismatch: 1, withdrawn_registered: 1, rik_unavailable: 1 })
+    expect(first.tasks).toEqual({ remove_person: 1, call_rik: 1, fix_data: 1 })
     const entries = () => raw.prepare('SELECT ours, name, missing_since FROM rik_entries ORDER BY name').all() as Array<{ ours: number; name: string; missing_since: string | null }>
-    // ours: 5 distinct rows (one repeated across pages); other party: only the one matching our people.
+    // ours: 5 distinct rows (one repeated across pages); another party's batch is not read at all.
     expect(entries().filter((row) => row.ours === 1)).toHaveLength(5)
-    expect(entries().filter((row) => row.ours === 0).map((row) => row.name)).toEqual(['Елена Николова Маринова'])
+    expect(entries().filter((row) => row.ours === 0)).toEqual([])
+    expect(web.calls.filter((url) => url === `${BASE23}?id=12`)).toEqual([])
     const source = (mir: string) => raw.prepare('SELECT health, failures, pages, batches, our_entries, phones FROM rik_sources WHERE mir = ?').get(mir) as Record<string, unknown>
     expect(source('23')).toMatchObject({ health: 'ok', batches: 3, our_entries: 6 })
     expect(String(source('23').phones)).not.toBe('')
@@ -152,11 +154,10 @@ describe.skipIf(!sqlite)('РИК sync end to end (fake web, in-memory D1)', () =
     clock += 2 * 3600_000
     const second = await sync()
     expect(second.changed).toBe(0)
-    expect(entries()).toHaveLength(6)
-    expect(second.tasks).toEqual({ remove_person: 2, call_rik: 1, fix_data: 1, check_rik: 1 })
+    expect(entries()).toHaveLength(5)
+    expect(second.tasks).toEqual({ remove_person: 1, call_rik: 1, fix_data: 1, check_rik: 1 })
     expect(source('24')).toMatchObject({ health: 'error', failures: 2 })
-    // The other party's batch is not re-read within 6 h, its matched row stays.
-    expect(web.calls.filter((url) => url === `${BASE23}?id=12`)).toHaveLength(1)
+    expect(web.calls.filter((url) => url === `${BASE23}?id=12`)).toEqual([])
     expect(entries().every((row) => row.missing_since == null)).toBe(true)
 
     // The РИК merges batch 13 into 11 and empties 13: same people, no duplicates, nobody missing.
@@ -177,8 +178,8 @@ describe.skipIf(!sqlite)('РИК sync end to end (fake web, in-memory D1)', () =
     pages.set('https://rik24.cik.bg/pvr2026/registers/register_p', { status: 200, body: listPage([[21, OURS]]) })
     pages.set('https://rik24.cik.bg/pvr2026/registers/register_p?id=21', { status: 200, body: batchPage(OURS, [['Ина Иванова Петрова', '601/19.10.2026']]) })
     const third = await sync()
-    expect(third.statuses).toMatchObject({ registered: 5, other_party: 1, name_mismatch: 1, withdrawn_registered: 1 })
-    expect(third.tasks).toEqual({ remove_person: 2, fix_data: 1 })
+    expect(third.statuses).toEqual({ registered: 5, pending: 1, name_mismatch: 1, withdrawn_registered: 1 })
+    expect(third.tasks).toEqual({ remove_person: 1, fix_data: 1 })
     expect(entries().filter((row) => row.ours === 1)).toHaveLength(7)
     expect(entries().every((row) => row.missing_since == null)).toBe(true)
     // Resolved tasks stay as history but inactive.

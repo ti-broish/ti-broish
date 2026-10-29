@@ -80,8 +80,11 @@ DELETE FROM taken_sections WHERE section_code = '${SECTION}';`)
     await expect(page.getByTestId('iaz-edit-message')).toContainText('МИР 23 е записан.')
 
     // Section in МИР 25: draft, publish → МИР follows the section, numbered, waiting for the signing ZIP.
-    await edit.getByLabel(/Секция \(чернова/).fill(SECTION)
-    await edit.getByRole('button', { name: 'Запази черновата' }).click()
+    // The panel remounts after the МИР save reloads the person; fill again if that reset the field.
+    await expect(async () => {
+      await edit.getByLabel(/Секция \(чернова/).fill(SECTION)
+      await edit.getByRole('button', { name: 'Запази черновата' }).click({ timeout: 3_000 })
+    }).toPass({ timeout: 30_000 })
     await expect(page.getByTestId('iaz-edit-message')).toContainText(`Чернова ${SECTION} е запазена.`)
     await expect(async () => {
       await edit.getByRole('button', { name: 'Публикувай', exact: true }).click()

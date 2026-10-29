@@ -1,3 +1,4 @@
+import { DESIGNATION_NUMBERS_TABLE } from './designation-numbers'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('cloudflare:workers', () => ({ env: {} }))
@@ -32,6 +33,8 @@ function seed(withTriggers = true) {
   db.exec(`CREATE TABLE partner_people (id TEXT PRIMARY KEY, egn TEXT NOT NULL DEFAULT '', designation_mir TEXT, designation_number INTEGER,
     section_draft TEXT, section_published TEXT, covered_by_signup_id TEXT, withdrawn_at TEXT, updated_at TEXT)`)
   db.exec('CREATE TABLE signup_audit (id TEXT PRIMARY KEY, signup_id TEXT NOT NULL, actor TEXT NOT NULL, field TEXT NOT NULL, before_text TEXT NOT NULL, after_text TEXT NOT NULL, created_at TEXT NOT NULL)')
+  db.exec('DROP TABLE IF EXISTS designation_numbers')
+  db.exec(DESIGNATION_NUMBERS_TABLE)
   db.exec(DESIGNATION_HIGH_WATER_TABLE)
   for (const sql of DESIGNATION_HIGH_WATER_TRIGGERS) db.exec(sql)
   if (withTriggers) for (const sql of MIR_FROM_SECTION_TRIGGERS) db.exec(sql)

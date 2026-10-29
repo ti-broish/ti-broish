@@ -1,6 +1,7 @@
 import { EGN_KEY_INDEX } from './egn-in-use'
 import { migrateCompanionColumns } from './db-core-migrate-companions'
 import { MIR_FROM_SECTION_TRIGGERS } from './mir-from-section'
+import { DESIGNATION_NUMBERS_SQL, DESIGNATION_NUMBERS_TABLE } from './designation-numbers'
 import { DESIGNATION_HIGH_WATER_SEED, DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_NUMBER_UNIQUE_INDEX_SQL } from './designation-number'
 import { ensureSearchIndex } from './db-search'
 import { env } from 'cloudflare:workers'
@@ -288,7 +289,7 @@ export function signupSchemaVersion() {
     PARTNER_SECTION_COLUMNS, SIGNED_WAVE_COLUMNS, SIGNING_WAVE_SCHEMA, SIGNING_GENERATED_COLUMNS, PARTNER_WITHDRAWAL_COLUMNS, BREVO_SECTION_SYNC_COLUMNS,
     STAFF, AUDIT, INDEXES, RESERVED_SECTION_GUARDS, MOBILE_DRAFTS_TABLE, MOBILE_DRAFTS_GUARDS, PARTNER_SECTION_GUARDS,
     DESIGNATION_NUMBER_UNIQUE_INDEX_SQL, DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_HIGH_WATER_SEED,
-    MIR_FROM_SECTION_TRIGGERS,
+    DESIGNATION_NUMBERS_SQL, MIR_FROM_SECTION_TRIGGERS,
   ]))
 }
 
@@ -357,6 +358,17 @@ export async function applySignupSchema(db: SignupD1) {
       await db.prepare(sql).run()
     } catch (error) {
       console.warn('designation high-water', error instanceof Error ? error.message : error)
+    }
+  }
+  // The number ledger (designation-numbers.ts): the assign SQL reads it, so the table comes first and
+  // is not optional. Triggers, then the idempotent backfill (current, audit history, РИК externals).
+  await db.prepare(DESIGNATION_NUMBERS_TABLE).run()
+  for (const sql of DESIGNATION_NUMBERS_SQL.slice(1)) {
+    try {
+      await db.prepare(sql).run()
+    } catch (error) {
+      // rik_entries is created by the РИК sync; until it exists the external step has nothing to read.
+      console.warn('designation numbers', error instanceof Error ? error.message : error)
     }
   }
   // МИР follows the section on every path (mir-from-section.ts); after signups, partner_people and signup_audit.

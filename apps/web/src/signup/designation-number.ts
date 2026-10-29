@@ -110,22 +110,16 @@ export function planDesignationNumbering(
 /**
  * Numbers are never reused (Harry, 21.10.2026). A number freed by a move to another МИР or a cleared
  * row would come back with MAX + 1, so every number ever issued raises a per-МИР high-water mark:
- * triggers on both tables keep it, and the bootstrap seeds it from the current MAX, the audit lines
- * („31/504 от …“) and RELEASED_DESIGNATION_NUMBERS. The next number is max(high-water, MAX) + 1.
+ * triggers on both tables keep it, and the bootstrap seeds it from the current MAX and the audit lines
+ * („31/504 от …“). Since the number ledger (designation-numbers.ts) the ledger is the record of every
+ * number ever used, ours or external; the mark stays as a safety net that every ledger row raises.
+ * The next number is max(ledger, high-water, MAX) + 1.
  */
 export const DESIGNATION_HIGH_WATER_TABLE = `CREATE TABLE IF NOT EXISTS designation_high_water (
   mir TEXT PRIMARY KEY,
   n INTEGER NOT NULL,
   updated_at TEXT NOT NULL DEFAULT ''
 )`
-
-/** Numbers issued and later freed before the high-water mark existed (31/504 and 31/502 moved to МИР 32). */
-export const RELEASED_DESIGNATION_NUMBERS: ReadonlyArray<readonly [string, number]> = [
-  ['31', 502],
-  ['31', 504],
-  ['03', 515],
-  ['17', 506],
-]
 
 const RAISE = (table: string, event: string) => `CREATE TRIGGER IF NOT EXISTS trg_${table}_designation_high_water_${event}
 AFTER ${event === 'insert' ? 'INSERT' : 'UPDATE OF designation_number, designation_mir'} ON ${table}
@@ -157,10 +151,6 @@ SELECT mir, MAX(n), datetime('now') FROM (
   WHERE field = 'designation_number' AND substr(after_text, 3, 1) = '/' AND substr(after_text, 1, 2) GLOB '[0-9][0-9]'
 ) WHERE n >= ${DESIGNATION_NUMBER_START} GROUP BY mir
 ON CONFLICT(mir) DO UPDATE SET n = MAX(n, excluded.n), updated_at = excluded.updated_at WHERE excluded.n > n`,
-  ...RELEASED_DESIGNATION_NUMBERS.map(
-    ([mir, n]) => `INSERT INTO designation_high_water (mir, n, updated_at) VALUES ('${mir}', ${n}, datetime('now'))
-ON CONFLICT(mir) DO UPDATE SET n = MAX(n, excluded.n), updated_at = excluded.updated_at WHERE excluded.n > n`,
-  ),
 ]
 
 /** Every statement the bootstrap runs for the mark, in order: table, triggers, seed. */
@@ -172,10 +162,12 @@ export function nextNumberInMir(stored: number | null | undefined, highWater: nu
 }
 
 /**
- * Next number in МИР ?1 across both tables that hold пълномощни: signups and
- * partner_people („И аз“), and the high-water mark, so a freed number never comes back.
+ * Next number in МИР ?1: after every number in the ledger (ours, moved, withdrawn and numbers
+ * held by people outside our database in the РИК register), both tables that hold пълномощни
+ * (signups and partner_people, „И аз“) and the high-water mark. Skips ahead, never fills gaps.
  */
 const NEXT_IN_MIR_SQL = `MAX(
+    COALESCE((SELECT MAX(number) FROM designation_numbers WHERE mir = ?1), ${DESIGNATION_NUMBER_START - 1}),
     COALESCE((SELECT MAX(designation_number) FROM signups WHERE designation_mir = ?1), ${DESIGNATION_NUMBER_START - 1}),
     COALESCE((SELECT MAX(designation_number) FROM partner_people WHERE designation_mir = ?1), ${DESIGNATION_NUMBER_START - 1}),
     COALESCE((SELECT n FROM designation_high_water WHERE mir = ?1), ${DESIGNATION_NUMBER_START - 1}),
@@ -222,6 +214,8 @@ export const DESIGNATION_MAX_PER_MIR_SQL = `SELECT mir, MAX(n) AS n FROM (
     WHERE designation_number IS NOT NULL AND COALESCE(designation_mir, '') != ''
   UNION ALL
   SELECT mir, n FROM designation_high_water
+  UNION ALL
+  SELECT mir, number AS n FROM designation_numbers
 ) GROUP BY mir`
 
 export function maxPerMirFromRows(rows: Array<{ mir: string | null; n: number | string | null }>) {

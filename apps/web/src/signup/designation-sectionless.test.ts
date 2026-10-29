@@ -1,3 +1,4 @@
+import { DESIGNATION_NUMBERS_TABLE } from './designation-numbers'
 import { describe, expect, it } from 'vitest'
 import { DESIGNATION_ASSIGN_SQL } from './designation-number'
 import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
@@ -51,6 +52,8 @@ describe.skipIf(!sqlite)('SECTIONLESS_SIGNUPS_SQL (SQLite, as D1)', () => {
       designation_mir TEXT, designation_number INTEGER, covered_by_signup_id TEXT)`)
     db.exec('DROP TABLE IF EXISTS designation_high_water')
     db.exec('CREATE TABLE designation_high_water (mir TEXT PRIMARY KEY, n INTEGER NOT NULL)')
+    db.exec('DROP TABLE IF EXISTS designation_numbers')
+    db.exec(DESIGNATION_NUMBERS_TABLE)
     const add = db.prepare(`INSERT INTO signups (id, email, payload, egn, submitted, email_confirmed, withdrawn, published_section, draft_section, mir_code, region_code, created_at, designation_number)
       VALUES (?, ?, '{"firstName":"А","lastName":"Б"}', ?, ?, 1, ?, ?, '', ?, ?, '2026-10-23', ?)`)
     add.run('home', 'a@x.bg', '6403271953', 1, 0, '', '06', '06', null) // finished, no section → МИР 06

@@ -31,7 +31,7 @@ import {
 import { DESIGNATION_ASSIGN_SQL, PARTNER_DESIGNATION_ASSIGN_SQL, designationMirOf, parseStoredNumber } from './designation-number'
 import { brevoSignupIds, isPartnerPersonId } from './partner-people-sql'
 import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
-import { hasRealEmail, noEmailSql, realEmailSql } from './no-email'
+import { hasRealEmail, realEmailSql } from './no-email'
 import {
   EGN_HOLDERS_SQL,
   duplicateOf,
@@ -280,8 +280,8 @@ export interface SectionlessVolunteer {
  * Finished volunteers without a published section: numbered by МИР alone (draft section, else home
  * place), the way „И аз“ are. No МИР (София без район) means no number, and the page lists them.
  */
-async function listSectionless(db: Database, scope: { noEmailOnly?: boolean; ids?: string[] | null } = {}): Promise<SectionlessVolunteer[]> {
-  const where = [scope.noEmailOnly ? ` AND ${noEmailSql('email')}` : '', scope.ids ? ' AND id IN (SELECT value FROM json_each(?))' : ''].join('')
+async function listSectionless(db: Database, scope: { ids?: string[] | null } = {}): Promise<SectionlessVolunteer[]> {
+  const where = scope.ids ? ' AND id IN (SELECT value FROM json_each(?))' : ''
   const statement = db.prepare(`${SECTIONLESS_SIGNUPS_SQL}${where}`)
   const result = await (scope.ids ? statement.bind(JSON.stringify(scope.ids)) : statement).all<RawSectionless>()
   return (result.results ?? []).map((row) => {
@@ -307,14 +307,14 @@ async function listSectionless(db: Database, scope: { noEmailOnly?: boolean; ids
 }
 
 /**
- * Volunteers without an e-mail who are finished but have no published section: they never get a
- * section mail or a Brevo contact, so the МИР alone is enough and the published pipeline numbers them
- * (cron, „Придвижи публикуваните“, and right after staff add or edit one). Only those with a МИР;
- * `ids`: just these signup ids. Everyone else without a section still waits for „Номерирай“.
+ * Finished volunteers without a published section, with or without an e-mail: the пълномощно names
+ * only the МИР, so the МИР alone is enough and the published pipeline numbers them (cron,
+ * „Придвижи публикуваните“, and right after staff add or edit one). Only those with a МИР;
+ * `ids`: just these signup ids. София без район stays listed as „без МИР – избери“.
  */
-export async function listNoEmailSectionless(db: Database, ids: string[] | null): Promise<ListedPerson[]> {
+export async function listSectionlessWithMir(db: Database, ids: string[] | null): Promise<ListedPerson[]> {
   if (ids && ids.length === 0) return []
-  return (await listSectionless(db, { noEmailOnly: true, ids })).filter((row) => row.mir).map((row) => row.person)
+  return (await listSectionless(db, { ids })).filter((row) => row.mir).map((row) => row.person)
 }
 
 /** „без МИР – избери“ on the page: volunteers who cannot be numbered until staff set the район. */
@@ -504,8 +504,9 @@ async function numberedIds(db: Database, ids: string[]) {
 }
 
 /**
- * People with a published section for the pipeline: active volunteers (published_section) and active
- * „И аз“ (section_published), optionally only `ids`. Same row shape as „Номерирай“ reads.
+ * People for the pipeline: active volunteers with a published section, and active „И аз“ with a
+ * published section or just a МИР (the document names only the МИР, so no section is needed),
+ * optionally only `ids`. Same row shape as „Номерирай“ reads.
  */
 export async function listPublishedPeople(db: Database, ids: string[] | null): Promise<ListedPerson[]> {
   const scoped = ids !== null
@@ -517,7 +518,7 @@ export async function listPublishedPeople(db: Database, ids: string[] | null): P
     .all<RawListed>()
   const partners = await db
     .prepare(
-      `${PARTNER_LIST_SQL} WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL${scoped ? ' AND id IN (SELECT value FROM json_each(?))' : ''}`,
+      `${PARTNER_LIST_SQL} WHERE (COALESCE(section_published, '') != '' OR COALESCE(designation_mir, '') != '') AND withdrawn_at IS NULL${scoped ? ' AND id IN (SELECT value FROM json_each(?))' : ''}`,
     )
     .bind(...(scoped ? [json] : []))
     .all<RawListed>()

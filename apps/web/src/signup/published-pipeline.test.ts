@@ -8,7 +8,7 @@ vi.mock('@tanstack/react-start/server', () => ({ getCookie: () => '' }))
 vi.mock('./admin', () => ({ loadBrevoSectionFieldsForIds: async () => new Map() }))
 
 import { applySignupSchema, type SignupD1 } from './db-core'
-import { advancePublished, numberNoEmailVolunteer, runScheduledPublishedAdvance } from './published-pipeline'
+import { advancePublished, numberSectionlessVolunteer, runScheduledPublishedAdvance } from './published-pipeline'
 import { loadEgnMirConflict } from './egn-mir-conflict'
 import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
 import { PIPELINE_COUNTS_SQL, describeAdvance, pipelineCountsFrom } from './published-pipeline-sql'
@@ -136,10 +136,12 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
     // „И аз“: МИР follows the published section before numbering, then numbered there.
     expect(await number('partner_people', 'pp-pub')).toMatchObject({ mir: '25' })
     expect((await number('partner_people', 'pp-pub'))?.n).not.toBeNull()
-    expect((await number('partner_people', 'pp-draft'))?.n).toBeNull()
+    // „И аз“ with just a МИР (no published section) is numbered in that МИР: the МИР is enough.
+    expect(await number('partner_people', 'pp-draft')).toMatchObject({ mir: '23' })
+    expect((await number('partner_people', 'pp-draft'))?.n).not.toBeNull()
     // The МИР already followed the section when it was written (mir-from-section triggers); the
     // pipeline's own МИР step is only a safety net for rows from before the triggers.
-    expect(report).toMatchObject({ numbered: 4, numberedPartners: 1, partnersMirSet: 0 })
+    expect(report).toMatchObject({ numbered: 5, numberedPartners: 2, partnersMirSet: 0 })
 
     const pushes = calls.filter((call) => call.url.includes('/contacts/') && !call.url.endsWith('/attributes'))
     expect(pushes.map((call) => decodeURIComponent(call.url.split('/contacts/')[1]!.split('?')[0]!)).sort()).toEqual(['pub@example.test', 'signed@example.test'])
@@ -153,7 +155,7 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
     expect(mail.deliverMail).not.toHaveBeenCalled()
     expect(report.brevo).toMatchObject({ synced: 2, failed: 0, left: 0 })
     // In the „Само новите“ signing queue: numbered, unsigned, not zipped yet.
-    expect(report.counts).toMatchObject({ volunteersUnnumbered: 0, volunteersToSign: 3, partnersToSign: 1, volunteersBrevoPending: 0 })
+    expect(report.counts).toMatchObject({ volunteersUnnumbered: 0, volunteersToSign: 3, partnersToSign: 2, volunteersBrevoPending: 0 })
   })
 
   it('is idempotent and re-sends a contact only after a new publish', async () => {
@@ -182,7 +184,8 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
 
   it('numbers without Brevo when no key, and leaves contacts for later', async () => {
     const report = await advancePublished(db, 'all', 'test', { brevo: null, sectionFields })
-    expect(report.numbered).toBe(4)
+    // 3 published volunteers + pp-pub + pp-draft (МИР only).
+    expect(report.numbered).toBe(5)
     expect(report.brevo).toMatchObject({ synced: 0, left: 2, skipped: 'липсва BREVO_API_KEY' })
     expect(describeAdvance(report)).toContain('Brevo: не е пратено')
   })
@@ -234,9 +237,9 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
     await partner('pp-nosection', '860606123', {}, { designation_mir: '23', designation_number: 531, designation_issued_at: '29.10.2026' })
     await advancePublished(db, 'all', 'test', { brevo: null, sectionFields, now: new Date(T0) })
     const counts = pipelineCountsFrom(await db.prepare(PIPELINE_COUNTS_SQL).first<Record<string, unknown>>())
-    // 4 published volunteers (3 numbered, the withdrawn one not) + 1 without a section; partners: pp-pub + the sectionless one.
-    expect(counts).toMatchObject({ volunteersNumbered: 4, volunteersNumberedNoSection: 1, partnersNumbered: 2, partnersNumberedNoSection: 1 })
-    expect(counts.volunteersToSign + counts.partnersToSign).toBe(6)
+    // 4 published volunteers (3 numbered, the withdrawn one not) + 1 without a section; partners: pp-pub, pp-draft (МИР only) + the sectionless one.
+    expect(counts).toMatchObject({ volunteersNumbered: 4, volunteersNumberedNoSection: 1, partnersNumbered: 3, partnersNumberedNoSection: 2 })
+    expect(counts.volunteersToSign + counts.partnersToSign).toBe(7)
   })
 
   it('loadEgnMirConflict reads other rows with the same ЕГН from both tables', async () => {
@@ -272,12 +275,12 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
       expect(first).toMatchObject({ mir: '03' })
       expect(first?.n).toBeGreaterThan(500)
       expect(await number('signups', 's-noemail-blank')).toMatchObject({ n: first!.n! + 1, mir: '03' })
-      // Everyone else keeps today's rules: a real e-mail without a section waits for „Номерирай“.
-      expect((await number('signups', 's-real-nosection'))?.n).toBeNull()
+      // With an e-mail the МИР is enough too; never sent to Brevo without a section.
+      expect(await number('signups', 's-real-nosection')).toMatchObject({ n: first!.n! + 2, mir: '03' })
       expect((await number('signups', 's-noemail-sofia'))?.n).toBeNull()
       expect((await number('signups', 's-noemail-started'))?.n).toBeNull()
-      expect(report).toMatchObject({ numbered: 6, numberedNoEmail: 2 })
-      expect(describeAdvance(report)).toContain('без имейл, по МИР: 2')
+      expect(report).toMatchObject({ numbered: 8, numberedNoSection: 3 })
+      expect(describeAdvance(report)).toContain('без секция, по МИР: 3')
 
       const pushed = calls.filter((call) => call.url.includes('/contacts/') && !call.url.endsWith('/attributes')).map((call) => decodeURIComponent(call.url))
       expect(pushed.some((url) => url.includes('tibroish.invalid'))).toBe(false)
@@ -293,10 +296,11 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
         { id: 's-noemail', section: '03' },
         { id: 's-noemail-blank', section: '03' },
       ])
+      expect(pushed.some((url) => url.includes('real@example.test'))).toBe(false)
 
       // /admin/palnomoshtni counts them as numbered „без секция“ and never as waiting for Brevo.
       const counts = pipelineCountsFrom(await db.prepare(PIPELINE_COUNTS_SQL).first<Record<string, unknown>>())
-      expect(counts.volunteersNumberedNoSection).toBe(2)
+      expect(counts.volunteersNumberedNoSection).toBe(3)
       expect(counts.volunteersBrevoPending).toBe(0)
     })
 
@@ -317,16 +321,59 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
       expect(report.skippedDuplicates).toBeGreaterThanOrEqual(1)
     })
 
-    it('numberNoEmailVolunteer numbers just that person, right after staff add or save them', async () => {
+    it('numberSectionlessVolunteer numbers just that person, right after staff add or save them', async () => {
       await signup('s-noemail-one', 'bez-imeil-one00000@tibroish.invalid', { ...finished, egn: egn('750505123'), mir_code: '16' })
       await signup('s-noemail-other', 'bez-imeil-oth00000@tibroish.invalid', { ...finished, egn: egn('760606123'), mir_code: '16' })
-      expect(await numberNoEmailVolunteer(db, 's-noemail-one', 'staff@example.test', new Date(T0))).toEqual({ number: 501, mir: '16' })
+      expect(await numberSectionlessVolunteer(db, 's-noemail-one', 'staff@example.test', new Date(T0))).toEqual({ number: 501, mir: '16' })
       expect((await number('signups', 's-noemail-other'))?.n).toBeNull()
-      // Not for someone with an e-mail, and again is a no-op.
-      expect(await numberNoEmailVolunteer(db, 's-draft', 'staff@example.test')).toEqual({ number: null, mir: '' })
-      expect(await numberNoEmailVolunteer(db, 's-noemail-one', 'staff@example.test')).toEqual({ number: 501, mir: '16' })
+      // Not for someone who never finished the form, and again is a no-op.
+      expect(await numberSectionlessVolunteer(db, 's-draft', 'staff@example.test')).toEqual({ number: null, mir: '' })
+      expect(await numberSectionlessVolunteer(db, 's-noemail-one', 'staff@example.test')).toEqual({ number: 501, mir: '16' })
       const audit = await db.prepare(`SELECT COUNT(*) AS n FROM signup_audit WHERE signup_id = 's-noemail-one'`).first<{ n: number }>()
       expect(audit?.n).toBe(1)
+    })
+  })
+
+  describe('МИР is enough („Само МИР“): every active person with a МИР gets a number', () => {
+    it('a finished volunteer with an e-mail and no section is numbered by МИР, once per ЕГН, today', async () => {
+      await signup('s-mail-mir', 'mir-only@example.test', { submitted: 1, egn: egn('850505123'), mir_code: '05' })
+      await signup('s-mail-unfinished', 'started@example.test', { egn: egn('860606123'), mir_code: '05' })
+      await signup('s-mail-sofia', 'sofia@example.test', { submitted: 1, egn: egn('870707123'), mir_code: '', region_code: 'sofia-merged' })
+      // Same ЕГН as a numbered „И аз“ in the same МИР: covered, never a second number.
+      await partner('pp-held-05', '880808123', {}, { designation_mir: '05', designation_number: 504, designation_issued_at: '21.10.2026' })
+      await signup('s-mail-covered', 'covered@example.test', { submitted: 1, egn: egn('880808123'), mir_code: '05' })
+      const report = await advancePublished(db, 'all', 'cron', { brevo: null, sectionFields, now: new Date(T0) })
+      const row = await db
+        .prepare(`SELECT designation_number AS n, designation_mir AS mir, designation_issued_at AS issued, designation_wave_id AS wave FROM signups WHERE id = 's-mail-mir'`)
+        .first<{ n: number; mir: string; issued: string; wave: string | null }>()
+      // Next after the МИР's numbers in both tables (504 held by the „И аз“ row).
+      expect(row).toEqual({ n: 505, mir: '05', issued: '29.10.2026', wave: null })
+      expect((await number('signups', 's-mail-unfinished'))?.n).toBeNull()
+      expect((await number('signups', 's-mail-sofia'))?.n).toBeNull()
+      expect((await number('signups', 's-mail-covered'))?.n).toBeNull()
+      expect(report.numberedNoSection).toBe(1)
+      expect(mail.deliverMail).not.toHaveBeenCalled()
+    })
+
+    it('a „И аз“ person with only a МИР is numbered; withdrawn or no МИР is not; numbers never change', async () => {
+      await partner('pp-mir-only', '890909123', {}, { designation_mir: '16' })
+      await partner('pp-no-mir', '900101123', {}, {})
+      await partner('pp-gone', '910202123', {}, { designation_mir: '16', withdrawn_at: T0 })
+      await advancePublished(db, 'all', 'cron', { brevo: null, sectionFields, now: new Date(T0) })
+      const first = await number('partner_people', 'pp-mir-only')
+      expect(first).toMatchObject({ mir: '16' })
+      expect(first?.n).toBeGreaterThan(500)
+      expect((await number('partner_people', 'pp-no-mir'))?.n).toBeNull()
+      expect((await number('partner_people', 'pp-gone'))?.n).toBeNull()
+      await advancePublished(db, 'all', 'cron', { brevo: null, sectionFields, now: new Date('2026-10-30T08:00:00.000Z') })
+      expect(await number('partner_people', 'pp-mir-only')).toEqual(first)
+    })
+
+    it('numberSectionlessVolunteer numbers a volunteer with an e-mail right after staff save them', async () => {
+      await signup('s-mail-one', 'one@example.test', { submitted: 1, egn: egn('920303123'), mir_code: '16' })
+      expect(await numberSectionlessVolunteer(db, 's-mail-one', 'staff@example.test', new Date(T0))).toEqual({ number: 501, mir: '16' })
+      // A published section is the publish pipeline's job, not this one.
+      expect(await numberSectionlessVolunteer(db, 's-pub', 'staff@example.test', new Date(T0))).toEqual({ number: null, mir: '' })
     })
   })
 })

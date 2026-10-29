@@ -146,8 +146,8 @@ export type AdvanceReport = {
   /** Got a number in this run (volunteers and „И аз“). */
   numbered: number
   numberedPartners: number
-  /** Volunteers without an e-mail numbered by МИР alone (no section needed). */
-  numberedNoEmail?: number
+  /** Volunteers without a section numbered by МИР alone (with or without an e-mail). */
+  numberedNoSection?: number
   /** Same ЕГН already holds a number; not numbered (one person, one пълномощно). */
   skippedDuplicates: number
   /** „И аз“ covered by an active volunteer with the same ЕГН. */
@@ -162,7 +162,7 @@ export type AdvanceReport = {
 export function describeAdvance(report: AdvanceReport | { error: string } | null | undefined) {
   if (!report) return ''
   if ('error' in report) return report.error ? ` Номерирането/Brevo не мина (${report.error}); ще се опита пак до час.` : ''
-  const parts = [`Номерирани ${report.numbered}${report.numberedPartners ? ` (от тях „И аз“ ${report.numberedPartners})` : ''}${report.numberedNoEmail ? ` (без имейл, по МИР: ${report.numberedNoEmail})` : ''}`]
+  const parts = [`Номерирани ${report.numbered}${report.numberedPartners ? ` (от тях „И аз“ ${report.numberedPartners})` : ''}${report.numberedNoSection ? ` (без секция, по МИР: ${report.numberedNoSection})` : ''}`]
   if (report.skippedDuplicates) parts.push(`с ЕГН, което вече има номер: ${report.skippedDuplicates}`)
   const toSign = report.counts.volunteersToSign + report.counts.partnersToSign
   parts.push(`за подпис („Само новите“): ${toSign}`)

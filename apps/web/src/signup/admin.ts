@@ -1171,16 +1171,16 @@ export const adminAddVolunteer = createServerFn({ method: 'POST' })
     const access = await gate(ADD_VOLUNTEER_ACTION)
     if (!access.ok) return access
     const result = await addStaffVolunteer(access.db, data, access.email)
-    if (!result.ok || !result.placeholder) return result
-    // Without an e-mail the МИР is enough: numbered now, no section and no „Номерирай“ needed.
-    const numbered = await numberNoEmailNow(access.db, result.id, access.email)
+    if (!result.ok) return result
+    // The МИР is enough (with or without an e-mail): numbered now, no section and no „Номерирай“ needed.
+    const numbered = await numberSectionlessNow(access.db, result.id, access.email)
     return { ...result, number: numbered.number, message: `${result.message}${noEmailNumberNote(numbered)}` }
   })
 
 /** Lazy: published-pipeline imports this module (loadBrevoSectionFieldsForIds). */
-async function numberNoEmailNow(db: Database, id: string, actor: string) {
-  const { numberNoEmailVolunteer } = await import('./published-pipeline')
-  return numberNoEmailVolunteer(db, id, actor)
+async function numberSectionlessNow(db: Database, id: string, actor: string) {
+  const { numberSectionlessVolunteer } = await import('./published-pipeline')
+  return numberSectionlessVolunteer(db, id, actor)
 }
 
 export function noEmailNumberNote(numbered: { number: number | null; mir: string; error?: string }) {
@@ -1207,7 +1207,7 @@ export const adminSetPersonEmail = createServerFn({ method: 'POST' })
         const outcome = await brevoWithdrawCleanup(result.previousEmail)
         message += outcome.ok ? ' Старият контакт в Brevo е изваден от списъците.' : ` Brevo: старият контакт не се почисти (${outcome.detail}).`
       }
-      message += noEmailNumberNote(await numberNoEmailNow(access.db, data.id, access.email))
+      message += noEmailNumberNote(await numberSectionlessNow(access.db, data.id, access.email))
     }
     return { ...result, message }
   })
@@ -1585,9 +1585,9 @@ export const adminUpdatePerson = createServerFn({ method: 'POST' })
         .bind(crypto.randomUUID(), row.id, access.email, change.field, change.before, change.after, now)
         .run()
     }
-    // Without an e-mail the МИР is enough: a finished one without a number gets it on save.
-    const numbered = !hasRealEmail(row.email) && (row.designation_number == null || row.designation_number === '')
-      ? await numberNoEmailNow(access.db, row.id, access.email)
+    // The МИР is enough (with or without an e-mail): a finished one without a number or section gets it on save.
+    const numbered = row.designation_number == null || row.designation_number === ''
+      ? await numberSectionlessNow(access.db, row.id, access.email)
       : null
     const messages = [renamed?.resign ? renameMessage(renamed, renamed.number, renamed.mir).trim() : '', numbered?.number != null ? noEmailNumberNote(numbered).trim() : '']
       .filter(Boolean)

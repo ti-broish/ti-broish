@@ -30,6 +30,7 @@ import { ProcessedToggle, WithdrawnCountsContext } from './-withdrawal-processed
 import { WITHDRAWN_PROCESSED_OPTIONS, withdrawnCountsLine, type WithdrawnCounts } from '../../signup/admin-unregister'
 import { IAZ_ROW_BORDER, IAZ_ROW_TINT, IazBadge } from './-iaz-row'
 import { AddVolunteerButton } from './-add-volunteer'
+import { NumberSearchCards } from './-number-ledger'
 
 export const Route = createFileRoute('/admin/signups')({
   validateSearch: (search: Record<string, unknown>): SignupSearch => parseSignupSearch(search),
@@ -274,7 +275,7 @@ function SignupsPage() {
             className={`${adminInput} w-full`}
             type="search"
             value={draft}
-            placeholder="Име, имейл, телефон или ЕГН"
+            placeholder="Име, имейл, телефон, ЕГН или № (23/514)"
             onChange={(event) => setDraft(event.target.value)}
           />
         </label>
@@ -294,6 +295,7 @@ function SignupsPage() {
           </button>
         </form>
       </div>
+      <NumberSearchCards q={search.q} />
       <div className="flex flex-wrap gap-2" role="group" aria-label="Изглед">
         {views.map(([id, label]) => (
           <button

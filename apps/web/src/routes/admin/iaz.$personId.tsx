@@ -7,6 +7,7 @@ import { defaultSignupSearch } from '../../signup/admin-search'
 import { IazBadge, IAZ_ROW_TINT } from './-iaz-row'
 import { IazEditPanel, type IazEditablePerson } from './-iaz-edit-panel'
 import { IazUnregisterPanel } from './-iaz-unregister-panel'
+import { NumberHistory } from './-number-ledger'
 
 export const Route = createFileRoute('/admin/iaz/$personId')({
   component: PartnerPersonPage,
@@ -144,6 +145,7 @@ function PartnerPersonPage() {
         }}
       />
       <IdentityFixPanel personId={personId} onChanged={() => setReloadKey((key) => key + 1)} />
+      <NumberHistory personId={personId} reloadKey={reloadKey} />
       <section className="grid gap-2">
         <h2 className="text-lg font-black text-[#1a1020]">Записвания при нас със същото ЕГН или имейл</h2>
         {signups.length === 0 ? <p className="text-sm text-[#333]">Няма.</p> : (

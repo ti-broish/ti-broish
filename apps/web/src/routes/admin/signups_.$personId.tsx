@@ -16,6 +16,7 @@ import { defaultSignupSearch } from '../../signup/admin-search'
 import { CALLED_LABEL, calledText } from '../../signup/call-reopen'
 import { EXPERIENCE, type Experience, type NamedPlace, type Radius, type Role, type TravelStop } from '../../signup/model'
 import { UnregisterPanel } from './-unregister-panel'
+import { NumberHistory } from './-number-ledger'
 import { ReservedBadge, reservedOrgFor, useReservedIndex } from './-reserved-badge'
 
 export const Route = createFileRoute('/admin/signups_/$personId')({
@@ -295,6 +296,7 @@ function PersonPage() {
               </p>
             ) : null}
           </form>
+          <NumberHistory personId={personId} />
           <section className="grid gap-2" aria-labelledby="person-history">
             <h2 id="person-history" className="text-lg font-black text-[#1a1020]">
               История

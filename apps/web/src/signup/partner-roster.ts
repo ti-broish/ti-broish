@@ -244,10 +244,10 @@ export function partnerSectionsScope(view: RosterView | string, mir: string): { 
 const P_PUBLISHED = `COALESCE(p.section_published, '') != ''`
 const P_DRAFTED = `COALESCE(p.section_draft, '') != ''`
 
-/** The three Секции states for a partner row (alias p), same rules as for signups. */
+/** The three Секции states for a partner row (alias p), same rules as for signups (draft = pending draft). */
 export const PARTNER_SECTION_STATE_SQL = {
   none: `NOT (${P_PUBLISHED}) AND NOT (${P_DRAFTED})`,
-  draft: `NOT (${P_PUBLISHED}) AND ${P_DRAFTED}`,
+  draft: `${P_DRAFTED} AND COALESCE(p.section_draft, '') != COALESCE(p.section_published, '')`,
   published: P_PUBLISHED,
 } as const
 

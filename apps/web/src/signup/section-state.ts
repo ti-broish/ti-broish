@@ -1,9 +1,10 @@
 /**
- * Секции: every finished signup is in exactly one of three states.
+ * Секции: the three filters on /admin/sections.
  * - none: no draft and no published section
- * - draft: a draft section, nothing published yet (only the admins see it)
- * - published: a published section (the person sees it in /profil). A published person can also
- *   carry a different pending draft (a change); they still count as published until it is published.
+ * - draft: a pending draft, i.e. a draft that publishing would show: nothing published yet, or a
+ *   different draft next to the published section (a change, shown as old → new). Only admins see it.
+ * - published: a published section (the person sees it in /profil). A published person with a
+ *   pending change is in both „Чернова“ and „Публикувани“ until the change is published.
  */
 export const SECTION_STATES = ['none', 'draft', 'published'] as const
 export type SectionState = (typeof SECTION_STATES)[number]
@@ -19,7 +20,8 @@ const DRAFTED = `COALESCE(draft_section, '') != ''`
 
 export const SECTION_STATE_SQL: Record<SectionState, string> = {
   none: `NOT (${PUBLISHED}) AND NOT (${DRAFTED})`,
-  draft: `NOT (${PUBLISHED}) AND ${DRAFTED}`,
+  // Same rule as hasPendingDraft and the bulk publish: a draft that differs from the published one.
+  draft: `${DRAFTED} AND COALESCE(draft_section, '') != COALESCE(published_section, '')`,
   published: PUBLISHED,
 }
 

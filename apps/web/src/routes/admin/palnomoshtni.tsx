@@ -336,7 +336,11 @@ function PalnomoshtniPage() {
         {pipeline ? (
           <p className="text-sm text-[#5c4a63]" data-testid="pipeline-counts">
             С публикувана секция: доброволци {pipeline.volunteers} (без номер {pipeline.volunteersUnnumbered}, чакат Brevo {pipeline.volunteersBrevoPending}),
-            „И аз“ {pipeline.partners} (без номер {pipeline.partnersUnnumbered}). Номерирани и чакат ZIP за подпис: {pipeline.volunteersToSign + pipeline.partnersToSign}.
+            „И аз“ {pipeline.partners} (без номер {pipeline.partnersUnnumbered}).
+            {pipeline.volunteersHeldElsewhere + pipeline.partnersHeldElsewhere > 0
+              ? ` Същото ЕГН вече има номер (не са нови, не се номерират и не отиват в Brevo): ${pipeline.volunteersHeldElsewhere + pipeline.partnersHeldElsewhere}.`
+              : ''}{' '}
+            Номерирани и чакат ZIP за подпис: {pipeline.volunteersToSign + pipeline.partnersToSign}.
             Публикуването ги придвижва само; на всеки час се хващат пропуснатите.
           </p>
         ) : null}

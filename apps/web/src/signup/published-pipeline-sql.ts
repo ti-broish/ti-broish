@@ -6,6 +6,18 @@
  * the section attributes. „И аз“ people are numbered but never go to our Brevo.
  */
 
+import { partnerEgnFreeSql, signupEgnFreeSql } from './designation-duplicates'
+
+/**
+ * Unnumbered, but the same ЕГН already holds a number on another row (often an „И аз“ row from the
+ * first round): the same person again, not a new one. Never numbered (one ЕГН, one пълномощно),
+ * not counted as waiting for a number, and not sent to Brevo with this section. Outer table: signups.
+ */
+export const SIGNUP_HELD_ELSEWHERE_SQL = `(designation_number IS NULL AND NOT (${signupEgnFreeSql('signups')}))`
+
+/** Unnumbered „И аз“ that will not get a number: same ЕГН numbered elsewhere, or covered by a volunteer. Outer: partner_people. */
+export const PARTNER_HELD_ELSEWHERE_SQL = `(designation_number IS NULL AND NOT (${partnerEgnFreeSql('partner_people')}))`
+
 /** Added at runtime by db-core and in sql/2026-10-29-brevo-section-synced.sql. */
 export const BREVO_SECTION_SYNC_COLUMNS = [
   'ALTER TABLE signups ADD COLUMN brevo_section_synced TEXT',
@@ -24,6 +36,7 @@ const REAL_EMAIL_SQL = `COALESCE(TRIM(email), '') != '' AND LOWER(TRIM(email)) N
 /** Active volunteers with a published section whose Brevo contact is not synced for it yet. */
 export const BREVO_SECTION_PENDING_WHERE = `COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0
   AND ${REAL_EMAIL_SQL}
+  AND NOT ${SIGNUP_HELD_ELSEWHERE_SQL}
   AND COALESCE(brevo_section_synced, '') != ${BREVO_SECTION_KEY_SQL}`
 
 /** Mark one contact synced, only if the section did not change while Brevo answered. Binds: ?1 key, ?2 at, ?3 id. */
@@ -46,24 +59,30 @@ export function partnerMirFromSectionSql(scoped: boolean) {
 /** Counts for the report and the admin line: how far people with a published section are. */
 export const PIPELINE_COUNTS_SQL = `SELECT
   (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0) AS volunteers,
-  (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND designation_number IS NULL) AS volunteers_unnumbered,
+  (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND designation_number IS NULL AND NOT ${SIGNUP_HELD_ELSEWHERE_SQL}) AS volunteers_unnumbered,
+  (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND ${SIGNUP_HELD_ELSEWHERE_SQL}) AS volunteers_held_elsewhere,
   (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND designation_number IS NOT NULL
      AND designation_signed_at IS NULL AND designation_signing_generated_at IS NULL) AS volunteers_to_sign,
   (SELECT COUNT(*) FROM signups WHERE COALESCE(published_section, '') != '' AND COALESCE(withdrawn, 0) = 0 AND ${REAL_EMAIL_SQL}) AS volunteers_brevo,
   (SELECT COUNT(*) FROM signups WHERE ${BREVO_SECTION_PENDING_WHERE}) AS volunteers_brevo_pending,
   (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL) AS partners,
-  (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL AND designation_number IS NULL) AS partners_unnumbered,
+  (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL AND designation_number IS NULL AND NOT ${PARTNER_HELD_ELSEWHERE_SQL}) AS partners_unnumbered,
+  (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL AND ${PARTNER_HELD_ELSEWHERE_SQL}) AS partners_held_elsewhere,
   (SELECT COUNT(*) FROM partner_people WHERE COALESCE(section_published, '') != '' AND withdrawn_at IS NULL AND designation_number IS NOT NULL
      AND designation_signed_at IS NULL AND designation_signing_generated_at IS NULL) AS partners_to_sign`
 
 export type PipelineCounts = {
   volunteers: number
+  /** Unnumbered and their ЕГН holds no number elsewhere: really waiting for one. */
   volunteersUnnumbered: number
+  /** Unnumbered because the same ЕГН already holds a number (the same person again, not new). */
+  volunteersHeldElsewhere: number
   volunteersToSign: number
   volunteersBrevo: number
   volunteersBrevoPending: number
   partners: number
   partnersUnnumbered: number
+  partnersHeldElsewhere: number
   partnersToSign: number
 }
 
@@ -72,11 +91,13 @@ export function pipelineCountsFrom(row: Record<string, unknown> | null | undefin
   return {
     volunteers: n('volunteers'),
     volunteersUnnumbered: n('volunteers_unnumbered'),
+    volunteersHeldElsewhere: n('volunteers_held_elsewhere'),
     volunteersToSign: n('volunteers_to_sign'),
     volunteersBrevo: n('volunteers_brevo'),
     volunteersBrevoPending: n('volunteers_brevo_pending'),
     partners: n('partners'),
     partnersUnnumbered: n('partners_unnumbered'),
+    partnersHeldElsewhere: n('partners_held_elsewhere'),
     partnersToSign: n('partners_to_sign'),
   }
 }

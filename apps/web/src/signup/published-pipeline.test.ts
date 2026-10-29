@@ -192,6 +192,24 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
     expect(await runScheduledPublishedAdvance('7 * * * *', { db: null })).toBeNull()
   })
 
+  it('the same ЕГН again (numbered in the first round) is not new: no second number, no Brevo, numbers kept', async () => {
+    // First round: an „И аз“ row already holds № 512 in МИР 23. Now the same person signs up again and gets a section.
+    await partner('pp-round1', '790909123', { section_published: '234600010' }, { designation_mir: '23', designation_number: 512, designation_issued_at: '21.10.2026' })
+    await signup('s-again', 'again@example.test', { egn: egn('790909123'), published_section: '234600011', published_at: T0 })
+    const calls: Call[] = []
+    const report = await advancePublished(db, 'all', 'test', { brevo, fetchImpl: fakeBrevo(calls), sectionFields, now: new Date(T0) })
+
+    expect((await number('signups', 's-again'))?.n).toBeNull()
+    expect(await number('partner_people', 'pp-round1')).toMatchObject({ n: 512, mir: '23' })
+    expect(report.skippedDuplicates).toBe(1)
+    const pushed = calls.filter((call) => call.url.includes('/contacts/') && !call.url.endsWith('/attributes')).map((call) => call.url)
+    expect(pushed.some((url) => url.includes('again%40'))).toBe(false)
+    // Counted apart from „без номер“: they are not waiting for a number.
+    expect(report.counts).toMatchObject({ volunteersUnnumbered: 0, volunteersHeldElsewhere: 1, volunteersBrevoPending: 0 })
+    // New people in МИР 23 continue above the first-round number; nothing is renumbered.
+    expect((await number('signups', 's-pub'))?.n).toBeGreaterThan(512)
+  })
+
   it('caps one run and reports the rest', async () => {
     const calls: Call[] = []
     const report = await advancePublished(db, 'all', 'test', { brevo, fetchImpl: fakeBrevo(calls), sectionFields, brevoLimit: 1 })

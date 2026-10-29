@@ -218,6 +218,18 @@ describe.skipIf(!sectionsDb)('„И аз“ on Секции (SQLite)', () => {
     expect(inState('published')).toEqual(['pp-ina', 'pp-sonya'])
   })
 
+  it('„Чернова“ also holds a published „И аз“ person with a different draft (a pending change)', () => {
+    const before = db.prepare("SELECT section_draft AS d FROM partner_people WHERE id = 'pp-ina'").get() as { d: string | null }
+    db.exec("UPDATE partner_people SET section_draft = '239999001' WHERE id = 'pp-ina'")
+    try {
+      expect(inState('draft')).toEqual(['pp-ina', 'pp-solo'])
+      expect(inState('published')).toEqual(['pp-ina', 'pp-sonya'])
+      expect(counts('all', '')).toMatchObject({ draft: 2, published: 2 })
+    } finally {
+      db.prepare("UPDATE partner_people SET section_draft = ? WHERE id = 'pp-ina'").run(before.d)
+    }
+  })
+
   it('counts per state add up and match the state lists', () => {
     expect(counts('all', '')).toEqual({ total: 5, none: 2, draft: 1, published: 2 })
     expect(counts('mir', '23')).toEqual({ total: 2, none: 1, draft: 1, published: 0 })

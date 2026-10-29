@@ -125,6 +125,9 @@ export function SectionPersonRow(props: {
                     {person.draftSection && person.draftLocked ? (
                       <p className="mb-1 text-xs font-bold text-[#1a1020]">Ръчна чернова: разпределението не я сменя.</p>
                     ) : null}
+                    {pendingDraft && person.publishedSection ? (
+                      <p className="mb-1 text-xs font-bold text-[#1a1020]">Смяна: {person.publishedSection} → {person.draftSection}</p>
+                    ) : null}
                     {person.draftSection ? (
                       <p className="mb-1"><DesignationMirBadge designationMir={person.designationMir} designationNumber={person.designationNumber} section={person.draftSection} /></p>
                     ) : null}

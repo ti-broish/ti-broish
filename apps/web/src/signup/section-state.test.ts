@@ -58,16 +58,21 @@ describe('section states', () => {
     expect(hasPendingDraft({ draftSection: '', publishedSection: '' })).toBe(false)
   })
 
-  it('SQL states and counts agree with sectionStateOf', async () => {
+  it('SQL states and counts: „Чернова“ is every pending draft, incl. a change next to a published section', async () => {
     const raw = await openDb()
     if (!raw) return
     seed(raw)
     const ids = (state: keyof typeof SECTION_STATE_SQL) =>
       (raw.prepare(`SELECT id FROM signups WHERE withdrawn = 0 AND ${SECTION_STATE_SQL[state]} ORDER BY id`).all() as Array<{ id: string }>).map((row) => row.id)
     expect(ids('none')).toEqual(['none'])
-    expect(ids('draft')).toEqual(['auto', 'manual'])
+    // A published person with a different draft is a pending change: in „Чернова“ and still in „Публикувани“.
+    expect(ids('draft')).toEqual(['auto', 'manual', 'published-change'])
+    expect(ids('draft').every((id) => {
+      const row = raw.prepare('SELECT draft_section, published_section FROM signups WHERE id = ?').get(id) as { draft_section: string | null; published_section: string | null }
+      return hasPendingDraft({ draftSection: row.draft_section ?? '', publishedSection: row.published_section ?? '' })
+    })).toBe(true)
     expect(ids('published')).toEqual(['published', 'published-change'])
-    expect(sectionCountsFrom(raw.prepare(sectionCountsSql('withdrawn = 0')).get() as Record<string, unknown>)).toEqual({ total: 5, none: 1, draft: 2, published: 2 })
+    expect(sectionCountsFrom(raw.prepare(sectionCountsSql('withdrawn = 0')).get() as Record<string, unknown>)).toEqual({ total: 5, none: 1, draft: 3, published: 2 })
   })
 
   it('parses old view=unassigned/draft/assigned links into state', () => {

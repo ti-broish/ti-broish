@@ -97,9 +97,53 @@ describe('classification mirrors last election’s sheet', () => {
     expect(tasks[0]!.detail).toContain('Вссилева')
   })
 
-  it('a different person under our number → call РИК', () => {
-    const { tasks } = run([person('a', 'Яна Данчева Василева')], [entry('Борис Николов Захариев')])
-    expect(tasks[0]).toMatchObject({ type: 'call_rik', reason: 'number_taken' })
+  it('another of our people under our number → call РИК (a mix-up between ours)', () => {
+    const { results, tasks } = run(
+      [person('a', 'Яна Данчева Василева'), person('b', 'Борис Николов Захариев', { number: 502 })],
+      [entry('Борис Николов Захариев')],
+    )
+    expect(results[0]).toMatchObject({ personId: 'a', status: 'name_mismatch' })
+    expect(tasks.find((task) => task.personId === 'a')).toMatchObject({ type: 'call_rik', reason: 'number_taken' })
+  })
+
+  it('someone who is none of ours under our number → „зает външно“: a new number, even before signing (the 01/515 case)', () => {
+    for (const signedAt of [RECENT, null]) {
+      const { results, tasks } = run([person('a', 'Яна Данчева Василева', { signedAt })], [entry('Борис Николов Захариев')])
+      expect(results[0]).toMatchObject({ status: 'taken_external', entryId: expect.any(String), detail: 'Борис Николов Захариев' })
+      expect(tasks).toEqual([expect.objectContaining({ id: 'a:renumber:external', type: 'renumber', reason: 'external', mir: '23' })])
+      expect(tasks[0]!.detail).toContain('№ 23/501 е зает външно в РИК 23')
+    }
+  })
+
+  it('a name typo under our number stays a name fix, never „зает външно“', () => {
+    const { results } = run([person('a', 'Яна Данчева Василева', { signedAt: null })], [entry('Яна Данчева Вссилева')])
+    expect(results[0]!.status).toBe('not_signed')
+  })
+
+  it('withdrawn „И аз“ duplicate of an active volunteer: the volunteer’s row is not theirs (the 03/515, 17/506 case)', () => {
+    const { results, tasks } = run(
+      [person('s-1', 'Иван Петров Иванов', { number: 504 }), person('pp-1', 'Иван Петров Иванов', { source: 'partner', number: 515, withdrawn: true })],
+      [entry('Иван Петров Иванов', { number: 504 })],
+    )
+    const byId = new Map(results.map((row) => [row.personId, row]))
+    expect(byId.get('s-1')!.status).toBe('registered')
+    expect(byId.get('pp-1')!.status).toBe('withdrawn')
+    expect(tasks).toEqual([])
+  })
+
+  it('withdrawn and published under another number nobody of ours holds → still „за заличаване“', () => {
+    const { results } = run([person('a', 'Иван Петров Иванов', { withdrawn: true })], [entry('Иван Петров Иванов', { number: 777 })])
+    expect(results[0]!.status).toBe('withdrawn_registered')
+  })
+
+  it('a row in the МИР a person moved away from is still theirs (ledger history), not external', () => {
+    const people = [person('a', 'Иван Петров Иванов', { mir: '24', number: 640 }), person('x', 'Друга Някоя Жена')]
+    const entries = [entry('Иван Петров Иванов')]
+    const without = matchAll(people, entries, sources, NOW, 2)
+    expect(without.results.find((row) => row.personId === 'x')!.status).toBe('taken_external')
+    const withHistory = matchAll(people, entries, sources, NOW, 2, { ledgerMirs: new Map([['a', new Set(['23', '24'])]]) })
+    expect(withHistory.results.find((row) => row.personId === 'x')!.status).toBe('name_mismatch')
+    expect(withHistory.tasks.find((task) => task.personId === 'x')).toMatchObject({ type: 'call_rik', reason: 'number_taken' })
   })
 
   it('name published under another number → call РИК', () => {

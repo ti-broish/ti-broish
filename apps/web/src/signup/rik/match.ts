@@ -26,8 +26,9 @@ export type RikStatus =
   | 'duplicate' // same ЕГН keeps another number with us: never call the РИК for this one
   | 'rik_unavailable' // the РИК's register could not be read
   | 'renamed' // we changed the name after it went to the РИК: send a correction (old name still accepted)
+  | 'taken_external' // our number is published for someone who is not ours: the number is taken, give a new one
 
-export type RikTaskType = 'call_rik' | 'remove_person' | 'fix_data' | 'check_rik' | 'fix_name' | 'self_identity'
+export type RikTaskType = 'call_rik' | 'remove_person' | 'fix_data' | 'check_rik' | 'fix_name' | 'self_identity' | 'renumber' | 'possible_match'
 
 export const STATUS_LABELS: Record<RikStatus, string> = {
   registered: 'Регистриран',
@@ -44,6 +45,7 @@ export const STATUS_LABELS: Record<RikStatus, string> = {
   duplicate: 'Дубликат',
   rik_unavailable: 'РИК не се чете',
   renamed: 'Сменено име — подай поправка',
+  taken_external: 'Номерът е зает външно',
 }
 
 export const TASK_LABELS: Record<RikTaskType, string> = {
@@ -53,6 +55,8 @@ export const TASK_LABELS: Record<RikTaskType, string> = {
   check_rik: 'Провери РИК ръчно',
   fix_name: 'Поправи името в РИК',
   self_identity: 'Смяна име/ЕГН – нов документ',
+  renumber: 'Нов номер (зает външно)',
+  possible_match: 'Възможно съвпадение',
 }
 
 export interface RikPerson {
@@ -88,6 +92,8 @@ export interface RikEntryRow {
   numberDate: string | null
   annulled: boolean
   missingSince: string | null
+  /** The register page the row was read from (optional: only the external-number step needs it). */
+  sourceUrl?: string
 }
 
 export interface RikSourceHealth {
@@ -161,6 +167,38 @@ export function looksLikeSamePerson(a: string, b: string) {
   return editDistance(a, b, 4) <= 3
 }
 
+/** The person's name keys: the current one and any the РИК may still have (renamed). */
+export function personKeys(person: RikPerson) {
+  return [person.nameKey, ...(person.previousNames ?? []).map((name) => nameKey(name))].filter(Boolean)
+}
+
+export interface MatchIndex {
+  byMirNumber: Map<string, RikEntryRow[]>
+  byKey: Map<string, RikEntryRow[]>
+  /** Our numbered people (incl. withdrawn) by every МИР they hold or held a number in. */
+  peopleByMir: Map<string, RikPerson[]>
+  /** Our numbered people by their current „МИР:number“. */
+  holders: Map<string, RikPerson[]>
+}
+
+/**
+ * Name first: which of our people a register row is about. A row belongs to one of ours when the
+ * name looks like (≤ 3 edits) someone who holds or held a number in that МИР, whatever the number.
+ * Nobody → the row is someone outside our database („външен“).
+ */
+export function ownersOf(row: RikEntryRow, index: MatchIndex) {
+  if (!row.nameKey || row.annulled) return []
+  return (index.peopleByMir.get(row.mir) ?? []).filter((person) => personKeys(person).some((key) => looksLikeSamePerson(key, row.nameKey)))
+}
+
+/** A row with the name of another of our active people who holds exactly that number: theirs, not this person's. */
+function claimedByOther(row: RikEntryRow, person: RikPerson, index: MatchIndex) {
+  if (row.number == null) return false
+  return (index.holders.get(`${row.mir}:${row.number}`) ?? []).some(
+    (other) => other.id !== person.id && !other.withdrawn && personKeys(other).some((key) => looksLikeSamePerson(key, row.nameKey)),
+  )
+}
+
 function task(person: RikPerson, type: RikTaskType, reason: string, detail: string): DerivedTask {
   return { id: `${person.id}:${type}:${reason}`, personId: person.id, mir: person.mir, type, reason, detail }
 }
@@ -171,7 +209,7 @@ function task(person: RikPerson, type: RikTaskType, reason: string, detail: stri
  */
 export function classifyPerson(
   person: RikPerson,
-  index: { byMirNumber: Map<string, RikEntryRow[]>; byKey: Map<string, RikEntryRow[]> },
+  index: MatchIndex,
   sources: Map<string, RikSourceHealth>,
   now: Date,
 ): { result: PersonResult; tasks: DerivedTask[] } {
@@ -179,7 +217,9 @@ export function classifyPerson(
   const live = (rows: RikEntryRow[] | undefined) => (rows ?? []).filter((row) => !row.missingSince && row.kind === 'representative')
   const oldKeys = (person.previousNames ?? []).map((name) => nameKey(name)).filter((key) => key && key !== person.nameKey)
   const sameKey = live([person.nameKey, ...oldKeys].flatMap((key) => index.byKey.get(key) ?? []))
-  const ownByName = sameKey.filter((row) => row.ours && row.mir === person.mir && !row.annulled)
+  // A row under the same name but another number that another of our people holds (the same human
+  // kept as a withdrawn „И аз“ duplicate, say) is theirs: it never counts for this person.
+  const ownByName = sameKey.filter((row) => row.ours && row.mir === person.mir && !row.annulled && !claimedByOther(row, person, index))
   const ownByNumber = person.number == null ? [] : live(index.byMirNumber.get(`${person.mir}:${person.number}`))
   const otherParty = sameKey.filter((row) => !row.ours)
   const otherMir = sameKey.filter((row) => row.ours && row.mir !== person.mir && !row.annulled)
@@ -249,6 +289,23 @@ export function classifyPerson(
     return { result: result('renamed', { entryId: published?.id ?? null, detail: oldName }), tasks }
   }
 
+  // Our number is published for someone who is none of ours (name first, not number first): the
+  // number was issued outside our numbering. A new number is the fix, before anything is sent.
+  const isMine = (row: RikEntryRow) => personKeys(person).some((key) => looksLikeSamePerson(key, row.nameKey))
+  const takenRow = ownByNumber.find((row) => !row.annulled && !isMine(row) && ownersOf(row, index).length === 0) ?? null
+  if (takenRow && !ownByNumber.some((row) => !row.annulled && isMine(row))) {
+    const published = `${takenRow.number ?? person.number}${takenRow.numberDate ? `/${takenRow.numberDate}` : ''}`
+    tasks.push(
+      task(
+        person,
+        'renumber',
+        'external',
+        `№ ${person.mir}/${person.number} е зает външно в РИК ${person.mir}: регистърът го показва за „${takenRow.name}“ (№ ${published}), който не е от нашите. Дай нов номер и подпишете ново пълномощно.`,
+      ),
+    )
+    return { result: result('taken_external', { entryId: takenRow.id, detail: takenRow.name }), tasks }
+  }
+
   const health = effectiveHealth(sources.get(person.mir))
   if (!health || health.health === 'error' || health.health === 'unrecognised') {
     return { result: result('rik_unavailable', { detail: health?.lastError ?? '' }), tasks }
@@ -314,7 +371,11 @@ export function classifyPerson(
   return { result: result('pending'), tasks }
 }
 
-export function buildIndex(entries: RikEntryRow[]) {
+/**
+ * `ledgerMirs`: person id → every МИР they ever held a number in (designation_numbers), so a row in
+ * the МИР they moved away from is still recognised as theirs.
+ */
+export function buildIndex(entries: RikEntryRow[], people: RikPerson[] = [], ledgerMirs: Map<string, Set<string>> = new Map()): MatchIndex {
   const byMirNumber = new Map<string, RikEntryRow[]>()
   const byKey = new Map<string, RikEntryRow[]>()
   for (const entry of entries) {
@@ -324,7 +385,16 @@ export function buildIndex(entries: RikEntryRow[]) {
     }
     if (entry.nameKey) byKey.set(entry.nameKey, [...(byKey.get(entry.nameKey) ?? []), entry])
   }
-  return { byMirNumber, byKey }
+  const peopleByMir = new Map<string, RikPerson[]>()
+  const holders = new Map<string, RikPerson[]>()
+  for (const person of people) {
+    for (const mir of new Set([person.mir, ...(ledgerMirs.get(person.id) ?? [])])) peopleByMir.set(mir, [...(peopleByMir.get(mir) ?? []), person])
+    if (person.number != null) {
+      const key = `${person.mir}:${person.number}`
+      holders.set(key, [...(holders.get(key) ?? []), person])
+    }
+  }
+  return { byMirNumber, byKey, peopleByMir, holders }
 }
 
 /** РИК-level tasks: a register that keeps failing or stops looking like a register. */
@@ -341,8 +411,16 @@ export function sourceTasks(sources: RikSourceHealth[], threshold: number): Deri
     }))
 }
 
-export function matchAll(people: RikPerson[], entries: RikEntryRow[], sources: RikSourceHealth[], now: Date, threshold: number) {
-  const index = buildIndex(entries)
+export function matchAll(
+  people: RikPerson[],
+  entries: RikEntryRow[],
+  sources: RikSourceHealth[],
+  now: Date,
+  threshold: number,
+  options: { ledgerMirs?: Map<string, Set<string>>; everyone?: RikPerson[] } = {},
+) {
+  // `everyone`: all our numbered people for name matching, also those whose МИР is frozen this run.
+  const index = buildIndex(entries, options.everyone ?? people, options.ledgerMirs)
   const health = new Map(sources.map((source) => [source.mir, source]))
   const results: PersonResult[] = []
   const tasks: DerivedTask[] = []

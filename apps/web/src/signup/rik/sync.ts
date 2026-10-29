@@ -13,9 +13,11 @@
  * batch merged into another never duplicates a row.
  *
  * It never writes signups, partner_people, sections or drafts, never removes anyone and never
- * mails: it only fills the rik_* tables.
+ * mails: it only fills the rik_* tables, and reserves external numbers in designation_numbers
+ * (externals.ts).
  */
 import { partnerDuplicateSql, signupDuplicateSql } from '../designation-duplicates'
+import { DESIGNATION_NUMBERS_TABLE } from '../designation-numbers'
 import type { SignupD1 } from '../db-core'
 import { loadRikCorrections } from '../designation-rename'
 import {
@@ -46,7 +48,8 @@ import {
   type RegisterKind,
 } from './config'
 import { BlockedBySite, detectBlock, hostOf, mayBeBlockPage, parseRetryAfter } from './block'
-import { matchAll, type DerivedTask, type PersonResult, type RikEntryRow, type RikPerson, type RikSourceHealth } from './match'
+import { externalNumberStatements, findExternalNumbers, LEDGER_OURS_SQL, UNNUMBERED_PEOPLE_SQL, type UnnumberedPerson } from './externals'
+import { buildIndex, matchAll, type DerivedTask, type PersonResult, type RikEntryRow, type RikPerson, type RikSourceHealth } from './match'
 import { isAnnulledName, joinNames, nameKey, parseNumberWithDate, sha256Hex } from './normalize'
 import { electionBaseOf, parseContacts, parseRegisterBatch, parseRegisterList, parseRikIndex } from './parse'
 import { RIK_COLUMNS, RIK_INDEXES, RIK_TABLES } from './sql'
@@ -87,6 +90,8 @@ export interface SyncSummary {
   status: RikRunStatus
   statuses: Record<string, number>
   tasks: Record<string, number>
+  /** Numbers in our committee's registers that none of our people hold („външни“). */
+  externals?: number
 }
 
 const ensured = new WeakSet<object>()
@@ -95,6 +100,8 @@ export async function ensureRikTables(db: SignupD1) {
   if (ensured.has(db)) return
   for (const sql of RIK_TABLES) await db.prepare(sql).run()
   for (const sql of RIK_INDEXES) await db.prepare(sql).run()
+  // The number ledger (bootstrap makes it with its triggers); the sync adds external numbers to it.
+  await db.prepare(DESIGNATION_NUMBERS_TABLE).run()
   const columns = new Map<string, Set<string>>()
   for (const [table, column, definition] of RIK_COLUMNS) {
     if (!columns.has(table)) {
@@ -241,6 +248,23 @@ export async function loadPeople(db: SignupD1): Promise<RikPerson[]> {
     duplicate: Number(row.duplicate ?? 0) === 1,
     ...(corrections.get(row.id)?.oldNames.length ? { previousNames: corrections.get(row.id)!.oldNames } : {}),
   }))
+}
+
+/** The ledger as the matcher needs it: our numbers and the МИР each person ever held a number in. */
+export async function loadLedger(db: SignupD1) {
+  const rows = (await db.prepare(LEDGER_OURS_SQL).all<{ mir: string; number: number; person_id: string | null }>()).results ?? []
+  const ours = new Set<string>()
+  const mirs = new Map<string, Set<string>>()
+  for (const row of rows) {
+    ours.add(`${row.mir}:${Number(row.number)}`)
+    if (row.person_id) mirs.set(row.person_id, (mirs.get(row.person_id) ?? new Set()).add(row.mir))
+  }
+  return { ours, mirs }
+}
+
+export async function loadUnnumbered(db: SignupD1): Promise<UnnumberedPerson[]> {
+  const rows = (await db.prepare(UNNUMBERED_PEOPLE_SQL).all<{ id: string; first_name: string; middle_name: string; last_name: string }>()).results ?? []
+  return rows.map((row) => ({ id: row.id, nameKey: nameKey(joinNames(row.first_name ?? '', row.middle_name ?? '', row.last_name ?? '')) })).filter((row) => row.nameKey)
 }
 
 interface SourceRow {
@@ -616,7 +640,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
   async function rematch() {
     const stamp = now().toISOString()
     const people = await loadPeople(db)
-    const entries = ((await db.prepare(`SELECT id, mir, kind, ours, party, name, name_key, number, number_date, annulled, missing_since FROM rik_entries`).all<{
+    const entries = ((await db.prepare(`SELECT id, mir, kind, ours, party, name, name_key, number, number_date, annulled, missing_since, source_url FROM rik_entries ORDER BY first_seen_at, id`).all<{
       id: string
       mir: string
       kind: 'representative' | 'advocate'
@@ -628,6 +652,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
       number_date: string | null
       annulled: number
       missing_since: string | null
+      source_url: string
     }>()).results ?? []).map(
       (row): RikEntryRow => ({
         id: row.id,
@@ -641,6 +666,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
         numberDate: row.number_date,
         annulled: Number(row.annulled) === 1,
         missingSince: row.missing_since,
+        sourceUrl: row.source_url,
       }),
     )
     const sources = ((await db
@@ -657,14 +683,19 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     )
     // A РИК blocked by the site is frozen: its people keep their status and tasks as they were.
     const frozen = new Set(sources.filter((source) => source.health === 'blocked').map((source) => source.mir))
+    const ledger = await loadLedger(db)
     const { results, tasks } = matchAll(
       people.filter((person) => !frozen.has(person.mir)),
       entries,
       sources,
       now(),
       MANUAL_CHECK_AFTER_FAILURES,
+      { ledgerMirs: ledger.mirs, everyone: people },
     )
-    await writeResults(db, results, tasks.filter((one) => !frozen.has(one.mir)), stamp, [...frozen])
+    // External numbers into the ledger first, so the next number skips them from this run on.
+    const external = findExternalNumbers(entries, buildIndex(entries, people, ledger.mirs), ledger.ours, await loadUnnumbered(db))
+    await chunked(db, externalNumberStatements(db, external.numbers, stamp, external.reclaimed))
+    await writeResults(db, results, [...tasks, ...external.tasks].filter((one) => !frozen.has(one.mir)), stamp, [...frozen])
     const statuses: Record<string, number> = {}
     for (const row of (await db.prepare('SELECT status, COUNT(*) AS n FROM rik_status GROUP BY status').all<{ status: string; n: number }>()).results ?? []) {
       statuses[row.status] = Number(row.n)
@@ -673,7 +704,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     for (const row of (await db.prepare('SELECT type, COUNT(*) AS n FROM rik_tasks WHERE active = 1 GROUP BY type').all<{ type: string; n: number }>()).results ?? []) {
       taskCounts[row.type] = Number(row.n)
     }
-    return { statuses, tasks: taskCounts }
+    return { statuses, tasks: taskCounts, externals: external.numbers.length }
   }
 
   async function run(): Promise<SyncSummary> {

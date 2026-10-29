@@ -5,12 +5,14 @@ import { httpStatusForStaffDenial } from './designation-preview'
 import { streamZipWriter } from './designation-zip-stream'
 import type { SignupD1 } from './db-core'
 import { ensureIdentityFixTables } from './identity-fix'
+import { CLOSED_WAVES_SQL, CLOSE_WAVE_SQL } from './signed-waves-sql'
 import {
-  SIGNED_PEOPLE_SQL,
+  WAVE_PEOPLE_SQL,
   peopleInWave,
   signedPersonFromRow,
   signedWaves,
   writeSignedWaveZip,
+  type ClosedWaveRow,
   type SignedPerson,
   type SignedRow,
   type SignedWave,
@@ -19,8 +21,9 @@ import {
 /** Workers allow ~1000 subrequests per request; one per PDF plus the Drive token. */
 export const SIGNED_ZIP_PDF_LIMIT = 900
 
-export async function loadSignedPeople(db: SignupD1): Promise<SignedPerson[]> {
-  const result = await db.prepare(SIGNED_PEOPLE_SQL).all<SignedRow>()
+/** Everyone numbered (signed or not) with their wave; the ZIP keeps only the signed ones. */
+export async function loadWavePeople(db: SignupD1): Promise<SignedPerson[]> {
+  const result = await db.prepare(WAVE_PEOPLE_SQL).all<SignedRow>()
   const people = (result.results ?? []).map(signedPersonFromRow).filter((person): person is SignedPerson => person != null)
   const open = await openRikCorrections(db)
   return open.size ? people.map((person) => withCorrection(person, open.get(person.id))) : people
@@ -64,6 +67,11 @@ export function openCorrectionsFromRows(rows: Array<{ person_id: string; old_nam
   return open
 }
 
+export async function loadClosedWaves(db: SignupD1): Promise<ClosedWaveRow[]> {
+  const result = await db.prepare(CLOSED_WAVES_SQL).all<ClosedWaveRow>()
+  return result.results ?? []
+}
+
 async function openRikCorrections(db: SignupD1) {
   try {
     await ensureIdentityFixTables(db)
@@ -81,14 +89,40 @@ export async function handleSignedWaves(): Promise<
 > {
   const access = await gateDesignation('exportCampaign')
   if (!access.ok) return { ok: false, message: access.message }
-  const people = await loadSignedPeople(access.db)
+  const [people, closed] = await Promise.all([loadWavePeople(access.db), loadClosedWaves(access.db)])
+  const signed = people.filter((person) => person.signed)
   return {
     ok: true,
-    waves: signedWaves(people),
-    total: people.length,
-    mirs: new Set(people.map((person) => person.mir)).size,
+    waves: signedWaves(people, closed),
+    total: signed.length,
+    mirs: new Set(signed.map((person) => person.mir)).size,
     pdfLimit: SIGNED_ZIP_PDF_LIMIT,
   }
+}
+
+/**
+ * „Изпратена на РИК“: closes the open wave of one PDF date. Everyone numbered with that date and
+ * no wave yet joins the new closed wave; later numbers with the same date make the next wave.
+ */
+export async function handleCloseSigningWave(issueDate: string): Promise<{ ok: true; closed: number; waveId: string } | { ok: false; message: string }> {
+  const access = await gateDesignation('exportCampaign')
+  if (!access.ok) return { ok: false, message: access.message }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(issueDate)) return { ok: false, message: 'Вълната е дата (ГГГГ-ММ-ДД).' }
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  await access.db.batch([
+    access.db.prepare(CLOSE_WAVE_SQL[0]!).bind(id, issueDate, now, access.email),
+    access.db.prepare(CLOSE_WAVE_SQL[1]!).bind(id, issueDate),
+    access.db.prepare(CLOSE_WAVE_SQL[2]!).bind(id, issueDate),
+  ])
+  // Counted after the batch: D1's meta.changes also counts rows the high-water triggers touch.
+  const row = await access.db
+    .prepare('SELECT (SELECT COUNT(*) FROM signups WHERE designation_wave_id = ?1) + (SELECT COUNT(*) FROM partner_people WHERE designation_wave_id = ?1) AS n')
+    .bind(id)
+    .first<{ n: number }>()
+  const closed = Number(row?.n ?? 0)
+  if (closed === 0) return { ok: false, message: 'Няма отворена вълна за тази дата.' }
+  return { ok: true, closed, waveId: id }
 }
 
 function text(message: string, status: number) {
@@ -96,7 +130,7 @@ function text(message: string, status: number) {
 }
 
 /**
- * GET /admin/palnomoshtni/podpisani?wave=YYYY-MM-DD|all[&tables=1]
+ * GET /admin/palnomoshtni/podpisani?wave=<closed wave id>|YYYY-MM-DD (open wave of that PDF date)|all[&tables=1]
  * One folder per РИК with „РИК NN Представители.xlsx“ and that РИК's signed PDFs from Drive.
  */
 export async function serveSignedWaveZip(request: Request): Promise<Response> {
@@ -104,10 +138,10 @@ export async function serveSignedWaveZip(request: Request): Promise<Response> {
   if (!access.ok) return text(access.message, httpStatusForStaffDenial(access.state))
   const url = new URL(request.url)
   const wave = (url.searchParams.get('wave') ?? '').trim()
-  if (wave !== 'all' && !/^\d{4}-\d{2}-\d{2}$/.test(wave)) return text('Вълната е дата (ГГГГ-ММ-ДД) или „all“.', 400)
+  if (wave !== 'all' && !/^[\w-]{1,64}$/.test(wave)) return text('Вълната е дата (ГГГГ-ММ-ДД), номер на затворена вълна или „all“.', 400)
   const tablesOnly = url.searchParams.get('tables') === '1'
-  const all = await loadSignedPeople(access.db)
-  const people = peopleInWave(all, wave)
+  const [all, closed] = await Promise.all([loadWavePeople(access.db), loadClosedWaves(access.db)])
+  const people = peopleInWave(all, wave, closed)
   if (people.length === 0) return text('Няма подписани пълномощни в тази вълна.', 404)
   if (!tablesOnly && people.length > SIGNED_ZIP_PDF_LIMIT) {
     return text(`Над ${SIGNED_ZIP_PDF_LIMIT} PDF-а в един ZIP: свали по вълни или само таблиците.`, 400)
@@ -127,9 +161,8 @@ export async function serveSignedWaveZip(request: Request): Promise<Response> {
     })
   })
 
-  const waves = signedWaves(all)
-  const number = waves.find((item) => item.key === wave)?.wave
-  const name = wave === 'all' ? `podpisani-vsichki-${new Date().toISOString().slice(0, 10)}` : `podpisani-valna-${number ?? 0}-${wave}`
+  const found = signedWaves(all, closed).find((item) => item.key === wave)
+  const name = wave === 'all' ? `podpisani-vsichki-${new Date().toISOString().slice(0, 10)}` : `podpisani-valna-${found?.wave ?? 0}-${found?.issueKey ?? wave}`
   const filename = `${name}${tablesOnly ? '-tablici' : ''}.zip`
   return new Response(stream, {
     status: 200,

@@ -8,7 +8,7 @@ import { normalizeCantReachSection } from './cant-reach'
 import { emptyProfile, type Profile } from './model'
 import { parseAdminEmails } from './staff'
 import { PRIORITY_SECTIONS_INDEXES, PRIORITY_SECTIONS_TABLE } from './priority-sections-sql'
-import { SIGNED_WAVE_COLUMNS } from './signed-waves-sql'
+import { SIGNED_WAVE_COLUMNS, SIGNING_WAVE_SCHEMA } from './signed-waves-sql'
 import { releaseWithdrawnSections } from './withdrawal'
 import { SIGNING_GENERATED_COLUMNS } from './designation-sign-scope'
 import { BREVO_SECTION_SYNC_COLUMNS } from './published-pipeline-sql'
@@ -284,7 +284,7 @@ export function signupSchemaVersion() {
   return (cachedSchemaVersion ??= schemaFingerprint([
     SCHEMA_CODE_REVISION, SIGNUPS, BASE_INDEXES, ADD_COLUMNS, COMPANIONS, TAKEN, ABROAD_PRIORITY,
     PRIORITY_SECTIONS_TABLE, PRIORITY_SECTIONS_INDEXES, PARTNER_PEOPLE_TABLE, PARTNER_PEOPLE_INDEXES,
-    PARTNER_SECTION_COLUMNS, SIGNED_WAVE_COLUMNS, SIGNING_GENERATED_COLUMNS, PARTNER_WITHDRAWAL_COLUMNS, BREVO_SECTION_SYNC_COLUMNS,
+    PARTNER_SECTION_COLUMNS, SIGNED_WAVE_COLUMNS, SIGNING_WAVE_SCHEMA, SIGNING_GENERATED_COLUMNS, PARTNER_WITHDRAWAL_COLUMNS, BREVO_SECTION_SYNC_COLUMNS,
     STAFF, AUDIT, INDEXES, RESERVED_SECTION_GUARDS, MOBILE_DRAFTS_TABLE, MOBILE_DRAFTS_GUARDS, PARTNER_SECTION_GUARDS,
     DESIGNATION_NUMBER_UNIQUE_INDEX_SQL, DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_HIGH_WATER_SEED,
   ]))
@@ -327,7 +327,7 @@ export async function applySignupSchema(db: SignupD1) {
   for (const sql of PRIORITY_SECTIONS_INDEXES) await db.prepare(sql).run()
   await db.prepare(PARTNER_PEOPLE_TABLE).run()
   for (const sql of PARTNER_PEOPLE_INDEXES) await db.prepare(sql).run()
-  for (const sql of [...PARTNER_SECTION_COLUMNS, ...SIGNED_WAVE_COLUMNS, ...SIGNING_GENERATED_COLUMNS, ...PARTNER_WITHDRAWAL_COLUMNS, ...BREVO_SECTION_SYNC_COLUMNS]) {
+  for (const sql of [...PARTNER_SECTION_COLUMNS, ...SIGNED_WAVE_COLUMNS, ...SIGNING_WAVE_SCHEMA, ...SIGNING_GENERATED_COLUMNS, ...PARTNER_WITHDRAWAL_COLUMNS, ...BREVO_SECTION_SYNC_COLUMNS]) {
     try {
       await db.prepare(sql).run()
     } catch (error) {

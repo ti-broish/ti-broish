@@ -164,13 +164,20 @@ describe('classification mirrors last election’s sheet', () => {
     expect(tasks[0]).toMatchObject({ type: 'remove_person', reason: 'other_rik' })
   })
 
-  it('registered for another party → remove person, even when also registered with us', () => {
-    const { results, tasks } = run(
-      [person('a', 'Иван Петров Иванов')],
-      [entry('Иван Петров Иванов'), entry('Иван Петров Иванов', { ours: false, party: 'ДРУГА ПАРТИЯ', mir: '25', number: 3 })],
+  it('another party’s register is never matched by name (no ЕГН there: a namesake is not our person)', () => {
+    const otherParty = entry('Дарина Георгиева Ангелова', { ours: false, party: 'ДРУГА ПАРТИЯ', mir: '25', number: 3, numberDate: '23.10.2026' })
+    // Registered with us at ЦИК (МИР 32): registered, nothing else.
+    const registered = run(
+      [person('a', 'Дарина Георгиева Ангелова', { mir: '32', number: 510 })],
+      [entry('Дарина Георгиева Ангелова', { mir: '32', number: 510 }), otherParty],
+      [...sources, ok('32')],
     )
-    expect(results[0]).toMatchObject({ status: 'other_party', otherParty: 'ДРУГА ПАРТИЯ', otherMir: '25' })
-    expect(tasks).toEqual([expect.objectContaining({ type: 'remove_person', reason: 'other_party' })])
+    expect(registered.results[0]).toMatchObject({ status: 'registered', otherParty: '', otherMir: '' })
+    expect(registered.tasks).toEqual([])
+    // Same name in the same РИК for another party, not published for us yet: just waiting for our РИК.
+    const waiting = run([person('b', 'Иван Петров Иванов')], [entry('Иван Петров Иванов', { ours: false, party: 'ДРУГА ПАРТИЯ', number: 3 })])
+    expect(waiting.results[0]).toMatchObject({ status: 'pending', entryId: null })
+    expect(waiting.tasks).toEqual([])
   })
 
   it('withdrawn but published → remove person; withdrawn and absent → nothing', () => {

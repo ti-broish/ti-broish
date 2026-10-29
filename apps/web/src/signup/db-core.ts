@@ -1,5 +1,6 @@
 import { EGN_KEY_INDEX } from './egn-in-use'
 import { migrateCompanionColumns } from './db-core-migrate-companions'
+import { MIR_FROM_SECTION_TRIGGERS } from './mir-from-section'
 import { DESIGNATION_HIGH_WATER_SEED, DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_NUMBER_UNIQUE_INDEX_SQL } from './designation-number'
 import { ensureSearchIndex } from './db-search'
 import { env } from 'cloudflare:workers'
@@ -287,6 +288,7 @@ export function signupSchemaVersion() {
     PARTNER_SECTION_COLUMNS, SIGNED_WAVE_COLUMNS, SIGNING_WAVE_SCHEMA, SIGNING_GENERATED_COLUMNS, PARTNER_WITHDRAWAL_COLUMNS, BREVO_SECTION_SYNC_COLUMNS,
     STAFF, AUDIT, INDEXES, RESERVED_SECTION_GUARDS, MOBILE_DRAFTS_TABLE, MOBILE_DRAFTS_GUARDS, PARTNER_SECTION_GUARDS,
     DESIGNATION_NUMBER_UNIQUE_INDEX_SQL, DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_HIGH_WATER_SEED,
+    MIR_FROM_SECTION_TRIGGERS,
   ]))
 }
 
@@ -355,6 +357,14 @@ export async function applySignupSchema(db: SignupD1) {
       await db.prepare(sql).run()
     } catch (error) {
       console.warn('designation high-water', error instanceof Error ? error.message : error)
+    }
+  }
+  // МИР follows the section on every path (mir-from-section.ts); after signups, partner_people and signup_audit.
+  for (const sql of MIR_FROM_SECTION_TRIGGERS) {
+    try {
+      await db.prepare(sql).run()
+    } catch (error) {
+      console.warn('mir from section', error instanceof Error ? error.message : error)
     }
   }
 }

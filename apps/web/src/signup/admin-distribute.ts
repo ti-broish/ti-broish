@@ -18,7 +18,7 @@ type Denial = { ok: false; state: 'signed-out' | 'unconfirmed' | 'forbidden' | '
  * left), then an area with target priority sections (mobile_drafts, mobile-auto.ts).
  */
 export const adminDistribute = createServerFn({ method: 'POST' })
-  .inputValidator((input: { onlyEmpty?: boolean } | undefined) => ({ onlyEmpty: input?.onlyEmpty === true }))
+  .validator((input: { onlyEmpty?: boolean } | undefined) => ({ onlyEmpty: input?.onlyEmpty === true }))
   .handler(async ({ data }) => {
     const access = await gate('edit')
     if (!access.ok) return access

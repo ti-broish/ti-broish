@@ -19,7 +19,7 @@ async function publishGate(): Promise<{ ok: true; db: SignupD1; email: string } 
 
 /** Unpublish one person: no email, no Brevo. The section stays as a manual draft. */
 export const adminUnpublish = createServerFn({ method: 'POST' })
-  .inputValidator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
+  .validator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
   .handler(async ({ data }) => {
     const access = await publishGate()
     if (!access.ok) return access

@@ -13,8 +13,9 @@ export const SIGNED_WAVE_COLUMNS = [
 /**
  * Closed waves (sql/2026-10-29-signing-waves.sql, also applied at runtime by db-core).
  * A wave is a date from the PDF. „Изпратена на РИК“ closes the open wave of that date: everyone
- * numbered with that date and no wave yet gets designation_wave_id. Anyone numbered later with
- * the same date is the next (open) wave. A signed upload never touches designation_wave_id.
+ * signed, numbered with that date and no wave yet gets designation_wave_id. Anyone numbered or
+ * signed later with the same date is the next (open) wave, even on a date already sent. A signed
+ * upload never touches designation_wave_id.
  * issue_date is YYYY-MM-DD.
  */
 export const SIGNING_WAVE_SCHEMA = [
@@ -37,8 +38,12 @@ export function issueDateKeySql(column = 'designation_issued_at') {
     WHEN ${column} LIKE '____-__-__%' THEN substr(${column}, 1, 10) ELSE '' END)`
 }
 
-/** Numbered, no wave yet, issued on ?2 (YYYY-MM-DD). */
-const pendingWhere = `designation_number IS NOT NULL AND designation_wave_id IS NULL AND ${issueDateKeySql()} = ?2`
+/**
+ * Numbered, signed, no wave yet, issued on ?2 (YYYY-MM-DD). Only signed people are sent to the РИК,
+ * so only they join the closed wave; an unsigned one stays open and shows up in the open wave of
+ * their date once their signed file comes.
+ */
+const pendingWhere = `designation_number IS NOT NULL AND designation_signed_at IS NOT NULL AND designation_wave_id IS NULL AND ${issueDateKeySql()} = ?2`
 
 /**
  * Close the open wave of one date, as one D1 batch (one transaction). Binds: ?1 new wave id,

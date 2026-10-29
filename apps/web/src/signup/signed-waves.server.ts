@@ -101,8 +101,9 @@ export async function handleSignedWaves(): Promise<
 }
 
 /**
- * „Изпратена на РИК“: closes the open wave of one PDF date. Everyone numbered with that date and
- * no wave yet joins the new closed wave; later numbers with the same date make the next wave.
+ * „Изпратена на РИК“: closes the open wave of one PDF date. Everyone signed, numbered with that
+ * date and no wave yet joins the new closed wave; anyone numbered or signed later with the same
+ * date makes the next wave.
  */
 export async function handleCloseSigningWave(issueDate: string): Promise<{ ok: true; closed: number; waveId: string } | { ok: false; message: string }> {
   const access = await gateDesignation('exportCampaign')

@@ -324,39 +324,43 @@ describe('closing a wave („Изпратена на РИК“)', () => {
     return { db, add, close, read }
   }
 
-  it('closes the open wave of a date; later numbers that day are a new wave; a second click adds nothing', async () => {
+  it('closes the signed people of a date; later numbers or signatures that day are a new wave; a second click adds nothing', async () => {
     const t = await setup()
     if (!t) return
     t.add('a', 'Ана', 501, '29.10.2026', '2026-10-29T08:00:00Z')
     t.add('b', 'Боян', 502, '29.10.2026')
     t.add('old', 'Стар', 500, '28.10.2026', '2026-10-28T08:00:00Z')
     // A partner row stored with the ISO form of the same date.
-    t.db.prepare(`INSERT INTO partner_people (id, partner, egn, first_name, last_name, designation_mir, designation_number, designation_issued_at, imported_at, updated_at)
-      VALUES ('pp-1', 'i-az', 'Epp', 'Иа', 'Вълнов', '02', 503, '2026-10-29', 'now', 'now')`).run()
+    t.db.prepare(`INSERT INTO partner_people (id, partner, egn, first_name, last_name, designation_mir, designation_number, designation_issued_at, designation_signed_at, imported_at, updated_at)
+      VALUES ('pp-1', 'i-az', 'Epp', 'Иа', 'Вълнов', '02', 503, '2026-10-29', '2026-10-29T09:00:00Z', 'now', 'now')`).run()
 
-    expect(t.close('w1', '2026-10-29', '2026-10-29T10:00:00Z')).toEqual({ wave: 1, people: 3 })
+    // Боян is not signed: he is not sent, so he stays open.
+    expect(t.close('w1', '2026-10-29', '2026-10-29T10:00:00Z')).toEqual({ wave: 1, people: 2 })
     expect(t.close('w-again', '2026-10-29', '2026-10-29T10:01:00Z')).toEqual({ wave: 0, people: 0 })
 
     // Numbered after the click, same date: the next wave.
-    t.add('c', 'Цвета', 504, '29.10.2026')
+    t.add('c', 'Цвета', 504, '29.10.2026', '2026-10-29T12:00:00Z')
     let view = t.read()
-    expect(view.waves.map((wave) => [wave.wave, wave.key, wave.date, wave.closed, wave.total])).toEqual([
-      [1, '2026-10-28', '28.10.2026', false, 1],
-      [2, 'w1', '29.10.2026', true, 3],
-      [3, '2026-10-29', '29.10.2026', false, 1],
+    expect(view.waves.map((wave) => [wave.wave, wave.key, wave.date, wave.closed, wave.count, wave.total])).toEqual([
+      [1, '2026-10-28', '28.10.2026', false, 1, 1],
+      [2, 'w1', '29.10.2026', true, 2, 2],
+      [3, '2026-10-29', '29.10.2026', false, 1, 2],
     ])
     expect(t.close('w2', '2026-10-29', '2026-10-29T16:00:00Z')).toEqual({ wave: 1, people: 1 })
     view = t.read()
-    expect(view.waves.map((wave) => [wave.wave, wave.key, wave.closed, wave.total])).toEqual([
-      [1, '2026-10-28', false, 1],
-      [2, 'w1', true, 3],
-      [3, 'w2', true, 1],
+    expect(view.waves.map((wave) => [wave.wave, wave.key, wave.closed, wave.count, wave.total])).toEqual([
+      [1, '2026-10-28', false, 1, 1],
+      [2, 'w1', true, 2, 2],
+      [3, 'w2', true, 1, 1],
+      [4, '2026-10-29', false, 0, 1],
     ])
+    // Only unsigned people waiting: nothing to close.
+    expect(t.close('w3', '2026-10-29', '2026-10-29T17:00:00Z')).toEqual({ wave: 0, people: 0 })
     // The 28.10 wave was never touched.
     expect(view.people.find((item) => item.id === 'old')?.waveId).toBe('')
   })
 
-  it('a late signed upload stays in its PDF-date wave, and each wave has its own РИК tables', async () => {
+  it('a late signer shows up in the open wave of their PDF date, after that date was sent; each wave has its own РИК tables', async () => {
     const t = await setup()
     if (!t) return
     t.add('a', 'Ана', 501, '29.10.2026', '2026-10-29T08:00:00Z')
@@ -364,15 +368,17 @@ describe('closing a wave („Изпратена на РИК“)', () => {
     t.close('w1', '2026-10-29', '2026-10-29T10:00:00Z')
     t.add('c', 'Цвета', 503, '29.10.2026', '2026-10-29T17:00:00Z')
     t.close('w2', '2026-10-29', '2026-10-29T18:00:00Z')
-    // Боян's signed file comes two days later (the upload's SET clause): still wave w1.
+    // Боян's signed file comes two days later (the upload's SET clause): the open 29.10 wave, ready to send.
     t.db.prepare(`UPDATE signups SET ${SIGNED_WAVE_SET_SQL}, designation_signed_at = ? WHERE id = ?`).run('2026-10-31T09:00:00Z', '2026-10-31T09:00:00Z', 'b')
     const view = t.read()
-    expect(view.people.find((item) => item.id === 'b')).toMatchObject({ waveId: 'w1', signed: true })
-    expect(view.waves.map((wave) => [wave.key, wave.count, wave.total])).toEqual([
-      ['w1', 2, 2],
-      ['w2', 1, 1],
+    expect(view.people.find((item) => item.id === 'b')).toMatchObject({ waveId: '', signed: true })
+    expect(view.waves.map((wave) => [wave.key, wave.closed, wave.count, wave.total])).toEqual([
+      ['w1', true, 1, 1],
+      ['w2', true, 1, 1],
+      ['2026-10-29', false, 1, 1],
     ])
-    expect(peopleInWave(view.people, 'w1', view.closed).map((item) => item.id).sort()).toEqual(['a', 'b'])
+    expect(peopleInWave(view.people, 'w1', view.closed).map((item) => item.id)).toEqual(['a'])
+    expect(peopleInWave(view.people, '2026-10-29', view.closed).map((item) => item.id)).toEqual(['b'])
 
     const tableFor = async (wave: string) => {
       const bytes = await collectStream(
@@ -390,11 +396,13 @@ describe('closing a wave („Изпратена на РИК“)', () => {
     }
     const first = await tableFor('w1')
     expect(first).toContain('Ана Вълнов')
-    expect(first).toContain('Боян Вълнов')
-    expect(first).toContain('502/29.10.2026')
+    expect(first).not.toContain('Боян')
     expect(first).not.toContain('Цвета')
     const second = await tableFor('w2')
     expect(second).toContain('503/29.10.2026')
     expect(second).not.toContain('Ана')
+    const late = await tableFor('2026-10-29')
+    expect(late).toContain('502/29.10.2026')
+    expect(late).not.toContain('Ана')
   })
 })

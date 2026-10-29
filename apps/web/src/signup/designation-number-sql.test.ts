@@ -12,6 +12,7 @@ import {
   DESIGNATION_NUMBER_UNIQUE_INDEX_SQL,
   PARTNER_DESIGNATION_ASSIGN_SQL,
 } from './designation-number'
+import { DESIGNATION_NUMBERS_HIGH_WATER_TRIGGER, DESIGNATION_NUMBERS_TABLE, DESIGNATION_NUMBERS_TRIGGERS } from './designation-numbers'
 
 type Db = {
   exec(sql: string): void
@@ -47,6 +48,9 @@ describe.skipIf(!sqlite)('designation number SQL (SQLite, as D1)', () => {
     }
     db.exec(DESIGNATION_HIGH_WATER_TABLE)
     for (const sql of DESIGNATION_HIGH_WATER_TRIGGERS) db.exec(sql)
+    db.exec('DROP TABLE IF EXISTS designation_numbers')
+    db.exec(DESIGNATION_NUMBERS_TABLE)
+    for (const sql of [...DESIGNATION_NUMBERS_TRIGGERS, DESIGNATION_NUMBERS_HIGH_WATER_TRIGGER]) db.exec(sql)
     for (const id of ['a', 'b', 'c', 'd']) db.prepare('INSERT INTO signups (id) VALUES (?)').run(id)
     return db
   }
@@ -68,18 +72,20 @@ describe.skipIf(!sqlite)('designation number SQL (SQLite, as D1)', () => {
     expect(db.prepare(DESIGNATION_MAX_PER_MIR_SQL).all()).toEqual(expect.arrayContaining([{ mir: '31', n: 504 }]))
   })
 
-  it('the seed raises the mark from the stored MAX, the audit lines and the known released numbers', () => {
+  it('the seed raises the mark from the stored MAX and the audit lines', () => {
     const db = seed()
     db.exec(`UPDATE signups SET designation_mir = '31', designation_number = 501 WHERE id = 'a'`)
     db.exec(`UPDATE signups SET designation_mir = '31', designation_number = 503 WHERE id = 'b'`)
     db.exec(`DELETE FROM designation_high_water`)
     db.exec(`INSERT INTO signup_audit VALUES ('1', 'pp-x', 'admin', 'designation_number', '', '26/530 от 21.10.2026', 'now')`)
+    // 31/504 was issued, then moved to 32/519: its own audit line keeps it used (no hard-coded list).
+    db.exec(`INSERT INTO signup_audit VALUES ('3', 'pp-z', 'admin', 'designation_number', '', '31/504 от 21.10.2026', 'now')`)
     db.exec(`INSERT INTO signup_audit VALUES ('2', 'pp-y', 'admin', 'designation_number', '', '32/520 от 21.10.2026 (МИР 31 → 32, Извън страната; 31/502 освободен)', 'now')`)
     for (const sql of DESIGNATION_HIGH_WATER_SEED) db.exec(sql)
     for (const sql of DESIGNATION_HIGH_WATER_SEED) db.exec(sql)
     const marks = Object.fromEntries((db.prepare('SELECT mir, n FROM designation_high_water').all() as Array<{ mir: string; n: number }>).map((row) => [row.mir, row.n]))
     // 31/504 was issued and freed: the next МИР 31 number is 505, not 504.
-    expect(marks).toMatchObject({ '31': 504, '26': 530, '32': 520, '03': 515, '17': 506 })
+    expect(marks).toEqual({ '31': 504, '26': 530, '32': 520 })
     db.prepare(DESIGNATION_ASSIGN_SQL).run('31', '22.10.2026', 'now', 'c')
     expect(db.prepare(`SELECT designation_number AS n FROM signups WHERE id = 'c'`).all()).toEqual([{ n: 505 }])
     expect(DESIGNATION_HIGH_WATER_SQL.length).toBe(1 + DESIGNATION_HIGH_WATER_TRIGGERS.length + DESIGNATION_HIGH_WATER_SEED.length)

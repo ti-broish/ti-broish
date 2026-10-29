@@ -22,6 +22,7 @@ import { ELECTION_DISTRICTS } from './designation-config'
 import { PARTNER_WITHDRAW_AUDIT_SQL, PARTNER_WITHDRAW_REASON_MAX, PARTNER_WITHDRAW_SQL } from './designation-audit-sql'
 import { parseStaffRole, roleAllows, type StaffAction, type StaffRole } from './staff'
 import { applyRenameTransition, fullName, namesChanged, renameMessage } from './designation-rename'
+import { cleanPartnerEdit, partnerEditSql, planPartnerEdit, type PartnerEditable } from './partner-person-edit'
 
 // No mail, Brevo or confirm-link code is imported here on purpose: the partner import is silent,
 // and it writes only partner_people, never signups.
@@ -170,6 +171,75 @@ export const adminPartnerRename = createServerFn({ method: 'POST' })
       .run()
     const result = await applyRenameTransition(access.db, { table: 'partner_people', id: data.id, before, after, actor: access.email, now })
     return { ok: true as const, message: `Имената са сменени на „${fullName(after)}“.${renameMessage(result, result.number, result.mir)}` }
+  })
+
+/**
+ * Data of one „И аз“ person (/admin/iaz/$personId): names, e-mail, phone, place. One audit line per
+ * changed field (signup_audit, keyed by the pp- id). Names: number and МИР stay, the пълномощно goes
+ * back for signing. Nothing is sent: „И аз“ people get no mail and never reach our Brevo.
+ */
+export const adminPartnerUpdate = createServerFn({ method: 'POST' })
+  .validator((input: { id: string } & Partial<Record<keyof PartnerEditable, string>>) => ({ id: String(input?.id ?? ''), fields: cleanPartnerEdit(input ?? {}) }))
+  .handler(async ({ data }) => {
+    if (!isPartnerPersonId(data.id)) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    const access = await gate('edit')
+    if (!access.ok) return access
+    const row = await access.db
+      .prepare(
+        `SELECT first_name, middle_name, last_name, email, phone, region_name, municipality_name, place_note, withdrawn_at
+         FROM partner_people WHERE id = ?`,
+      )
+      .bind(data.id)
+      .first<Record<string, string | null>>()
+    if (!row) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    if (row.withdrawn_at) return { ok: false as const, message: 'Пълномощното е оттеглено; данните не се пипат.' }
+    const before: PartnerEditable = {
+      firstName: row.first_name ?? '',
+      middleName: row.middle_name ?? '',
+      lastName: row.last_name ?? '',
+      email: row.email ?? '',
+      phone: row.phone ?? '',
+      region: row.region_name ?? '',
+      municipality: row.municipality_name ?? '',
+      placeNote: row.place_note ?? '',
+    }
+    const plan = planPartnerEdit(before, data.fields)
+    if (!plan.ok) return { ok: false as const, message: plan.message }
+    if (plan.changes.length === 0) return { ok: true as const, changed: 0, message: 'Няма промени.' }
+    const now = new Date().toISOString()
+    await access.db.batch([
+      access.db.prepare(partnerEditSql(plan.changes)).bind(now, data.id, ...plan.changes.map((change) => change.after)),
+      ...plan.changes.map((change) =>
+        access.db
+          .prepare('INSERT INTO signup_audit (id, signup_id, actor, field, before_text, after_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .bind(crypto.randomUUID(), data.id, access.email, `partner_${change.key}`, change.before, change.after, now),
+      ),
+    ])
+    let tail = ''
+    if (plan.namesChanged) {
+      const names = (value: PartnerEditable) => ({ firstName: value.firstName, middleName: value.middleName, lastName: value.lastName })
+      const after = { ...before, ...Object.fromEntries(plan.changes.map((change) => [change.key, change.after])) } as PartnerEditable
+      const result = await applyRenameTransition(access.db, { table: 'partner_people', id: data.id, before: names(before), after: names(after), actor: access.email, now })
+      tail = renameMessage(result, result.number, result.mir)
+    }
+    return { ok: true as const, changed: plan.changes.length, message: `Записано: ${plan.changes.map((change) => change.label).join(', ')}.${tail}` }
+  })
+
+/** Last changes to one „И аз“ person, newest first. */
+export const adminPartnerHistory = createServerFn({ method: 'POST' })
+  .validator((input: { id: string }) => ({ id: String(input?.id ?? '') }))
+  .handler(async ({ data }) => {
+    if (!isPartnerPersonId(data.id)) return { ok: false as const, message: 'Няма такъв човек от „И аз“.' }
+    const access = await gate('view')
+    if (!access.ok) return access
+    const rows = await access.db
+      .prepare('SELECT field, before_text, after_text, actor, created_at FROM signup_audit WHERE signup_id = ? ORDER BY created_at DESC LIMIT 50')
+      .bind(data.id)
+      .all<{ field: string; before_text: string; after_text: string; actor: string; created_at: string }>()
+    return {
+      ok: true as const,
+      rows: (rows.results ?? []).map((row) => ({ field: row.field, before: row.before_text, after: row.after_text, actor: row.actor, at: row.created_at })),
+    }
   })
 
 async function gate(action: StaffAction): Promise<{ ok: true; db: Database; email: string; role: StaffRole } | Denial> {

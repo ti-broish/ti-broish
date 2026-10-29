@@ -9,6 +9,8 @@ import { resolveAssignedSectionPlace } from './assigned-section-resolve'
 import { assignedSectionLine } from './assigned-section-place'
 import { parseStaffRole, roleAllows } from './staff'
 import { reservedOrgOf } from './reserved-sections-db'
+import { advanceAfterPublish } from './published-pipeline'
+import { describeAdvance } from './published-pipeline-sql'
 
 async function publishAccess() {
   const db = await signupDatabase()
@@ -22,7 +24,7 @@ async function publishAccess() {
   const member = await db.prepare('SELECT role FROM staff WHERE email = ?').bind(email).first<{ role: string }>()
   const role = parseStaffRole(member?.role)
   if (!role || !roleAllows(role, 'publish')) return { ok: false as const, message: 'Тази роля няма това право.' }
-  return { ok: true as const, db }
+  return { ok: true as const, db, email }
 }
 
 function origin() {
@@ -90,15 +92,17 @@ export const adminPublishOne = createServerFn({ method: 'POST' })
         .bind(now, now, data.id)
         .run()
     }
+    // Numbered, into the signing queue and the Brevo contact upsert; the pipeline itself sends nothing.
+    const advance = describeAdvance(await advanceAfterPublish(db, [String(data.id)], access.email))
     const address = await assignedAddressLine(section, row.town_id)
     const sent = await deliverMail(assignmentMail(row.email, section, address, `${origin()}/profil`))
     return {
       ok: true as const,
       sent,
       section,
-      message: sent
+      message: (sent
         ? `Секция ${section} е публикувана и ${row.email} е известен.`
-        : `Секция ${section} е публикувана. Писмото не тръгна — пробвай пак или кажи на човека да отвори профила.`,
+        : `Секция ${section} е публикувана. Писмото не тръгна — пробвай пак или кажи на човека да отвори профила.`) + advance,
     }
   })
 

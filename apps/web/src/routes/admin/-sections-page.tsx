@@ -228,7 +228,7 @@ export function SectionsPage() {
       const notice =
         (skipped > 0
           ? `Публикувани са ${result.published} чернови (без имейл). Пропуснати заради заета секция, дубликат или МИР извън пълномощното: ${skipped}.`
-          : `Публикувани са ${result.published} чернови (без имейл).`) + partnerNotice + partnerNote
+          : `Публикувани са ${result.published} чернови (без имейл).`) + partnerNotice + partnerNote + ('advance' in result && result.advance ? ` ${result.advance}` : '')
       load(notice)
       if (result.blocked?.length) {
         setRowWarnings((current) => {

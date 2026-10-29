@@ -5,6 +5,7 @@ import { IdentityFixPanel } from '../../components/IdentityFixForm'
 import { adminPartnerPerson } from '../../signup/admin'
 import { defaultSignupSearch } from '../../signup/admin-search'
 import { IazBadge, IAZ_ROW_TINT } from './-iaz-row'
+import { IazEditPanel, type IazEditablePerson } from './-iaz-edit-panel'
 
 export const Route = createFileRoute('/admin/iaz/$personId')({
   component: PartnerPersonPage,
@@ -24,6 +25,7 @@ function PartnerPersonPage() {
   const { personId } = Route.useParams()
   const [state, setState] = useState<{ phase: 'loading' } | { phase: 'error'; message: string } | { phase: 'ready'; data: Found }>({ phase: 'loading' })
   const [reloadKey, setReloadKey] = useState(0)
+  const [editMessage, setEditMessage] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -56,6 +58,22 @@ function PartnerPersonPage() {
     )
   }
   const { person, signups } = state.data
+  const editable: IazEditablePerson = {
+    id: person.id,
+    firstName: person.firstName,
+    middleName: person.middleName,
+    lastName: person.lastName,
+    email: person.email,
+    phone: person.phone,
+    region: person.region,
+    municipality: person.municipality,
+    placeNote: person.placeNote,
+    mir: person.mir,
+    number: person.number,
+    sectionDraft: person.sectionDraft,
+    sectionPublished: person.sectionPublished,
+    withdrawnAt: person.withdrawnAt,
+  }
   const rows: Array<[string, string]> = [
     ['Имейл', person.email || '—'],
     ['Телефон', person.phone || '—'],
@@ -74,7 +92,7 @@ function PartnerPersonPage() {
       {back}
       <AdminHeading
         title={person.name || 'Запис от „И аз“'}
-        lede="Внесен от „И аз“ само за пълномощно. Не е записване при нас: не получава писма и не отива в Brevo. Секцията, номерът и подписаното пълномощно са от този запис."
+        lede="Внесен от „И аз“ само за пълномощно. Не е записване при нас: не получава писма и не отива в нашия Brevo. Данните, МИР, секцията и оттеглянето се редактират долу; с публикувана секция се номерира и отива в „Само новите“ за подпис."
       />
       <div className={`grid gap-3 rounded-2xl border-2 border-[#2b062f] p-4 ${IAZ_ROW_TINT}`} data-testid="iaz-person">
         <p><IazBadge /></p>
@@ -96,6 +114,15 @@ function PartnerPersonPage() {
           <Link className="font-bold text-[#2b062f] underline" to="/admin/palnomoshtni" hash="i-az">Пълномощни → „И аз“</Link>
         </p>
       </div>
+      <IazEditPanel
+        key={JSON.stringify(editable)}
+        person={editable}
+        initialMessage={editMessage}
+        onChanged={(message) => {
+          setEditMessage(message)
+          setReloadKey((key) => key + 1)
+        }}
+      />
       <IdentityFixPanel personId={personId} onChanged={() => setReloadKey((key) => key + 1)} />
       <section className="grid gap-2">
         <h2 className="text-lg font-black text-[#1a1020]">Записвания при нас със същото ЕГН или имейл</h2>

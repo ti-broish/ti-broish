@@ -98,7 +98,7 @@ DELETE FROM signups WHERE id IN ('e2e-roster-ina', 'e2e-roster-ina-typo', 'e2e-r
     await expect(table.locator('tbody tr')).toHaveCount(1)
     await expect(table.locator('tbody tr[data-source="iaz"]')).toHaveCount(1)
 
-    // The name opens the „И аз“ record (read-only), with the signup linked.
+    // The name opens the „И аз“ record, with the signup linked.
     await page.goto('/admin/signups?q=Ростерова')
     await table.locator('tbody tr[data-source="iaz"]').getByRole('link', { name: 'Илина Симеонова Ростерова' }).click()
     await expect(page).toHaveURL(new RegExp(`/admin/iaz/${PARTNER_ID}$`))

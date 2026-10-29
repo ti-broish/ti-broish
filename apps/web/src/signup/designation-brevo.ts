@@ -260,6 +260,37 @@ export async function pushDesignationLink(opts: {
   }
 }
 
+/**
+ * Upsert one contact with its section attributes (and the signed link when there is one): PUT by
+ * email with the list, and create the contact when Brevo says it does not exist. Contacts only:
+ * no campaign, no transactional mail. Never sends SMS (it can belong to another contact).
+ */
+export async function pushSectionContact(opts: {
+  apiKey: string
+  listId: number | null
+  personId: string
+  email: string
+  attributes: BrevoAttrs
+  fetchImpl?: typeof fetch
+}): Promise<DesignationBrevoResult> {
+  const fetchImpl = opts.fetchImpl ?? fetch
+  const listIds = opts.listId ? [opts.listId] : []
+  const { personId, email, attributes } = opts
+  if (Object.keys(attributes).length === 0) return { personId, ok: false, error: 'няма секционни атрибути' }
+  try {
+    await updateBrevoContactAttribute(opts.apiKey, email, attributes, fetchImpl, listIds)
+    return { personId, ok: true }
+  } catch (error) {
+    if (!(error instanceof BrevoContactError) || error.status !== 404) return { personId, ok: false, error: describe(error) }
+  }
+  try {
+    await createBrevoContact(opts.apiKey, email, attributes, listIds, fetchImpl)
+    return { personId, ok: true, created: true }
+  } catch (error) {
+    return { personId, ok: false, error: describe(error) }
+  }
+}
+
 /** Read the attribute back from Brevo for one contact and say whether it holds the link we sent. */
 export async function checkDesignationLink(opts: {
   apiKey: string

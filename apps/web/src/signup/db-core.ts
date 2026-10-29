@@ -11,6 +11,7 @@ import { PRIORITY_SECTIONS_INDEXES, PRIORITY_SECTIONS_TABLE } from './priority-s
 import { SIGNED_WAVE_COLUMNS } from './signed-waves-sql'
 import { releaseWithdrawnSections } from './withdrawal'
 import { SIGNING_GENERATED_COLUMNS } from './designation-sign-scope'
+import { BREVO_SECTION_SYNC_COLUMNS } from './published-pipeline-sql'
 import { PARTNER_PEOPLE_INDEXES, PARTNER_PEOPLE_TABLE, PARTNER_SECTION_COLUMNS, PARTNER_SECTION_GUARDS, PARTNER_WITHDRAWAL_COLUMNS } from './partner-people-sql'
 import { RESERVED_SECTION_GUARDS } from './reserved-sections-sql'
 import { MOBILE_DRAFTS_GUARDS, MOBILE_DRAFTS_TABLE } from './mobile-teams-sql'
@@ -283,7 +284,7 @@ export function signupSchemaVersion() {
   return (cachedSchemaVersion ??= schemaFingerprint([
     SCHEMA_CODE_REVISION, SIGNUPS, BASE_INDEXES, ADD_COLUMNS, COMPANIONS, TAKEN, ABROAD_PRIORITY,
     PRIORITY_SECTIONS_TABLE, PRIORITY_SECTIONS_INDEXES, PARTNER_PEOPLE_TABLE, PARTNER_PEOPLE_INDEXES,
-    PARTNER_SECTION_COLUMNS, SIGNED_WAVE_COLUMNS, SIGNING_GENERATED_COLUMNS, PARTNER_WITHDRAWAL_COLUMNS,
+    PARTNER_SECTION_COLUMNS, SIGNED_WAVE_COLUMNS, SIGNING_GENERATED_COLUMNS, PARTNER_WITHDRAWAL_COLUMNS, BREVO_SECTION_SYNC_COLUMNS,
     STAFF, AUDIT, INDEXES, RESERVED_SECTION_GUARDS, MOBILE_DRAFTS_TABLE, MOBILE_DRAFTS_GUARDS, PARTNER_SECTION_GUARDS,
     DESIGNATION_NUMBER_UNIQUE_INDEX_SQL, DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_HIGH_WATER_SEED,
   ]))
@@ -300,7 +301,8 @@ async function schemaIsCurrent(db: SignupD1) {
   }
 }
 
-async function applySignupSchema(db: SignupD1) {
+/** Exported for tests (node:sqlite); requests go through signupDatabase(). */
+export async function applySignupSchema(db: SignupD1) {
   await db.prepare(SIGNUPS).run()
   for (const sql of BASE_INDEXES) await db.prepare(sql).run()
   let addedReceiptColumn = false
@@ -325,7 +327,7 @@ async function applySignupSchema(db: SignupD1) {
   for (const sql of PRIORITY_SECTIONS_INDEXES) await db.prepare(sql).run()
   await db.prepare(PARTNER_PEOPLE_TABLE).run()
   for (const sql of PARTNER_PEOPLE_INDEXES) await db.prepare(sql).run()
-  for (const sql of [...PARTNER_SECTION_COLUMNS, ...SIGNED_WAVE_COLUMNS, ...SIGNING_GENERATED_COLUMNS, ...PARTNER_WITHDRAWAL_COLUMNS]) {
+  for (const sql of [...PARTNER_SECTION_COLUMNS, ...SIGNED_WAVE_COLUMNS, ...SIGNING_GENERATED_COLUMNS, ...PARTNER_WITHDRAWAL_COLUMNS, ...BREVO_SECTION_SYNC_COLUMNS]) {
     try {
       await db.prepare(sql).run()
     } catch (error) {

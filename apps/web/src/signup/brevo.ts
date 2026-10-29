@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers'
 import { parseBrevoLists, type BrevoListSummary } from './brevo-lists'
+import { hasRealEmail } from './no-email'
 import {
   checkBrevoAttributes,
   checkBrevoSender,
@@ -57,13 +58,16 @@ export async function importContactsToList(
   listId: number,
   fetchImpl: typeof fetch = fetch,
 ) {
+  // Volunteers without an e-mail (…@tibroish.invalid or empty) are never Brevo contacts.
+  const real = contacts.filter((contact) => hasRealEmail(contact.email))
+  if (real.length === 0) return null
   return brevoFetch(
     config.apiKey,
     '/contacts/import',
     {
       method: 'POST',
       body: JSON.stringify({
-        jsonBody: contacts.map((contact) => ({
+        jsonBody: real.map((contact) => ({
           email: contact.email,
           attributes: contact.attributes ?? {},
         })),
@@ -387,7 +391,7 @@ export async function removeContactsFromList(
   listId: number,
   fetchImpl: typeof fetch = fetch,
 ) {
-  const cleaned = [...new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean))]
+  const cleaned = [...new Set(emails.map((email) => email.trim().toLowerCase()).filter(hasRealEmail))]
   if (cleaned.length === 0) return { removed: 0 }
   await brevoFetch(
     config.apiKey,
@@ -429,7 +433,8 @@ export async function cleanupWithdrawnContact(
   fetchImpl: typeof fetch = fetch,
 ): Promise<WithdrawnContactCleanup> {
   const address = email.trim().toLowerCase()
-  if (!address) return { found: false, lists: [], attributes: 'skipped' }
+  // No e-mail: never was a Brevo contact, nothing to clean.
+  if (!hasRealEmail(address)) return { found: false, lists: [], attributes: 'skipped' }
   const path = `/contacts/${encodeURIComponent(address)}`
   let contact: { listIds?: unknown }
   try {

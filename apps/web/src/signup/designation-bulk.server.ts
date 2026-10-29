@@ -30,7 +30,8 @@ import {
 } from './designation-files'
 import { DESIGNATION_ASSIGN_SQL, PARTNER_DESIGNATION_ASSIGN_SQL, designationMirOf, parseStoredNumber } from './designation-number'
 import { brevoSignupIds, isPartnerPersonId } from './partner-people-sql'
-import { SIGNUP_DESIGNATION_SECTION_SQL, isPlaceholderEmail } from './designation-section-sql'
+import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
+import { hasRealEmail, noEmailSql, realEmailSql } from './no-email'
 import {
   EGN_HOLDERS_SQL,
   duplicateOf,
@@ -279,8 +280,10 @@ export interface SectionlessVolunteer {
  * Finished volunteers without a published section: numbered by МИР alone (draft section, else home
  * place), the way „И аз“ are. No МИР (София без район) means no number, and the page lists them.
  */
-async function listSectionless(db: Database): Promise<SectionlessVolunteer[]> {
-  const result = await db.prepare(SECTIONLESS_SIGNUPS_SQL).all<RawSectionless>()
+async function listSectionless(db: Database, scope: { noEmailOnly?: boolean; ids?: string[] | null } = {}): Promise<SectionlessVolunteer[]> {
+  const where = [scope.noEmailOnly ? ` AND ${noEmailSql('email')}` : '', scope.ids ? ' AND id IN (SELECT value FROM json_each(?))' : ''].join('')
+  const statement = db.prepare(`${SECTIONLESS_SIGNUPS_SQL}${where}`)
+  const result = await (scope.ids ? statement.bind(JSON.stringify(scope.ids)) : statement).all<RawSectionless>()
   return (result.results ?? []).map((row) => {
     const pick = sectionlessMir(row)
     const person = fromRaw({
@@ -301,6 +304,17 @@ async function listSectionless(db: Database): Promise<SectionlessVolunteer[]> {
     })
     return { person, mir: pick.mir, reason: pick.reason }
   })
+}
+
+/**
+ * Volunteers without an e-mail who are finished but have no published section: they never get a
+ * section mail or a Brevo contact, so the МИР alone is enough and the published pipeline numbers them
+ * (cron, „Придвижи публикуваните“, and right after staff add or edit one). Only those with a МИР;
+ * `ids`: just these signup ids. Everyone else without a section still waits for „Номерирай“.
+ */
+export async function listNoEmailSectionless(db: Database, ids: string[] | null): Promise<ListedPerson[]> {
+  if (ids && ids.length === 0) return []
+  return (await listSectionless(db, { noEmailOnly: true, ids })).filter((row) => row.mir).map((row) => row.person)
 }
 
 /** „без МИР – избери“ on the page: volunteers who cannot be numbered until staff set the район. */
@@ -538,7 +552,8 @@ async function brevoAttributeNote(bag: Record<string, string | undefined>, attri
 }
 
 /** Who „Синхронизирай с Brevo“ sends: active (not withdrawn) signups with a signed пълномощно on Drive. */
-export const DESIGNATION_BREVO_SCOPE_SQL = `COALESCE(designation_pdf_url, '') <> '' AND COALESCE(withdrawn, 0) = 0`
+/** Signed, active, with a real e-mail: people without one are never Brevo contacts (no-email.ts). */
+export const DESIGNATION_BREVO_SCOPE_SQL = `COALESCE(designation_pdf_url, '') <> '' AND COALESCE(withdrawn, 0) = 0 AND ${realEmailSql('email')}`
 
 /** People per Brevo resync call; each costs one or two Brevo subrequests. */
 export const DESIGNATION_BREVO_PAGE = 100
@@ -589,7 +604,8 @@ export async function handleDesignationSyncBrevo(data: DesignationSyncInput) {
   for (const row of rows) {
     const email = (row.email ?? '').trim()
     const url = (row.url ?? '').trim()
-    if (!email || isPlaceholderEmail(email)) results.push({ personId: row.id, ok: false, error: 'няма имейл' })
+    // No e-mail: skipped on purpose, not a Brevo failure.
+    if (!hasRealEmail(email)) continue
     else if (!url) results.push({ personId: row.id, ok: false, error: 'няма подписано пълномощно (линк към Drive)' })
     else contacts.push({ personId: row.id, email, url })
   }
@@ -644,8 +660,8 @@ export async function syncSignedLinkToBrevo(person: { id: string; email: string;
   const attribute = configFromEnv(workerEnv()).brevoAttribute.trim().toUpperCase()
   const config = readBrevoConfig()
   if ('missing' in config) return { ok: false, attribute, skipped: true, error: 'липсва BREVO_API_KEY' }
-  const email = person.email.trim()
-  if (!email || isPlaceholderEmail(email)) return { ok: false, attribute, skipped: true, error: 'няма имейл' }
+  const email = String(person.email ?? '').trim()
+  if (!hasRealEmail(email)) return { ok: false, attribute, skipped: true, error: 'няма имейл' }
   let section: Record<string, string | number | boolean | string[]> | undefined
   if (db) {
     try {

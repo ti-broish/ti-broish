@@ -6,6 +6,7 @@ import { normalizeSection } from './admin-csv'
 import { isPartnerPersonId } from './partner-people-sql'
 import { SESSION_COOKIE, signupDatabase, type SignupD1 } from './db-core'
 import { assignmentMail, deliverMail } from './mail'
+import { hasRealEmail } from './no-email'
 import { resolveAssignedSectionPlace } from './assigned-section-resolve'
 import { assignedSectionLine } from './assigned-section-place'
 import { parseStaffRole, roleAllows } from './staff'
@@ -97,6 +98,9 @@ export const adminPublishOne = createServerFn({ method: 'POST' })
     }
     // Numbered, into the signing queue and the Brevo contact upsert; the pipeline itself sends nothing.
     const advance = describeAdvance(await advanceAfterPublish(db, [String(data.id)], access.email))
+    if (!hasRealEmail(row.email)) {
+      return { ok: true as const, sent: false, section, message: `Секция ${section} е публикувана. Човекът е без имейл: писмо не се праща, кажи му по телефона.${advance}` }
+    }
     const address = await assignedAddressLine(section, row.town_id)
     const sent = await deliverMail(assignmentMail(row.email, section, address, `${origin()}/profil`))
     return {
@@ -126,6 +130,7 @@ export const adminNotifyAssignment = createServerFn({ method: 'POST' })
       .first<{ email: string; published_section: string; town_id: number | string | null }>()
     if (!row) return { ok: false as const, message: 'Няма такова записване.' }
     if (!row.published_section) return { ok: false as const, message: 'Първо публикувай секцията за този човек, после извести.' }
+    if (!hasRealEmail(row.email)) return { ok: false as const, message: 'Човекът е без имейл: писмо не се праща. Кажи му секцията по телефона.' }
     const address = await assignedAddressLine(row.published_section, row.town_id)
     const sent = await deliverMail(assignmentMail(row.email, row.published_section, address, `${origin()}/profil`))
     return {

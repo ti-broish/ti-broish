@@ -10,6 +10,7 @@ import {
 } from './designation-config'
 import type { DriveClient } from './designation-drive'
 import { updateBrevoContactAttribute } from './designation-brevo'
+import { hasRealEmail } from './no-email'
 import {
   serializeManifestCsv,
   serializeManifestJson,
@@ -273,7 +274,7 @@ export async function runDesignationJob(opts: DesignationJobOptions, deps: Desig
   }
 
   async function syncBrevo(email: string, url: string) {
-    if (!url || !deps.brevoApiKey || !email) return
+    if (!url || !deps.brevoApiKey || !hasRealEmail(email)) return
     await updateBrevoContactAttribute(deps.brevoApiKey, email, { [deps.config.brevoAttribute]: url })
   }
 }

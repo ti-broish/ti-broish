@@ -8,8 +8,9 @@ vi.mock('@tanstack/react-start/server', () => ({ getCookie: () => '' }))
 vi.mock('./admin', () => ({ loadBrevoSectionFieldsForIds: async () => new Map() }))
 
 import { applySignupSchema, type SignupD1 } from './db-core'
-import { advancePublished, runScheduledPublishedAdvance } from './published-pipeline'
+import { advancePublished, numberNoEmailVolunteer, runScheduledPublishedAdvance } from './published-pipeline'
 import { loadEgnMirConflict } from './egn-mir-conflict'
+import { SIGNUP_DESIGNATION_SECTION_SQL } from './designation-section-sql'
 import { PIPELINE_COUNTS_SQL, describeAdvance, pipelineCountsFrom } from './published-pipeline-sql'
 
 type Sqlite = {
@@ -251,5 +252,79 @@ describe.skipIf(!sqlite)('published pipeline (SQLite, as D1)', () => {
     const calls: Call[] = []
     const report = await advancePublished(db, 'all', 'test', { brevo, fetchImpl: fakeBrevo(calls), sectionFields, brevoLimit: 1 })
     expect(report.brevo).toMatchObject({ synced: 1, left: 1 })
+  })
+
+  describe('volunteers without an e-mail („Без имейл“)', () => {
+    const finished = { submitted: 1 }
+
+    it('are numbered by МИР without a section, never go to Brevo, and land in the signing list', async () => {
+      await signup('s-noemail', 'bez-imeil-abcd1234@tibroish.invalid', { ...finished, egn: egn('750505123'), mir_code: '03' })
+      await signup('s-noemail-blank', '', { ...finished, egn: egn('760606123'), mir_code: '3' })
+      await signup('s-real-nosection', 'real@example.test', { ...finished, egn: egn('770707123'), mir_code: '03' })
+      await signup('s-noemail-sofia', 'bez-imeil-sofia000@tibroish.invalid', { ...finished, egn: egn('780808123'), mir_code: '', region_code: 'sofia-merged' })
+      await signup('s-noemail-started', 'bez-imeil-start000@tibroish.invalid', { egn: egn('790101123'), mir_code: '03' })
+      const calls: Call[] = []
+      const report = await advancePublished(db, 'all', 'cron', { brevo, fetchImpl: fakeBrevo(calls), sectionFields, now: new Date(T0) })
+
+      const first = await number('signups', 's-noemail')
+      expect(first).toMatchObject({ mir: '03' })
+      expect(first?.n).toBeGreaterThan(500)
+      expect(await number('signups', 's-noemail-blank')).toMatchObject({ n: first!.n! + 1, mir: '03' })
+      // Everyone else keeps today's rules: a real e-mail without a section waits for „Номерирай“.
+      expect((await number('signups', 's-real-nosection'))?.n).toBeNull()
+      expect((await number('signups', 's-noemail-sofia'))?.n).toBeNull()
+      expect((await number('signups', 's-noemail-started'))?.n).toBeNull()
+      expect(report).toMatchObject({ numbered: 6, numberedNoEmail: 2 })
+      expect(describeAdvance(report)).toContain('без имейл, по МИР: 2')
+
+      const pushed = calls.filter((call) => call.url.includes('/contacts/') && !call.url.endsWith('/attributes')).map((call) => decodeURIComponent(call.url))
+      expect(pushed.some((url) => url.includes('tibroish.invalid'))).toBe(false)
+      expect(calls.every((call) => !JSON.stringify(call.body ?? '').includes('tibroish.invalid'))).toBe(true)
+      expect(report.brevo.failed).toBe(0)
+      expect(mail.deliverMail).not.toHaveBeenCalled()
+
+      // The ZIP, the PDF and „Само новите“ list people by SIGNUP_DESIGNATION_SECTION_SQL: the МИР stands in.
+      const listed = await db
+        .prepare(`SELECT id, ${SIGNUP_DESIGNATION_SECTION_SQL} AS section FROM signups WHERE ${SIGNUP_DESIGNATION_SECTION_SQL} != '' AND id LIKE 's-noemail%' ORDER BY id`)
+        .all<{ id: string; section: string }>()
+      expect(listed.results).toEqual([
+        { id: 's-noemail', section: '03' },
+        { id: 's-noemail-blank', section: '03' },
+      ])
+
+      // /admin/palnomoshtni counts them as numbered „без секция“ and never as waiting for Brevo.
+      const counts = pipelineCountsFrom(await db.prepare(PIPELINE_COUNTS_SQL).first<Record<string, unknown>>())
+      expect(counts.volunteersNumberedNoSection).toBe(2)
+      expect(counts.volunteersBrevoPending).toBe(0)
+    })
+
+    it('a published one with a section is numbered in the section МИР and still not sent to Brevo', async () => {
+      const calls: Call[] = []
+      await advancePublished(db, 'all', 'test', { brevo, fetchImpl: fakeBrevo(calls), sectionFields, now: new Date(T0) })
+      expect((await number('signups', 's-placeholder'))?.mir).toBe('23')
+      const counts = pipelineCountsFrom(await db.prepare(PIPELINE_COUNTS_SQL).first<Record<string, unknown>>())
+      expect(counts.volunteersBrevo).toBe(2)
+      expect(counts.volunteersBrevoPending).toBe(0)
+    })
+
+    it('one ЕГН, one пълномощно: an ЕГН already numbered is skipped', async () => {
+      await signup('s-noemail-dup', 'bez-imeil-dup00000@tibroish.invalid', { ...finished, egn: egn('800101123'), mir_code: '03' })
+      const report = await advancePublished(db, 'all', 'test', { brevo: null, sectionFields, now: new Date(T0) })
+      expect((await number('signups', 's-pub'))?.n).not.toBeNull()
+      expect((await number('signups', 's-noemail-dup'))?.n).toBeNull()
+      expect(report.skippedDuplicates).toBeGreaterThanOrEqual(1)
+    })
+
+    it('numberNoEmailVolunteer numbers just that person, right after staff add or save them', async () => {
+      await signup('s-noemail-one', 'bez-imeil-one00000@tibroish.invalid', { ...finished, egn: egn('750505123'), mir_code: '16' })
+      await signup('s-noemail-other', 'bez-imeil-oth00000@tibroish.invalid', { ...finished, egn: egn('760606123'), mir_code: '16' })
+      expect(await numberNoEmailVolunteer(db, 's-noemail-one', 'staff@example.test', new Date(T0))).toEqual({ number: 501, mir: '16' })
+      expect((await number('signups', 's-noemail-other'))?.n).toBeNull()
+      // Not for someone with an e-mail, and again is a no-op.
+      expect(await numberNoEmailVolunteer(db, 's-draft', 'staff@example.test')).toEqual({ number: null, mir: '' })
+      expect(await numberNoEmailVolunteer(db, 's-noemail-one', 'staff@example.test')).toEqual({ number: 501, mir: '16' })
+      const audit = await db.prepare(`SELECT COUNT(*) AS n FROM signup_audit WHERE signup_id = 's-noemail-one'`).first<{ n: number }>()
+      expect(audit?.n).toBe(1)
+    })
   })
 })

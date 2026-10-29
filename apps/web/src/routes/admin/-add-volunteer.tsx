@@ -47,6 +47,7 @@ export function AddVolunteerButton({ onAdded }: { onAdded: () => void }) {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState(EMPTY)
   const [place, setPlace] = useState<HomePlace | null>(null)
+  const [noEmail, setNoEmail] = useState(false)
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
 
@@ -55,10 +56,11 @@ export function AddVolunteerButton({ onAdded }: { onAdded: () => void }) {
   function reset() {
     setForm(EMPTY)
     setPlace(null)
+    setNoEmail(false)
   }
 
   function submit(allowNameMatch: boolean) {
-    const input = { ...form, place, allowNameMatch }
+    const input = { ...form, email: noEmail ? '' : form.email, noEmail, place, allowNameMatch }
     const problem = addVolunteerProblem(parseAddVolunteerInput(input))
     if (problem) {
       setOutcome({ kind: 'error', message: problem })
@@ -106,7 +108,7 @@ export function AddVolunteerButton({ onAdded }: { onAdded: () => void }) {
             Добави доброволец
           </h2>
           <p className="max-w-3xl text-sm text-[#333]">
-            Записва човека направо като завършил: секция, двата дни, мястото по-долу. Без код по имейл и без писмо до него, нищо не отива в Brevo. Без имейл получава заместител …@tibroish.invalid.
+            Записва човека направо като завършил: секция, двата дни, мястото по-долу. Без код по имейл и без писмо до него, нищо не отива в Brevo. „Без имейл“: само МИР, номерът за пълномощно се дава веднага, без секция.
           </p>
         </div>
         <button
@@ -143,9 +145,20 @@ export function AddVolunteerButton({ onAdded }: { onAdded: () => void }) {
           <Field id="add-egn" label="ЕГН">
             <input id="add-egn" className={adminInput} required inputMode="numeric" autoComplete="off" maxLength={10} value={form.egn} onChange={set('egn')} />
           </Field>
-          <Field id="add-email" label="Имейл (по желание)" hint="Празно: заместител …@tibroish.invalid.">
-            <input id="add-email" className={adminInput} type="email" autoComplete="off" value={form.email} onChange={set('email')} />
-          </Field>
+          <div className="grid content-start gap-1">
+            {noEmail ? (
+              <p className="text-sm font-bold text-[#1a1020]">Имейл</p>
+            ) : (
+              <Field id="add-email" label="Имейл">
+                <input id="add-email" className={adminInput} type="email" required autoComplete="off" value={form.email} onChange={set('email')} />
+              </Field>
+            )}
+            <label className="flex items-center gap-2 text-sm text-[#1a1020]">
+              <input type="checkbox" checked={noEmail} onChange={(event) => setNoEmail(event.target.checked)} />
+              Без имейл
+            </label>
+            {noEmail ? <span className="text-xs text-[#555]">Без писма и без Brevo. Пълномощно по МИР, без секция.</span> : null}
+          </div>
           <Field id="add-phone" label="Телефон (по желание)">
             <input id="add-phone" className={adminInput} type="tel" autoComplete="off" value={form.phone} onChange={set('phone')} />
           </Field>
@@ -171,7 +184,8 @@ export function AddVolunteerButton({ onAdded }: { onAdded: () => void }) {
               <Link className="font-bold text-[#2b062f] underline" to="/admin/signups/$personId" params={{ personId: outcome.id }}>
                 Отвори новия запис
               </Link>
-              {' · '}Номер получава с „Номерирай“ на{' '}
+              {' · '}
+              {outcome.placeholder ? 'Документът е на ' : 'Номер получава с „Номерирай“ на '}
               <Link className="font-bold text-[#2b062f] underline" to="/admin/palnomoshtni">
                 Пълномощни
               </Link>

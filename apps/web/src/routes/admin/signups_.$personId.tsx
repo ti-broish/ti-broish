@@ -2,11 +2,12 @@ import { MobileDraftCard } from './-mobile-teams'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { useAdminAccess } from '../../components/AdminShell'
-import { AdminHeading, adminInput } from '../../components/admin-ui'
+import { AdminHeading, adminGhost, adminInput } from '../../components/admin-ui'
 import { EgnReveal } from '../../components/EgnReveal'
 import { IdentityFixPanel } from '../../components/IdentityFixForm'
 import { StaffTravel, type StaffTravelValue } from '../../components/StaffTravel'
-import { adminPerson, adminUpdatePerson } from '../../signup/admin'
+import { adminPerson, adminSetPersonEmail, adminUpdatePerson } from '../../signup/admin'
+import { NO_EMAIL_LABEL, hasRealEmail } from '../../signup/no-email'
 import { adminSectionPlaces } from '../../signup/admin-section-places'
 import { assignedPlaceFromSpot, assignedSectionLine } from '../../signup/assigned-section-place'
 import { describeAudit, formatAuditWhen, type AuditLine } from '../../signup/admin-audit'
@@ -101,7 +102,7 @@ function PersonPage() {
     }
   }, [personId])
 
-  const title = person ? personName(person) || person.email : 'Записване'
+  const title = person ? personName(person) || (hasRealEmail(person.email) ? person.email : NO_EMAIL_LABEL) : 'Записване'
 
   return (
     <div className="grid max-w-3xl gap-5">
@@ -135,7 +136,8 @@ function PersonPage() {
           <ReservedNotice codes={[person.publishedSection, person.draftSection]} />
           <MobileDraftCard personId={person.id} canEdit={canEdit} mobile={person.role === 'mobile'} />
           <UnregisterPanel person={person} canEdit={canEdit} onChanged={reload} />
-          {person.publishedSection ? (
+          {canEdit ? <EmailEditor key={person.id} personId={person.id} email={person.email} onChanged={reload} /> : null}
+          {person.publishedSection || person.designationNumber ? (
             <p className="text-sm font-bold text-[#1a1020]">
               <a className="text-[#2b062f] underline" href={`/admin/signups/${person.id}/palnomoshtno.pdf`}>
                 Свали пълномощното
@@ -180,6 +182,8 @@ function PersonPage() {
                   setChanges(result.changes)
                   setForm(formFrom(result.person))
                   setSaved(true)
+                  // A volunteer without an e-mail just got a number by МИР: show it.
+                  if ('designationNumber' in result && result.designationNumber) reload()
                 })
                 .catch(() => setMessage('Промените не се записаха.'))
                 .finally(() => setBusy(false))
@@ -326,8 +330,20 @@ function PersonFacts({
   const where = [person.town, person.place].filter(Boolean).join(' · ')
   return (
     <dl className="grid gap-3 rounded-2xl border-2 border-[#2b062f] bg-[#f6f1f7] p-4 text-sm text-[#1a1020] sm:grid-cols-2">
-      <Fact label="Имейл" value={person.email} />
-      <Fact label="Потвърждение" value={person.emailConfirmed ? 'Имейлът е потвърден' : 'Имейлът не е потвърден'} />
+      {hasRealEmail(person.email) ? (
+        <>
+          <Fact label="Имейл" value={person.email} />
+          <Fact label="Потвърждение" value={person.emailConfirmed ? 'Имейлът е потвърден' : 'Имейлът не е потвърден'} />
+        </>
+      ) : (
+        <div className="grid gap-1">
+          <dt className="font-bold">Имейл</dt>
+          <dd>
+            <NoEmailChip />
+            <span className="ml-2 text-xs text-[#555]">Без писма и без Brevo. Пълномощно по МИР, без секция.</span>
+          </dd>
+        </div>
+      )}
       <div className="grid gap-1">
         <dt className="font-bold">ЕГН</dt>
         <dd>
@@ -384,6 +400,64 @@ function AssignedSectionAddress({ section }: { section: string }) {
   }, [section])
   const text = state?.section === section ? state.text : 'Зареждам адреса…'
   return <Fact label="Адрес на публикуваната секция" value={text} />
+}
+
+function NoEmailChip() {
+  return (
+    <span className="inline-flex min-h-6 items-center rounded-full bg-[#5c4400] px-2 text-xs font-bold text-white" data-testid="no-email">
+      {NO_EMAIL_LABEL}
+    </span>
+  )
+}
+
+/** „Без имейл“ switch: mark the person as having no e-mail, or give them one. No letter either way. */
+function EmailEditor({ personId, email, onChanged }: { personId: string; email: string; onChanged: () => void }) {
+  const real = hasRealEmail(email)
+  const [noEmail, setNoEmail] = useState(!real)
+  const [value, setValue] = useState(real ? email : '')
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+  const dirty = noEmail !== !real || (!noEmail && value.trim().toLowerCase() !== (real ? email.trim().toLowerCase() : ''))
+  return (
+    <form
+      className="grid gap-2 rounded-2xl border-2 border-[#2b062f] bg-white p-4"
+      aria-label="Имейл на човека"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (busy || !dirty) return
+        setBusy(true)
+        setNote('')
+        void adminSetPersonEmail({ data: { id: personId, email: value, noEmail } })
+          .then((result) => {
+            setNote(result.message)
+            if (result.ok && result.changed) onChanged()
+          })
+          .catch(() => setNote('Имейлът не се записа.'))
+          .finally(() => setBusy(false))
+      }}
+    >
+      <label className="flex items-center gap-2 text-sm font-bold text-[#1a1020]">
+        <input type="checkbox" checked={noEmail} disabled={busy} onChange={(event) => setNoEmail(event.target.checked)} />
+        Без имейл
+      </label>
+      {noEmail ? null : (
+        <label className="grid gap-1 text-sm font-bold text-[#1a1020]" htmlFor="person-email">
+          Имейл
+          <input id="person-email" className={field} type="email" autoComplete="off" value={value} disabled={busy} onChange={(event) => setValue(event.target.value)} />
+        </label>
+      )}
+      <div>
+        <button type="submit" className={adminGhost} disabled={busy || !dirty}>
+          {busy ? 'Записваме…' : 'Запиши имейла'}
+        </button>
+      </div>
+      {note ? (
+        <p className="text-sm font-bold text-[#1a1020]" role="status">
+          {note}
+        </p>
+      ) : null}
+    </form>
+  )
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

@@ -1,7 +1,7 @@
 import { validEgn } from './rules'
 import { parseWithdrawnProcessed, type WithdrawnProcessedFilter } from './admin-unregister'
 
-export const SIGNUP_VIEWS = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'queue', 'mir', 'draft', 'withdrawn'] as const
+export const SIGNUP_VIEWS = ['all', 'finished', 'started', 'assigned', 'unassigned', 'abroad', 'calls', 'queue', 'mir', 'draft', 'withdrawn', 'noemail'] as const
 export const SIGNUP_SORTS = ['updated', 'name', 'email', 'phone', 'mir', 'role'] as const
 export const SECTION_VIEWS = ['all', 'abroad', 'mir'] as const
 export const SECTION_STATE_FILTERS = ['none', 'draft', 'published'] as const

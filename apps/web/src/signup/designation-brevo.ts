@@ -1,6 +1,7 @@
 import { withRetry } from './designation-drive-core'
 import { buildBrevoContact } from './brevo-contact'
 import { convertRoleForBrevo, type BrevoAttrDescriptor } from './brevo-sync'
+import { hasRealEmail } from './no-email'
 
 export type BrevoAttrValue = string | number | boolean | string[]
 export type BrevoAttrs = Record<string, BrevoAttrValue>
@@ -36,6 +37,16 @@ export class BrevoContactError extends Error {
   }
 }
 
+export const NO_EMAIL_BREVO = 'няма имейл'
+
+/**
+ * Last line of defence: a volunteer without an e-mail (no-email.ts) never reaches the Brevo API.
+ * Callers skip such people before this; status 0 means no request was made.
+ */
+function assertBrevoEmail(email: string) {
+  if (!hasRealEmail(email)) throw new BrevoContactError(0, NO_EMAIL_BREVO)
+}
+
 /**
  * PUT /contacts/{email}. Synchronous, so Brevo answers 400 for an unknown
  * attribute and 404 for a missing contact instead of dropping it quietly
@@ -48,6 +59,7 @@ export async function updateBrevoContactAttribute(
   fetchImpl: typeof fetch = fetch,
   listIds: number[] = [],
 ) {
+  assertBrevoEmail(email)
   const body: { attributes: BrevoAttrs; listIds?: number[] } = { attributes }
   if (listIds.length > 0) body.listIds = listIds
   const response = await withRetry(() =>
@@ -69,6 +81,7 @@ export async function createBrevoContact(
   listIds: number[],
   fetchImpl: typeof fetch = fetch,
 ) {
+  assertBrevoEmail(email)
   const response = await withRetry(() =>
     fetchImpl(`${API}/contacts`, {
       method: 'POST',
@@ -183,6 +196,8 @@ export type DesignationBrevoResult = {
   error?: string
   /** Set when the link was stored but Brevo refused the section attributes. */
   warning?: string
+  /** Not sent on purpose (no e-mail): not a Brevo failure. */
+  skipped?: boolean
 }
 export type DesignationBrevoCheck = { personId: string; ok: boolean; error?: string }
 export type DesignationBrevoSync = {
@@ -195,6 +210,7 @@ export type DesignationBrevoSync = {
 
 /** GET /contacts/{email}: the stored value of one attribute ('' when unset). */
 export async function readBrevoContactAttribute(apiKey: string, email: string, attribute: string, fetchImpl: typeof fetch = fetch) {
+  assertBrevoEmail(email)
   const response = await withRetry(() =>
     fetchImpl(`${API}/contacts/${encodeURIComponent(email)}?identifierType=email_id`, { method: 'GET', headers: headers(apiKey) }),
   )
@@ -224,6 +240,7 @@ export async function pushDesignationLink(opts: {
   const hasSection = Object.keys(section).length > 0
   const listIds = opts.listId ? [opts.listId] : []
   const { personId, email } = opts.contact
+  if (!hasRealEmail(email)) return { personId, ok: false, skipped: true, error: NO_EMAIL_BREVO }
   const put = (attributes: BrevoAttrs) => updateBrevoContactAttribute(opts.apiKey, email, attributes, fetchImpl, listIds)
   const create = (attributes: BrevoAttrs) => createBrevoContact(opts.apiKey, email, attributes, listIds, fetchImpl)
   // A 400 on the section attributes must not cost the signed link: retry with the link alone.
@@ -276,6 +293,7 @@ export async function pushSectionContact(opts: {
   const fetchImpl = opts.fetchImpl ?? fetch
   const listIds = opts.listId ? [opts.listId] : []
   const { personId, email, attributes } = opts
+  if (!hasRealEmail(email)) return { personId, ok: false, skipped: true, error: NO_EMAIL_BREVO }
   if (Object.keys(attributes).length === 0) return { personId, ok: false, error: 'няма секционни атрибути' }
   try {
     await updateBrevoContactAttribute(opts.apiKey, email, attributes, fetchImpl, listIds)

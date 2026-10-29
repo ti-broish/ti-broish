@@ -1,5 +1,6 @@
 import { toCsv } from './admin-csv'
 import { updateBrevoContactAttribute } from './designation-brevo'
+import { hasRealEmail } from './no-email'
 import type { DesignationConfig } from './designation-config'
 import { parseStoredNumber } from './designation-number'
 import { sqlBatches } from './designation-sql'
@@ -399,6 +400,8 @@ export async function runDesignationImport(
     const attribute = deps.config.brevoAttribute
     for (const item of pending) {
       if (summary.errors.some((line) => line.startsWith(`${item.person.id}:`))) continue
+      // No e-mail: never a Brevo contact (no-email.ts); not an error.
+      if (!hasRealEmail(item.person.email)) continue
       try {
         await updateBrevoContactAttribute(
           deps.brevoApiKey,

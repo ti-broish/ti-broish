@@ -33,8 +33,9 @@ const UNDERAGE = egn('104101789') // 01.01.2010
 const VARNA: HomePlace = { regionCode: '03', regionName: 'Варна', municipalityCode: 'VAR06', municipalityName: 'Варна', townId: 10135, townName: 'Варна' }
 const SOFIA_NO_DISTRICT: HomePlace = { regionCode: 'sofia-merged', regionName: 'София', municipalityCode: 'SOF46', municipalityName: 'Столична', townId: 68134, townName: 'София' }
 
+// „Без имейл“ is ticked unless the test types an e-mail.
 const base = (over: Record<string, unknown> = {}) =>
-  parseAddVolunteerInput({ firstName: 'Тест', middleName: 'Пробов', lastName: 'Тестов', egn: ADULT, email: '', phone: '', note: '', place: VARNA, ...over })
+  parseAddVolunteerInput({ firstName: 'Тест', middleName: 'Пробов', lastName: 'Тестов', egn: ADULT, email: '', noEmail: !over.email, phone: '', note: '', place: VARNA, ...over })
 
 describe('add volunteer: validation', () => {
   it('needs the editor right, not view only', () => {
@@ -45,8 +46,19 @@ describe('add volunteer: validation', () => {
     expect(roleAllows('admin', ADD_VOLUNTEER_ACTION)).toBe(true)
   })
 
-  it('accepts names, ЕГН and place only', () => {
+  it('accepts names, ЕГН and place only when „Без имейл“ is ticked', () => {
     expect(addVolunteerProblem(base())).toBeNull()
+  })
+
+  it('needs an e-mail or the „Без имейл“ tick', () => {
+    expect(addVolunteerProblem(base({ noEmail: false }))).toMatch(/Без имейл/)
+    expect(addVolunteerProblem(base({ noEmail: false, email: 'a@example.org' }))).toBeNull()
+  })
+
+  it('drops a typed e-mail when „Без имейл“ is ticked', () => {
+    const input = base({ email: 'typed@example.org', noEmail: true })
+    expect(input).toMatchObject({ email: '', noEmail: true })
+    expect(addVolunteerProblem(input)).toBeNull()
   })
 
   it('cleans the input', () => {
@@ -175,7 +187,8 @@ describe.skipIf(!sqlite)('add volunteer (SQLite, as D1)', () => {
     expect(result.placeholder).toBe(true)
     expect(result.mir).toBe('03')
     expect(result.link).toBe(`/admin/signups/${result.id}`)
-    expect(result.message).toMatch(/Номерирай/)
+    expect(result.message).toMatch(/без имейл/)
+    expect(result.message).toMatch(/Brevo/)
     const saved = row(result.id)
     expect(saved).toMatchObject({
       email: result.email,

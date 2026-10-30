@@ -49,7 +49,7 @@ import {
 } from './config'
 import { BlockedBySite, detectBlock, hostOf, mayBeBlockPage, parseRetryAfter } from './block'
 import { externalNumberStatements, findExternalNumbers, LEDGER_OURS_SQL, UNNUMBERED_PEOPLE_SQL, type UnnumberedPerson } from './externals'
-import { buildIndex, matchAll, type DerivedTask, type PersonResult, type RikEntryRow, type RikPerson, type RikSourceHealth } from './match'
+import { buildIndex, matchAll, nameParts, type DerivedTask, type PersonResult, type RikEntryRow, type RikPerson, type RikSourceHealth } from './match'
 import { isAnnulledName, joinNames, nameKey, parseNumberWithDate, sha256Hex } from './normalize'
 import { electionBaseOf, parseContacts, parseRegisterBatch, parseRegisterList, parseRikIndex } from './parse'
 import { RIK_COLUMNS, RIK_INDEXES, RIK_TABLES } from './sql'
@@ -243,6 +243,7 @@ export async function loadPeople(db: SignupD1): Promise<RikPerson[]> {
     number: row.number == null ? null : Number(row.number),
     issuedOn: (row.issued_on ?? '').trim(),
     nameKey: nameKey(joinNames(row.first_name ?? '', row.middle_name ?? '', row.last_name ?? '')),
+    nameParts: nameParts(joinNames(row.first_name ?? '', row.middle_name ?? '', row.last_name ?? '')),
     withdrawn: Number(row.withdrawn) === 1,
     signedAt: row.signed_at || null,
     duplicate: Number(row.duplicate ?? 0) === 1,
@@ -694,7 +695,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     )
     // External numbers into the ledger first, so the next number skips them from this run on.
     const external = findExternalNumbers(entries, buildIndex(entries, people, ledger.mirs), ledger.ours, await loadUnnumbered(db))
-    await chunked(db, externalNumberStatements(db, external.numbers, stamp, external.reclaimed))
+    await chunked(db, externalNumberStatements(db, external.numbers, stamp, external.reclaimed, external.cleared))
     await writeResults(db, results, [...tasks, ...external.tasks].filter((one) => !frozen.has(one.mir)), stamp, [...frozen])
     const statuses: Record<string, number> = {}
     for (const row of (await db.prepare('SELECT status, COUNT(*) AS n FROM rik_status GROUP BY status').all<{ status: string; n: number }>()).results ?? []) {

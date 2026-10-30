@@ -68,12 +68,17 @@ export function findExternalNumbers(entries: RikEntryRow[], index: MatchIndex, l
   const numbers: ExternalNumber[] = []
   const reclaimed: ReclaimedNumber[] = []
   const tasks: DerivedTask[] = []
+  /** Our own numbers that an earlier run marked „зает външно“ but whose row now names their holder. */
+  const cleared: Array<{ mir: string; number: number }> = []
   for (const [key, rows] of groups) {
     // Any row naming one of ours: the number is ours (a typo or a mix-up is the matcher's task).
     const owned = rows.find((row) => ownersOf(row, index).length > 0)
     if (owned) {
       const owners = [...new Map(rows.flatMap((row) => ownersOf(row, index)).map((one) => [one.id, one])).values()]
       const owner = owners.length === 1 ? owners[0]! : null
+      if (ledgerOurs.has(key) && owners.some((one) => one.mir === owned.mir && one.number === owned.number)) {
+        cleared.push({ mir: owned.mir, number: owned.number! })
+      }
       // Registered here for one of ours who has since moved to another МИР (31 → 32): our old number.
       if (owner && owner.number != null && owner.mir !== owned.mir && !ledgerOurs.has(key)) {
         const annulled = rows.some((one) => one.annulled)
@@ -120,8 +125,20 @@ export function findExternalNumbers(entries: RikEntryRow[], index: MatchIndex, l
   }
   numbers.sort((a, b) => a.mir.localeCompare(b.mir) || a.number - b.number)
   reclaimed.sort((a, b) => a.mir.localeCompare(b.mir) || a.number - b.number)
-  return { numbers, reclaimed, tasks }
+  cleared.sort((a, b) => a.mir.localeCompare(b.mir) || a.number - b.number)
+  return { numbers, reclaimed, tasks, cleared }
 }
+
+/**
+ * Drops the „зает външно в РИК NN“ note and the published name from our own number once its row is
+ * recognised as its holder's (e.g. a part of the name written differently). Writes only when the
+ * note is there.
+ */
+export const EXTERNAL_NOTE_CLEAR_SQL = `UPDATE designation_numbers SET
+  name = '',
+  note = TRIM(REPLACE(REPLACE(note, '; ' || ?3, ''), ?3, ''), '; '),
+  updated_at = ?4
+WHERE mir = ?1 AND number = ?2 AND holder != 'external' AND instr(note, ?3) > 0`
 
 /**
  * Upsert one external number. A new number → an „external“ row. An external row → refreshed from the
@@ -147,8 +164,15 @@ WHERE designation_numbers.name IS NOT excluded.name
   OR (designation_numbers.holder = 'external' AND (designation_numbers.note IS NOT excluded.note OR designation_numbers.issued_on IS NOT excluded.issued_on))
   OR (designation_numbers.holder != 'external' AND instr(designation_numbers.note, ?8) = 0)`
 
-export function externalNumberStatements(db: SignupD1, numbers: ExternalNumber[], stamp: string, reclaimed: ReclaimedNumber[] = []) {
+export function externalNumberStatements(
+  db: SignupD1,
+  numbers: ExternalNumber[],
+  stamp: string,
+  reclaimed: ReclaimedNumber[] = [],
+  cleared: Array<{ mir: string; number: number }> = [],
+) {
   return [
+    ...cleared.map((one) => db.prepare(EXTERNAL_NOTE_CLEAR_SQL).bind(one.mir, one.number, `зает външно в РИК ${one.mir}`, stamp)),
     ...numbers.map((one) =>
       db.prepare(EXTERNAL_NUMBER_UPSERT_SQL).bind(one.mir, one.number, one.issuedOn, one.name, one.entryId, one.url, one.note, one.ourNote, stamp),
     ),

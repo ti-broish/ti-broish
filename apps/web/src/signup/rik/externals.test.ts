@@ -3,7 +3,7 @@ import type { SignupD1 } from '../db-core'
 import { DESIGNATION_HIGH_WATER_TABLE, DESIGNATION_HIGH_WATER_TRIGGERS, DESIGNATION_MAX_PER_MIR_SQL } from '../designation-number'
 import { DESIGNATION_NUMBERS_SQL, DESIGNATION_NUMBERS_TABLE } from '../designation-numbers'
 import { EXTERNAL_NUMBER_UPSERT_SQL, findExternalNumbers, RECLAIMED_NUMBER_UPSERT_SQL } from './externals'
-import { buildIndex, type RikEntryRow, type RikPerson } from './match'
+import { buildIndex, nameParts, type RikEntryRow, type RikPerson } from './match'
 import { nameKey } from './normalize'
 import { RIK_COLUMNS, RIK_INDEXES, RIK_TABLES } from './sql'
 import { createRikSync } from './sync'
@@ -12,7 +12,7 @@ vi.mock('cloudflare:workers', () => ({ env: {} }))
 
 /** Fake names only. */
 function person(id: string, name: string, mir: string, number: number, patch: Partial<RikPerson> = {}): RikPerson {
-  return { id, source: 'signup', mir, number, issuedOn: '22.10.2026', nameKey: nameKey(name), withdrawn: false, signedAt: null, ...patch }
+  return { id, source: 'signup', mir, number, issuedOn: '22.10.2026', nameKey: nameKey(name), nameParts: nameParts(name), withdrawn: false, signedAt: null, ...patch }
 }
 let seq = 0
 function entry(mir: string, number: number, name: string, patch: Partial<RikEntryRow> = {}): RikEntryRow {
@@ -86,6 +86,17 @@ describe('external numbers: name first, never number first', () => {
     expect(findExternalNumbers(rows, index, new Set(['31:519'])).reclaimed).toEqual([])
     const stayed = [entry('23', 510, 'Наш Сгрешен Трети')]
     expect(findExternalNumbers(stayed, buildIndex(stayed, people), ledgerOurs).reclaimed).toEqual([])
+  })
+
+  it('our number and date with one name part written differently: ours, never external, the old note is cleared', () => {
+    const holder = [person('h1', 'Тодор Илиев Илиев', '05', 516, { issuedOn: '23.10.2026' })]
+    const rows = [entry('05', 516, 'Тодор Илиев Станчев')]
+    const found = findExternalNumbers(rows, buildIndex(rows, holder), new Set(['05:516']))
+    expect(found.numbers).toEqual([])
+    expect(found.cleared).toEqual([{ mir: '05', number: 516 }])
+    // Another first name under our number: still external.
+    const other = [entry('05', 516, 'Стоян Илиев Станчев')]
+    expect(findExternalNumbers(other, buildIndex(other, holder), new Set(['05:516'])).numbers.map((one) => one.number)).toEqual([516])
   })
 
   it('the withdrawn holder of a number keeps it as ours', () => {
@@ -189,6 +200,25 @@ describe.skipIf(!sqlite)('external numbers in the ledger and the РИК sync (SQ
     relabel('31', 530, '2026-10-29T20:00:00Z')
     expect(ledgerRow(raw, '31', 530)).toMatchObject({ holder: 'signup', state: 'moved' })
     expect(nextIn(raw, '31')).toBe(531)
+  })
+
+  it('a sync after the matcher fix: our number under a differently written name is „Различно име“, the renumber task closes, the ledger note goes', async () => {
+    const raw = seed()
+    raw.prepare(`INSERT INTO signups (id, payload, designation_mir, designation_number, designation_issued_at, designation_first_signed_at) VALUES (?, ?, '05', 516, '23.10.2026', '2026-10-23T10:00:00Z')`).run(
+      'h1', JSON.stringify({ firstName: 'Тодор', middleName: 'Илиев', lastName: 'Илиев' }))
+    rik(raw, '05', 516, 'Тодор Илиев Станчев')
+    raw.prepare(`INSERT INTO rik_sources (mir, health, last_good_health) VALUES ('05', 'ok', 'ok')`).run()
+    // What the earlier matcher left: „зает външно“ on our number and a renumber task.
+    raw.prepare(EXTERNAL_NUMBER_UPSERT_SQL).run('05', 516, '23.10.2026', 'Тодор Илиев Станчев', 'r1', 'https://rik05.cik.bg/x', 'в регистъра на РИК 05', 'зает външно в РИК 05', '2026-10-29T18:00:00Z')
+    raw.prepare(`INSERT INTO rik_tasks (id, person_id, mir, type, reason, detail, active, created_at, updated_at) VALUES ('h1:renumber:external', 'h1', '05', 'renumber', 'external', '', 1, '2026-10-29', '2026-10-29')`).run()
+
+    await createRikSync(d1(raw), { trigger: 'manual', now: () => new Date('2026-10-29T19:00:00Z') }).rematch()
+    expect(raw.prepare(`SELECT status, detail FROM rik_status WHERE person_id = 'h1'`).get()).toEqual({ status: 'name_mismatch', detail: 'Тодор Илиев Станчев' })
+    expect(tasks(raw)).toEqual([
+      { id: 'h1:fix_data:name', type: 'fix_data', reason: 'name', active: 1 },
+      { id: 'h1:renumber:external', type: 'renumber', reason: 'external', active: 0 },
+    ])
+    expect(ledgerRow(raw, '05', 516)).toMatchObject({ holder: 'signup', person_id: 'h1', state: 'active', name: '', note: '' })
   })
 
   it('every sync: externals into the ledger, „зает външно“ for an active holder, possible matches, a stale number_taken task closed', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matchAll, type RikEntryRow, type RikPerson, type RikSourceHealth } from './match'
+import { matchAll, nameParts, sharesFirstAndAnotherPart, type RikEntryRow, type RikPerson, type RikSourceHealth } from './match'
 import { nameKey } from './normalize'
 
 const NOW = new Date('2026-10-22T12:00:00.000Z')
@@ -8,7 +8,7 @@ const OLD = '2026-10-20T06:00:00.000Z' // 54 h before NOW
 const DAY_AGO = '2026-10-21T11:00:00.000Z' // 25 h before NOW: stale under 24 h, pending under the old 36 h
 
 function person(id: string, name: string, patch: Partial<RikPerson> = {}): RikPerson {
-  return { id, source: 'signup', mir: '23', number: 501, issuedOn: '19.10.2026', nameKey: nameKey(name), withdrawn: false, signedAt: RECENT, ...patch }
+  return { id, source: 'signup', mir: '23', number: 501, issuedOn: '19.10.2026', nameKey: nameKey(name), nameParts: nameParts(name), withdrawn: false, signedAt: RECENT, ...patch }
 }
 
 let seq = 0
@@ -256,5 +256,57 @@ describe('renamed after the РИК got the old name', () => {
     const { results, tasks } = run([renamed()], [entry('Гергана Начева-Лазарова', { mir: '02', number: 509 })], [ok('02')])
     expect(results[0]!.status).toBe('registered')
     expect(tasks).toEqual([])
+  })
+})
+
+describe('our number and date with one name part written differently: ours, „Различно име“', () => {
+  // Made-up names. Each register row has our МИР, number and date; one part of the name differs.
+  const cases: Array<[string, string, string]> = [
+    ['last name changed', 'Тодор Илиев Илиев', 'Тодор Илиев Станчев'],
+    ['middle name slightly different', 'Пепа Радославова Колева', 'Пепа Радомирова Колева'],
+    ['middle and last swapped, upper case', 'Румен Стоянов Петков', 'РУМЕН ПЕТКОВ СТОЯНОВ'],
+    ['hyphenated double surname', 'Дора Неделчева Маринова', 'Дора Неделчева Колева-Маринова'],
+  ]
+  for (const [label, ours, published] of cases) {
+    it(label, () => {
+      const { results, tasks } = run([person('a', ours)], [entry(published)])
+      expect(results[0]).toMatchObject({ status: 'name_mismatch', entryId: expect.any(String), detail: published })
+      expect(tasks).toEqual([expect.objectContaining({ id: 'a:fix_data:name', type: 'fix_data', reason: 'name' })])
+    })
+  }
+
+  it('the stale „Нов номер (зает външно)“ task is no longer derived (the sync closes it)', () => {
+    const before = run([person('a', 'Тодор Илиев Илиев', { nameParts: [] })], [entry('Тодор Илиев Станчев')])
+    expect(before.tasks.map((t) => t.id)).toEqual(['a:renumber:external'])
+    const after = run([person('a', 'Тодор Илиев Илиев')], [entry('Тодор Илиев Станчев')])
+    expect(after.tasks.map((t) => t.id)).not.toContain('a:renumber:external')
+  })
+
+  it('a different first name under our number stays „зает външно“', () => {
+    const { results, tasks } = run([person('a', 'Тодор Илиев Станчев')], [entry('Стоян Илиев Станчев')])
+    expect(results[0]).toMatchObject({ status: 'taken_external', detail: 'Стоян Илиев Станчев' })
+    expect(tasks.map((t) => t.id)).toEqual(['a:renumber:external'])
+  })
+
+  it('only the first name in common stays „зает външно“', () => {
+    const { results } = run([person('a', 'Тодор Илиев Станчев')], [entry('Тодор Петров Колев')])
+    expect(results[0]!.status).toBe('taken_external')
+  })
+
+  it('another issue date under our number stays „зает външно“', () => {
+    const { results } = run([person('a', 'Тодор Илиев Илиев')], [entry('Тодор Илиев Станчев', { numberDate: '20.10.2026' })])
+    expect(results[0]!.status).toBe('taken_external')
+  })
+
+  it('another party’s register is never matched by name', () => {
+    const { results } = run([person('a', 'Тодор Илиев Илиев', { signedAt: OLD })], [entry('Тодор Илиев Станчев', { ours: false, party: 'Друга партия' })])
+    expect(results[0]!.status).toBe('stale')
+  })
+
+  it('parts: case, order and hyphens do not count; each part is used once', () => {
+    expect(nameParts('Дора Неделчева Колева-Маринова')).toEqual(['дора', 'неделчева', 'колева', 'маринова'])
+    expect(sharesFirstAndAnotherPart(nameParts('Румен Стоянов Петков'), nameParts('ПЕТКОВ РУМЕН ИВАНОВ'))).toBe(true)
+    expect(sharesFirstAndAnotherPart(nameParts('Иван Иванов Петров'), nameParts('Иван Георгиев Колев'))).toBe(false)
+    expect(sharesFirstAndAnotherPart(nameParts('Ана Илиева Колева'), nameParts('Яна Илиева Колева'))).toBe(false)
   })
 })

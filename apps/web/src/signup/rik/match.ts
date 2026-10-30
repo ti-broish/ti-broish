@@ -13,7 +13,7 @@
  * flagged namesakes as double registrations. Other parties' registers are not read or matched.
  */
 import { STALE_AFTER_HOURS, mirLabel } from './config'
-import { editDistance, nameKey } from './normalize'
+import { cleanName, editDistance, nameKey } from './normalize'
 
 export type RikStatus =
   | 'registered' // published by the РИК of their МИР under our committee, name and number match
@@ -82,6 +82,11 @@ export interface RikPerson {
    * „renamed“ with a „fix_name“ task, and a row under any of these names counts as theirs.
    */
   previousNames?: string[]
+  /**
+   * Our current name as match keys per part, first name first (see nameParts). Lets a row under our
+   * own number and date count as ours when the РИК wrote one part differently (see claimsOwnNumber).
+   */
+  nameParts?: string[]
 }
 
 export interface RikEntryRow {
@@ -171,6 +176,55 @@ export function looksLikeSamePerson(a: string, b: string) {
   return editDistance(a, b, 4) <= 3
 }
 
+/**
+ * A name as match keys, one per part: „Иванова-Ангелова“ is two parts, case and spacing do not count.
+ * Order is kept (first name first) for our own names; register names are compared in any order.
+ */
+export function nameParts(raw: string) {
+  return cleanName(raw)
+    .split(/[\s-]+/)
+    .map((part) => nameKey(part))
+    .filter(Boolean)
+}
+
+/** One name part typed a bit differently: none for short parts, 1 letter from 4, 2 letters from 7. */
+function samePart(a: string, b: string) {
+  if (a === b) return true
+  const shorter = Math.min(a.length, b.length)
+  const allowed = shorter >= 7 ? 2 : shorter >= 4 ? 1 : 0
+  return allowed > 0 && editDistance(a, b, allowed) <= allowed
+}
+
+/**
+ * Our first name and at least one more of our parts appear in the register's name, each part
+ * matched once, in any order (a swapped middle/last name, an added or changed surname).
+ */
+export function sharesFirstAndAnotherPart(ours: string[], theirs: string[]) {
+  if (ours.length < 2 || theirs.length < 2) return false
+  const free = [...theirs]
+  const take = (part: string) => {
+    const at = free.findIndex((other) => samePart(part, other))
+    if (at < 0) return false
+    free.splice(at, 1)
+    return true
+  }
+  if (!take(ours[0]!)) return false
+  return ours.slice(1).some((part) => take(part))
+}
+
+/**
+ * A row of our committee's register under exactly this person's МИР, number and issue date, whose
+ * name shares their first name and one more part. Registers carry no ЕГН, but our own number and
+ * date plus most of the name is our person with the name written differently (a „Различно име“ to
+ * fix), not someone outside who took the number.
+ */
+export function claimsOwnNumber(person: RikPerson, row: RikEntryRow) {
+  if (!row.ours || row.annulled || row.kind !== 'representative' || person.number == null) return false
+  if (row.mir !== person.mir || row.number !== person.number) return false
+  if (!person.issuedOn || row.numberDate !== person.issuedOn) return false
+  return sharesFirstAndAnotherPart(person.nameParts ?? [], nameParts(row.name))
+}
+
 /** The person's name keys: the current one and any the РИК may still have (renamed). */
 export function personKeys(person: RikPerson) {
   return [person.nameKey, ...(person.previousNames ?? []).map((name) => nameKey(name))].filter(Boolean)
@@ -187,12 +241,16 @@ export interface MatchIndex {
 
 /**
  * Name first: which of our people a register row is about. A row belongs to one of ours when the
- * name looks like (≤ 3 edits) someone who holds or held a number in that МИР, whatever the number.
+ * name looks like (≤ 3 edits) someone who holds or held a number in that МИР, whatever the number,
+ * or when it is under their own number and date with their first name and one more part.
  * Nobody → the row is someone outside our database („външен“).
  */
 export function ownersOf(row: RikEntryRow, index: MatchIndex) {
   if (!row.nameKey || row.annulled) return []
-  return (index.peopleByMir.get(row.mir) ?? []).filter((person) => personKeys(person).some((key) => looksLikeSamePerson(key, row.nameKey)))
+  const byName = (index.peopleByMir.get(row.mir) ?? []).filter((person) => personKeys(person).some((key) => looksLikeSamePerson(key, row.nameKey)))
+  // Also the holder of exactly this number and date when most of the name matches (claimsOwnNumber).
+  const holders = row.number == null ? [] : (index.holders.get(`${row.mir}:${row.number}`) ?? [])
+  return [...byName, ...holders.filter((person) => !byName.includes(person) && claimsOwnNumber(person, row))]
 }
 
 /** A row with the name of another of our active people who holds exactly that number: theirs, not this person's. */
@@ -284,7 +342,8 @@ export function classifyPerson(
 
   // Our number is published for someone who is none of ours (name first, not number first): the
   // number was issued outside our numbering. A new number is the fix, before anything is sent.
-  const isMine = (row: RikEntryRow) => personKeys(person).some((key) => looksLikeSamePerson(key, row.nameKey))
+  // Our own number and date with most of our name is ours too (a part written differently).
+  const isMine = (row: RikEntryRow) => personKeys(person).some((key) => looksLikeSamePerson(key, row.nameKey)) || claimsOwnNumber(person, row)
   const takenRow = ownByNumber.find((row) => !row.annulled && !isMine(row) && ownersOf(row, index).length === 0) ?? null
   if (takenRow && !ownByNumber.some((row) => !row.annulled && isMine(row))) {
     const published = `${takenRow.number ?? person.number}${takenRow.numberDate ? `/${takenRow.numberDate}` : ''}`
@@ -317,7 +376,8 @@ export function classifyPerson(
   // Our number in their РИК, under another name.
   const numberRow = ownByNumber.find((row) => !row.annulled) ?? null
   if (numberRow) {
-    if (looksLikeSamePerson(numberRow.nameKey, person.nameKey)) {
+    const onlyOurs = claimsOwnNumber(person, numberRow) && ownersOf(numberRow, index).every((one) => one.id === person.id)
+    if (looksLikeSamePerson(numberRow.nameKey, person.nameKey) || onlyOurs) {
       tasks.push(
         task(person, 'fix_data', 'name', `РИК е публикувал „${numberRow.name}“ под № ${person.number}. Поправи името (по лична карта) и подпишете ново пълномощно.`),
       )

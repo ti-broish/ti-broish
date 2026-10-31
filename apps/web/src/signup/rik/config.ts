@@ -23,8 +23,10 @@ export type RegisterKind = keyof typeof REGISTER_PATHS
  * went to that РИК).
  */
 export const STALE_AFTER_HOURS = 24
-/** Each РИК is fetched at most this often; under the hourly cron (:07) that means every run (50 min leaves slack for run jitter). */
-export const MIN_INTERVAL_MINUTES = 50
+/** Production cron cadence for the sync (:07, :22, :37, :52; see src/scheduled-jobs.ts). */
+export const RIK_SYNC_INTERVAL_MINUTES = 15
+/** Each РИК is fetched at most this often; under the 15-min cron that means every run (10 min leaves slack for run jitter). */
+export const MIN_INTERVAL_MINUTES = 10
 /** Other parties' batch pages change rarely; re-read them at most this often. */
 export const OTHER_PARTY_INTERVAL_MINUTES = 360
 /** Contacts (phones) are re-read at most once a day. */
@@ -55,13 +57,13 @@ export const DEFAULT_FETCH_BUDGET = 300
 export const USER_AGENT = 'TiBroishRikSync/1.0 (+https://tibroish.bg; team@tibroish.bg)'
 /** Each pause between requests is FETCH_PAUSE_MS × a random factor in [1 − j, 1 + j]. */
 export const FETCH_PAUSE_JITTER = 0.25
-/** A blocked host (challenge, 403, 429) is left alone this long (or Retry-After, if longer): it skips the next hourly run. */
+/** A blocked host (challenge, 403, 429) is left alone this long (or Retry-After, if longer): it skips the next few runs. */
 export const BLOCK_BACKOFF_MINUTES = 100
 /** Blocked РИК in one run after which the run stops (the block is likely CIK-wide). */
 export const MAX_BLOCKED_PER_RUN = 3
 /** Retry-After up to this long is waited out in place; longer means „come back later“. */
 export const MAX_INLINE_RETRY_AFTER_MS = 10_000
-/** When a register's list page is unchanged, our batch pages are re-read at most this often (every second run). */
+/** When a register's list page is unchanged, our batch pages are re-read at most this often (about every two hours). */
 export const UNCHANGED_LIST_BATCH_INTERVAL_MINUTES = 110
 
 /**

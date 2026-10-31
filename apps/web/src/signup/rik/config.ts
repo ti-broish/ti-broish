@@ -63,6 +63,13 @@ export const BLOCK_BACKOFF_MINUTES = 100
 export const MAX_BLOCKED_PER_RUN = 3
 /** Retry-After up to this long is waited out in place; longer means „come back later“. */
 export const MAX_INLINE_RETRY_AFTER_MS = 10_000
+/**
+ * „Провери в РИК“ next to one person: a РИК read (by the cron or another click) less than this long
+ * ago is not fetched again; the button shows the result already stored.
+ */
+export const MANUAL_CHECK_THROTTLE_SECONDS = 60
+/** Request budget of one „Провери в РИК“ (one представители register with its batch pages). */
+export const MANUAL_CHECK_BUDGET = 40
 /** When a register's list page is unchanged, our batch pages are re-read at most this often (about every two hours). */
 export const UNCHANGED_LIST_BATCH_INTERVAL_MINUTES = 110
 

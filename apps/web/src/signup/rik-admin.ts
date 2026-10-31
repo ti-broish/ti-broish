@@ -7,6 +7,7 @@ import { ABROAD_MIR, DEFAULT_FETCH_BUDGET, DOMESTIC_MIRS, mirLabel } from './rik
 import { STATUS_LABELS, TASK_LABELS, type RikStatus, type RikTaskType } from './rik/match'
 import { nameKey } from './rik/normalize'
 import { RIK_LIVE_STATUS_SQL, RIK_PROBLEM_STATUSES, RIK_TASK_VISIBLE_SQL, rikPeopleWhere } from './rik/people-filter'
+import { checkPersonInRik, type PersonCheckOutcome } from './rik/person-check'
 import { createRikSync, ensureRikTables } from './rik/sync'
 import { FIX_STAGE_LABELS, ensureIdentityFixTables, fixStage } from './identity-fix'
 
@@ -344,4 +345,26 @@ export const rikSyncNow = createServerFn({ method: 'POST' })
       budget: data.mir ? Math.min(budget, 80) : budget,
     }).run()
     return { ok: true as const, summary }
+  })
+
+/**
+ * „Провери в РИК“ next to one person who is not published yet: reads that person's РИК now (scoped,
+ * throttled per РИК, see rik/person-check.ts) and returns the updated row. Same right as seeing the
+ * row; it only reads the РИК site, like the cron.
+ */
+export const rikCheckPerson = createServerFn({ method: 'POST' })
+  .validator((input: { personId: string }) => ({ personId: String(input.personId ?? '').slice(0, 200) }))
+  .handler(async ({ data }) => {
+    const access = await gate('view')
+    if (!access.ok) return access
+    if (!data.personId) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: 'Няма такъв човек.' }
+    try {
+      const result = await checkPersonInRik(access.db, data.personId)
+      if (!result.ok) return { ok: false as const, state: 'forbidden' as const, email: access.email, message: result.message }
+      const row = await access.db.prepare(`${PEOPLE_SQL} WHERE s.person_id = ?`).bind(data.personId).first<Record<string, unknown>>()
+      return { ok: true as const, outcome: result.outcome as PersonCheckOutcome, message: result.message, published: result.published, row: row ? personRow(row) : null }
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'rik-person-check-failed', message: error instanceof Error ? error.message : String(error) }))
+      return { ok: false as const, state: 'forbidden' as const, email: access.email, message: 'Проверката не мина. Опитай пак след малко.' }
+    }
   })

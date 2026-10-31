@@ -57,10 +57,14 @@ import { RIK_COLUMNS, RIK_INDEXES, RIK_TABLES } from './sql'
 export type Fetcher = (url: string, init?: RequestInit) => Promise<Response>
 
 export interface SyncOptions {
-  trigger: 'cron' | 'manual'
+  /** manual_person: „Провери в РИК“ next to one person (one РИК, quick, scoped). */
+  trigger: 'cron' | 'manual' | 'manual_person'
   now?: () => Date
   fetcher?: Fetcher
-  /** Only these МИР (manual button). */
+  /**
+   * Only these МИР (manual buttons). The rematch then writes statuses and tasks of these МИР only:
+   * tasks of other РИК are neither re-derived nor deactivated by such a run.
+   */
   mirs?: string[]
   /** Ignore MIN_INTERVAL_MINUTES and the page intervals. */
   force?: boolean
@@ -75,6 +79,11 @@ export interface SyncOptions {
   timeLimitMs?: number
   /** A rik_runs row already started by the caller (the cron writes it before anything else). */
   runId?: string
+  /**
+   * One person's check from the admin: only the представители register of the РИК in `mirs`. No
+   * CIK index (unless that РИК is not known yet), no застъпници, no contacts page.
+   */
+  quick?: boolean
 }
 
 export interface SyncSummary {
@@ -559,7 +568,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
       const reps = await readRegister(source.mir, base, 'representative', stamp, published)
       if (reps.state !== 'unrecognised') await saveEntries(source.mir, 'representative', reps.rows, reps.unchangedSources, stamp)
       let advPages = 0
-      if (source.mir !== ABROAD_MIR && reps.state !== 'unrecognised') {
+      if (!options.quick && source.mir !== ABROAD_MIR && reps.state !== 'unrecognised') {
         try {
           const adv = await readRegister(source.mir, base, 'advocate', stamp)
           advPages = adv.pages
@@ -570,7 +579,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
         }
       }
       try {
-        await readContacts(source, stamp)
+        if (!options.quick) await readContacts(source, stamp)
       } catch (error) {
         if (error instanceof BudgetSpent || error instanceof BlockedBySite) throw error
       }
@@ -637,8 +646,10 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     }
   }
 
-  async function rematch() {
+  /** Re-derives statuses and tasks; with `mirs` (a manual run of some РИК) only those МИР are written. */
+  async function rematch(scope: string[] | undefined = options.mirs?.length ? options.mirs : undefined) {
     const stamp = now().toISOString()
+    const inScope = (mir: string) => !scope || scope.includes(mir)
     const people = await loadPeople(db)
     // Our committee's rows only: other parties' registers are not matched (old rows stay, unused).
     const entries = ((await db.prepare(`SELECT id, mir, kind, ours, party, name, name_key, number, number_date, annulled, missing_since, source_url FROM rik_entries WHERE ours = 1 ORDER BY first_seen_at, id`).all<{
@@ -695,8 +706,17 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     )
     // External numbers into the ledger first, so the next number skips them from this run on.
     const external = findExternalNumbers(entries, buildIndex(entries, people, ledger.mirs), ledger.ours, await loadUnnumbered(db))
-    await chunked(db, externalNumberStatements(db, external.numbers, stamp, external.reclaimed, external.cleared))
-    await writeResults(db, results, [...tasks, ...external.tasks].filter((one) => !frozen.has(one.mir)), stamp, [...frozen])
+    await chunked(
+      db,
+      externalNumberStatements(
+        db,
+        external.numbers.filter((one) => inScope(one.mir)),
+        stamp,
+        external.reclaimed.filter((one) => inScope(one.mir)),
+        external.cleared.filter((one) => inScope(one.mir)),
+      ),
+    )
+    await writeResults(db, results, [...tasks, ...external.tasks].filter((one) => !frozen.has(one.mir)), stamp, [...frozen], scope)
     const statuses: Record<string, number> = {}
     for (const row of (await db.prepare('SELECT status, COUNT(*) AS n FROM rik_status GROUP BY status').all<{ status: string; n: number }>()).results ?? []) {
       statuses[row.status] = Number(row.n)
@@ -720,7 +740,11 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
     let note = ''
     try {
       try {
-        await refreshIndex(started)
+        // A quick check reads the CIK index only when its РИК is not known yet (first run ever).
+        const known = options.quick && options.mirs?.length
+          ? Number((await db.prepare(`SELECT COUNT(*) AS n FROM rik_sources WHERE mir IN (${options.mirs.map(() => '?').join(', ')})`).bind(...options.mirs).first<{ n: number }>())?.n ?? 0) === options.mirs.length
+          : false
+        if (!known) await refreshIndex(started)
         const sources = (await db.prepare('SELECT mir, name, base_url, contacts_url, contacts_at, health, last_attempt_at, failures, last_error, last_good_health, blocked_until FROM rik_sources ORDER BY COALESCE(last_attempt_at, \'\') ASC, mir ASC').all<SourceRow>()).results ?? []
         for (const source of sources) {
           if (options.mirs?.length && !options.mirs.includes(source.mir)) continue
@@ -756,7 +780,7 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
       const status: RikRunStatus = errors > 0 || note ? 'partial' : 'ok'
       await db
         .prepare('UPDATE rik_runs SET finished_at = ?, fetched = ?, changed = ?, errors = ?, note = ?, status = ? WHERE id = ?')
-        .bind(now().toISOString(), fetched, changed, errors, note || JSON.stringify({ ...counts, retries, blocked }), status, runId)
+        .bind(now().toISOString(), fetched, changed, errors, note || JSON.stringify({ ...counts, retries, blocked, ...(options.mirs?.length ? { mirs: options.mirs } : {}) }), status, runId)
         .run()
       return { runId, fetched, changed, errors, synced, skipped, budgetLeft: budget, retries, blocked, status, ...counts }
     } catch (error) {
@@ -768,10 +792,15 @@ export function createRikSync(db: SignupD1, options: SyncOptions) {
   return { run, rematch }
 }
 
-/** Upserts statuses and tasks. A task whose cause is gone becomes inactive; done/undo stays. */
-export async function writeResults(db: SignupD1, results: PersonResult[], tasks: DerivedTask[], stamp: string, frozenMirs: string[] = []) {
+/**
+ * Upserts statuses and tasks. A task whose cause is gone becomes inactive; done/undo stays.
+ * With `scope` (a run that read only these МИР) only statuses and tasks of those МИР are written or
+ * deactivated; everything of other МИР is left exactly as it was.
+ */
+export async function writeResults(db: SignupD1, results: PersonResult[], tasks: DerivedTask[], stamp: string, frozenMirs: string[] = [], scope?: string[]) {
   const statements: ReturnType<SignupD1['prepare']>[] = []
-  for (const result of results) {
+  const inScope = (mir: string) => !scope || scope.includes(mir)
+  for (const result of results.filter((one) => inScope(one.mir))) {
     statements.push(
       db
         .prepare(
@@ -785,7 +814,7 @@ export async function writeResults(db: SignupD1, results: PersonResult[], tasks:
         .bind(result.personId, result.source, result.mir, result.number, result.status, result.entryId, result.otherMir, result.otherParty, result.detail, stamp, stamp),
     )
   }
-  for (const one of tasks) {
+  for (const one of tasks.filter((task) => inScope(task.mir))) {
     statements.push(
       db
         .prepare(
@@ -800,7 +829,23 @@ export async function writeResults(db: SignupD1, results: PersonResult[], tasks:
   // Causes that went away. People no longer holding a number drop out of rik_status.
   // Frozen МИР (blocked by the site) are left exactly as they were.
   const keep = frozenMirs.length ? ` AND COALESCE(mir, '') NOT IN (${frozenMirs.map(() => '?').join(', ')})` : ''
+  const only = scope ? ` AND COALESCE(mir, '') IN (${scope.map(() => '?').join(', ')})` : ''
+  const scopeBinds = scope ?? []
   // Self-service change tasks are not the matcher's: only staff close them.
-  await db.prepare(`UPDATE rik_tasks SET active = 0, updated_at = ? WHERE active = 1 AND updated_at < ? AND type != 'self_identity'${keep}`).bind(stamp, stamp, ...frozenMirs).run()
-  await db.prepare(`DELETE FROM rik_status WHERE checked_at < ?${keep}`).bind(stamp, ...frozenMirs).run()
+  await db
+    .prepare(`UPDATE rik_tasks SET active = 0, updated_at = ? WHERE active = 1 AND updated_at < ? AND type != 'self_identity'${keep}${only}`)
+    .bind(stamp, stamp, ...frozenMirs, ...scopeBinds)
+    .run()
+  if (!scope) {
+    await db.prepare(`DELETE FROM rik_status WHERE checked_at < ?${keep}`).bind(stamp, ...frozenMirs).run()
+    return
+  }
+  // Scoped: a row of these МИР not rewritten is dropped only when its person holds no number at all
+  // any more (someone who moved to another МИР keeps their row until that РИК's next run).
+  const everyone = new Set(results.map((one) => one.personId))
+  const stale = (await db.prepare(`SELECT person_id FROM rik_status WHERE checked_at < ?${keep}${only}`).bind(stamp, ...frozenMirs, ...scopeBinds).all<{ person_id: string }>()).results ?? []
+  await chunked(
+    db,
+    stale.filter((row) => !everyone.has(String(row.person_id))).map((row) => db.prepare('DELETE FROM rik_status WHERE person_id = ? AND checked_at < ?').bind(row.person_id, stamp)),
+  )
 }

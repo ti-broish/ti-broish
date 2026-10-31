@@ -1,12 +1,12 @@
 import { env } from 'cloudflare:workers'
 import { signupDatabase, type SignupD1 } from '../db-core'
-import { D1_RETRY_DELAYS_MS, DEFAULT_FETCH_BUDGET, RUN_TIME_LIMIT_MS } from './config'
+import { D1_RETRY_DELAYS_MS, DEFAULT_FETCH_BUDGET, RIK_SYNC_INTERVAL_MINUTES, RUN_TIME_LIMIT_MS } from './config'
 import { createRikSync, failRikRun, startRikRun, type SyncOptions } from './sync'
 
 /** Wall clock a cron invocation may use (Cloudflare: 15 min); the sync leaves a margin under it. */
 const CRON_WALL_MS = 14 * 60_000
-/** A gap this long since the previous cron run means at least one hourly run never got to D1. */
-const MISSED_AFTER_MINUTES = 100
+/** A gap this long since the previous cron run means at least one 15-min run never got to D1. */
+export const MISSED_AFTER_MINUTES = RIK_SYNC_INTERVAL_MINUTES + 10
 
 export interface ScheduledDeps {
   db?: SignupD1 | null
@@ -31,7 +31,7 @@ export async function withD1Retry<T>(step: () => Promise<T>, delays: number[], s
   }
 }
 
-/** A row for hourly runs that never reached D1 (seen only from the next run that does). */
+/** A row for cron runs that never reached D1 (seen only from the next run that does). */
 async function recordMissed(db: SignupD1, runId: string, at: Date) {
   const previous = await db
     .prepare(`SELECT started_at FROM rik_runs WHERE trigger = 'cron' AND id != ? AND status != 'missed' ORDER BY started_at DESC LIMIT 1`)
@@ -40,8 +40,8 @@ async function recordMissed(db: SignupD1, runId: string, at: Date) {
   if (!previous) return
   const gap = (at.getTime() - Date.parse(previous.started_at)) / 60_000
   if (!(gap >= MISSED_AFTER_MINUTES)) return
-  const missed = Math.max(1, Math.round(gap / 60) - 1)
-  const slot = new Date(Date.parse(previous.started_at) + 60 * 60_000).toISOString()
+  const missed = Math.max(1, Math.round(gap / RIK_SYNC_INTERVAL_MINUTES) - 1)
+  const slot = new Date(Date.parse(previous.started_at) + RIK_SYNC_INTERVAL_MINUTES * 60_000).toISOString()
   await db
     .prepare(`INSERT INTO rik_runs (id, trigger, started_at, finished_at, status, note) VALUES (?, 'cron', ?, ?, 'missed', ?)`)
     .bind(crypto.randomUUID(), slot, slot, `Пропуснати пускания: ${missed} (D1 или Worker не отговори, виж логовете на Worker-а).`)

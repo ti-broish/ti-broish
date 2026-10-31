@@ -15,7 +15,7 @@ const quoted = (list: string[]) => list.map((item) => `'${item}'`).join(', ')
 export const RIK_LIVE_WITHDRAWN_SQL = `((s.source = 'signup' AND COALESCE(su.withdrawn, 0) = 1) OR (s.source = 'partner' AND pp.withdrawn_at IS NOT NULL))`
 
 /**
- * rik_status as the admin sees it, with withdrawals applied at once. The hourly sync writes
+ * rik_status as the admin sees it, with withdrawals applied at once. The 15-min sync writes
  * rik_status; between runs a person withdrawn a minute ago would still read „Чака РИК“ and stay in
  * the lists. Here they read „Отписан“ straight away, or „За заличаване в РИК“ when the РИК already
  * published them (registered, or their name under another number); the next sync confirms it and adds the task.

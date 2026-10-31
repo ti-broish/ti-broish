@@ -144,8 +144,8 @@ describe.skipIf(!sqlite)('РИК sync end to end (fake web, in-memory D1)', () =
     expect(source('01')).toMatchObject({ health: 'empty' })
     expect((raw.prepare('SELECT COUNT(*) AS n FROM rik_sources').get() as { n: number }).n).toBe(32)
 
-    // 30 minutes later: every РИК is too fresh, nothing is fetched.
-    clock += 30 * 60_000
+    // 5 minutes later (e.g. a manual run right after the cron): every РИК is too fresh, nothing is fetched.
+    clock += 5 * 60_000
     const tooSoon = await sync()
     expect(tooSoon.fetched).toBe(0)
     expect(tooSoon.skipped).toHaveLength(32)
@@ -431,5 +431,22 @@ describe.skipIf(!sqlite)('РИК sync resilience (retries, warning/error, blocks
     expect(rows).toHaveLength(1)
     expect(rows[0]!.status).toBe('ok')
     expect(rows[0]!.fetched).toBeGreaterThan(0)
+  })
+
+  it('the cron records runs missed on the 15-min schedule, and none for a normal 15-min gap', async () => {
+    const t = setup()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const run = () =>
+      runScheduledRikSync('7,22,37,52 * * * *', { db: t.db, ready: async () => t.db, now: () => new Date(t.clock.now), sync: { fetcher: t.web.fetcher, pauseMs: 0, sleep: noSleep, now: () => new Date(t.clock.now) } })
+    const missed = () => t.raw.prepare("SELECT started_at, note FROM rik_runs WHERE status = 'missed'").all() as Array<{ started_at: string; note: string }>
+    await run()
+    const first = t.clock.now
+    t.clock.now += 15 * 60_000
+    await run()
+    expect(missed()).toEqual([])
+    // :37 and :52 never reached D1; the :07 run sees a 45-minute gap.
+    t.clock.now += 45 * 60_000
+    await run()
+    expect(missed()).toEqual([{ started_at: new Date(first + 30 * 60_000).toISOString(), note: expect.stringContaining('Пропуснати пускания: 2') }])
   })
 })

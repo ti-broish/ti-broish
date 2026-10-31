@@ -5,6 +5,16 @@ export const RIK_HIDDEN_BY_DEFAULT: RikStatus[] = ['withdrawn', 'duplicate']
 
 export const RIK_PROBLEM_STATUSES: RikStatus[] = ['stale', 'name_mismatch', 'number_mismatch', 'annulled', 'elsewhere', 'other_party', 'withdrawn_registered', 'rik_unavailable', 'renamed']
 
+/** The РИК has published this person. */
+export const RIK_PUBLISHED_STATUSES: RikStatus[] = ['registered', 'withdrawn_registered']
+/** No „Провери в РИК“ button: published, or nothing to look for (отписан, дубликат). */
+export const RIK_NO_CHECK_STATUSES: RikStatus[] = [...RIK_PUBLISHED_STATUSES, 'withdrawn', 'duplicate']
+
+/** True for a row that gets „Провери в РИК“: anyone not published yet (any other status). */
+export function canCheckInRik(status: string) {
+  return !(RIK_NO_CHECK_STATUSES as string[]).includes(status)
+}
+
 const quoted = (list: string[]) => list.map((item) => `'${item}'`).join(', ')
 
 /**

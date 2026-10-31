@@ -91,6 +91,9 @@ test.describe('admin „РИК“ tab', () => {
     await expect(page).toHaveURL(/view=people/)
     const people = root.getByRole('region', { name: 'Хора' })
     await expect(people.getByRole('row').filter({ hasText: 'Регистра Първа Тестова' })).toContainText('Регистриран')
+    // „Провери в РИК“ only next to someone not published yet (not clicked here: it would read the real РИК site).
+    await expect(people.getByRole('row').filter({ hasText: 'Регистра Втора Тестова' }).getByRole('button', { name: /Провери в РИК/ })).toBeEnabled()
+    await expect(people.getByRole('row').filter({ hasText: 'Регистра Първа Тестова' }).getByRole('button', { name: /Провери в РИК/ })).toHaveCount(0)
     await people.getByLabel('Статус').selectOption('problems')
     await expect(page).toHaveURL(/status=problems/)
     await expect(people.getByRole('row').filter({ hasText: 'Регистра Втора Тестова' })).toContainText('Различно име')

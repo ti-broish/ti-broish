@@ -3,8 +3,9 @@ import { createColumnHelper, flexRender, getCoreRowModel, useReactTable, type Co
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { AdminHeading, adminChipOn, adminGhost, adminInput } from '../../components/admin-ui'
 import { formatStaffWhen } from '../../signup/admin-progress'
-import { rikOverview, rikPeople, rikSyncNow, rikTaskDone, rikTasks, type RikPersonRow, type RikSourceRow, type RikTaskRow } from '../../signup/rik-admin'
+import { rikCheckPerson, rikOverview, rikPeople, rikSyncNow, rikTaskDone, rikTasks, type RikPersonRow, type RikSourceRow, type RikTaskRow } from '../../signup/rik-admin'
 import { STATUS_LABELS, TASK_LABELS, type RikStatus, type RikTaskType } from '../../signup/rik/match'
+import { canCheckInRik } from '../../signup/rik/people-filter'
 import { parseRikSearch, type RikSearch } from '../../signup/rik/search'
 import { useDebouncedQuery } from './-debounced-query'
 import { IdentityFixForm } from '../../components/IdentityFixForm'
@@ -348,6 +349,21 @@ function PeopleView({ search, setSearch, reloadKey }: { search: RikSearch; setSe
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const commit = useCallback((q: string) => setSearch({ q }), [setSearch])
   const [draft, setDraft] = useDebouncedQuery(search.q, commit)
+  // „Провери в РИК“: one at a time; the result line stays on the row until the list reloads.
+  const [checking, setChecking] = useState('')
+  const [checked, setChecked] = useState<Record<string, { text: string; good: boolean }>>({})
+
+  const checkInRik = (person: RikPersonRow) => {
+    setChecking(person.id)
+    void rikCheckPerson({ data: { personId: person.id } })
+      .then((result) => {
+        if (!result.ok) return setChecked((current) => ({ ...current, [person.id]: { text: result.message, good: false } }))
+        if (result.row) setPeople((current) => current.map((item) => (item.id === person.id ? result.row! : item)))
+        setChecked((current) => ({ ...current, [person.id]: { text: result.message, good: result.outcome !== 'error' && result.outcome !== 'blocked' } }))
+      })
+      .catch(() => setChecked((current) => ({ ...current, [person.id]: { text: 'Проверката не мина. Опитай пак.', good: false } })))
+      .finally(() => setChecking(''))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -357,6 +373,7 @@ function PeopleView({ search, setSearch, reloadKey }: { search: RikSearch; setSe
         if (cancelled) return
         if (!result.ok) return setPhase('error')
         setPeople(result.people)
+        setChecked({})
         setTotal(result.total)
         setPhase('ready')
       })
@@ -388,6 +405,24 @@ function PeopleView({ search, setSearch, reloadKey }: { search: RikSearch; setSe
         <div className="grid gap-1">
           <Badge tone={STATUS_TONE[info.getValue()]}>{info.row.original.statusLabel}</Badge>
           <span className="text-xs">от {when(info.row.original.statusSince)}</span>
+          {canCheckInRik(info.getValue()) ? (
+            <button
+              type="button"
+              className="w-fit text-xs font-bold text-[#2b062f] underline disabled:cursor-wait disabled:opacity-60"
+              disabled={checking !== ''}
+              aria-busy={checking === info.row.original.id}
+              data-testid="rik-check-person"
+              title="Прочита регистъра на РИК на този човек сега"
+              onClick={() => checkInRik(info.row.original)}
+            >
+              {checking === info.row.original.id ? 'Проверява…' : '↻ Провери в РИК'}
+            </button>
+          ) : null}
+          {checked[info.row.original.id] ? (
+            <span className={`text-xs font-bold ${checked[info.row.original.id]!.good ? 'text-[#145744]' : 'text-[#8f1d1d]'}`} role="status">
+              {checked[info.row.original.id]!.text}
+            </span>
+          ) : null}
         </div>
       ),
     }),
